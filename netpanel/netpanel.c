@@ -525,20 +525,16 @@ static int conn_row;
 
 static void cb_connect_done(Job *j)
 {
-	if (strstr(j->out, "Error") || strstr(j->out, "error") ||
+	/* marker do shell wrapper in ra (fallback: từ khóa lỗi nmcli) */
+	if (strstr(j->out, "NETPANEL_FAIL") ||
+	    strstr(j->out, "Error") || strstr(j->out, "error") ||
 	    strstr(j->out, "failed")) {
-		/* sai mật khẩu: nmcli dev wifi connect VẪN tạo profile rác
-		   dù activation fail → tự gỡ profile đó nếu nó chưa có sẵn,
-		   giữ ô nhập để người dùng sửa lại */
+		/* sai mật khẩu: profile rác đã được shell wrapper xóa ngay cả
+		   khi panel đã đóng trước đó; giữ ô nhập để sửa lại */
 		conn_status = 2;
 		snprintf(conn_msg, sizeof(conn_msg), "Wrong password — try again");
-		pw_mode = 1;
-		if (!pw_known_before) {
-			char qd[400], del[600];
-			sh_quote(qd, sizeof(qd), pw_ssid);
-			snprintf(del, sizeof(del), "nmcli connection delete %s", qd);
-			run_bg(del);
-		}
+		if (pw_ssid[0])
+			pw_mode = 1;
 	} else {
 		/* đúng mật khẩu: nmcli tự lưu profile + password */
 		conn_status = 1;
@@ -556,15 +552,23 @@ static void cb_connect_done(Job *j)
 
 static void submit_pw(void)
 {
+	if (conn_status == 3) return; /* đang chờ kết quả — chống double-submit */
 	if (!pw_len || !pw_ssid[0]) { pw_mode = 0; return; }
-	char qp[300], qs[300], cmd[1000];
+	char qp[300], qs[300], cmd[1500];
 	sh_quote(qp, sizeof(qp), pw_buf);
 	sh_quote(qs, sizeof(qs), pw_ssid);
-	snprintf(cmd, sizeof(cmd), "nmcli dev wifi connect %s password %s 2>&1", qs, qp);
+	/* wrapper shell: tự xóa profile rác khi activation fail — phải nằm
+	   trong shell (không phải callback) để vẫn chạy dù panel đã đóng
+	   giữa chừng nmcli retry 30-60s */
+	snprintf(cmd, sizeof(cmd),
+	         "out=$(nmcli dev wifi connect %s password %s 2>&1); "
+	         "case \"$out\" in *Error*|*error*|*failed*) "
+	         "nmcli connection delete %s >/dev/null 2>&1; echo NETPANEL_FAIL; ;; "
+	         "*) echo NETPANEL_OK; ;; esac", qs, qp, qs);
 	conn_status = 3;
 	snprintf(conn_msg, sizeof(conn_msg), "Checking password…");
 	conn_row = pw_row;
-	conn_msg_until = time(NULL) + 12; /* giới hạn chờ tối đa */
+	conn_msg_until = time(NULL) + 12; /* chỉ dùng hiển thị; pending không tự tắt */
 	job_run(cmd, cb_connect_done);
 	/* refresh sau 3s cho nmcli kịp nối */
 	run_bg("( sleep 3; killall -USR1 netpanel 2>/dev/null ) >/dev/null 2>&1 &");
@@ -1264,7 +1268,9 @@ int main(void)
 				KeySym ks = XLookupKeysym(&ev.xkey, 0);
 				if (pw_mode) {
 					if (ks == XK_Escape) {
-						pw_mode = 0; pw_len = 0; g_need_redraw = 1;
+						pw_mode = 0; pw_len = 0;
+						pw_ssid[0] = '\0'; /* hủy neo ssid — nmcli pending muộn không mở lại ô nhập */
+						g_need_redraw = 1;
 					} else if (ks == XK_Return || ks == XK_KP_Enter) {
 						submit_pw();
 					} else if (ks == XK_BackSpace && pw_len > 0) {

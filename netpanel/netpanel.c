@@ -679,9 +679,9 @@ static void draw_toggle(int x, int y, int on)
 static void draw_button(int id, int x, int y, int w, int h, const char *label, int selected)
 {
 	int hovered = (hover_id == id);
-	rrect_fill(x, y, w, h, h / 2 - 1,
+	rrect_fill(x, y, w, h, 0,
 	           selected ? bg_select.pixel : hovered ? bg_hover.pixel : bg_panel.pixel);
-	rrect_stroke(x, y, w, h, h / 2 - 1, border_c.pixel);
+	rrect_stroke(x, y, w, h, 0, border_c.pixel);
 	XftColor *tc = selected ? &value_c : hovered ? &value_c : &label_c;
 	draw_text(x + (w - textw(f_small, label)) / 2,
 	          y + (h - f_small->height) / 2 + f_small->ascent, label, f_small, tc);
@@ -722,9 +722,9 @@ static void draw_panel(void)
 {
 	hits_n = 0;
 	int W = PANEL_W;
-	rrect_fill(0, 0, W, panel_height(), 14, bg_panel.pixel);
+	rrect_fill(0, 0, W, panel_height(), 0, bg_panel.pixel);
 	/* viền ngoài 1px màu viền cửa sổ focused của dwm, chạy theo bo góc */
-	rrect_stroke(0, 0, W, panel_height(), 14, border_dwm.pixel);
+	rrect_stroke(0, 0, W, panel_height(), 0, border_dwm.pixel);
 
 	int y = PAD;
 	const int x = PAD;
@@ -837,9 +837,9 @@ static void draw_panel(void)
 		for (int i = 0; i < n && i < MAX_LIST_ITEMS; i++) {
 			int is_cur = ni.has_wifi && !strcmp(ni.known[i], ni.essid);
 			if (is_cur)
-				rrect_fill(PAD - 8, y, W - 2 * PAD + 16, 28, 6, bg_card.pixel);
+				rrect_fill(PAD - 8, y, W - 2 * PAD + 16, 28, 0, bg_card.pixel);
 			else if (hover_id == ID_KNOWN_BASE + i)
-				rrect_fill(PAD - 8, y, W - 2 * PAD + 16, 28, 6, bg_hover.pixel);
+				rrect_fill(PAD - 8, y, W - 2 * PAD + 16, 28, 0, bg_hover.pixel);
 			draw_text(PAD, y + 19, "󰤨", f_norm, is_cur ? &ok_c : &label_c);
 			draw_text(PAD + 26, y + 19, ni.known[i],
 			          is_cur ? f_bold : f_norm, is_cur ? &value_c : &label_c);
@@ -874,7 +874,7 @@ static void draw_panel(void)
 		for (int i = 0; i < n && i < MAX_LIST_ITEMS; i++) {
 			int is_cur = ni.has_wifi && !strcmp(ni.other[i], ni.essid);
 			if (!is_cur && hover_id == ID_OTHER_BASE + i)
-				rrect_fill(PAD - 8, y, W - 2 * PAD + 16, 28, 6, bg_hover.pixel);
+				rrect_fill(PAD - 8, y, W - 2 * PAD + 16, 28, 0, bg_hover.pixel);
 			const char *sig_i = ni.other_sig[i] >= 75 ? "󰤨"
 			                  : ni.other_sig[i] >= 50 ? "󰤧"
 			                  : ni.other_sig[i] >= 25 ? "󰤦" : "󰤟";

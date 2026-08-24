@@ -248,6 +248,9 @@ static const Key keys[] = {
     // shutdown system
     { MODKEY|ControlMask,               XK_Delete,  spawn,        SHCMD("systemctl poweroff") },
 
+    // lock screen
+    { MODKEY,                           XK_Delete,  spawn,        SHCMD("slock") },
+
     // kill window
     { MODKEY,                           XK_q,       killclient,     {0} },
 

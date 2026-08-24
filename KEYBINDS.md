@@ -35,6 +35,7 @@
 | Super + Ctrl + w      | Tab mode             |
 | Super + Ctrl + q      | Restart dwm (re-exec)  |
 | Super + Ctrl + Del    | Shutdown system      |
+| Super + Del           | Lock screen (slock)  |
 | Super + q             | Kill client          |
 | Super + Shift + r     | Rebuild & reload     |
 

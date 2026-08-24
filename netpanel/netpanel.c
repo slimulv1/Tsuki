@@ -483,26 +483,31 @@ static void toggle_wifi(void)
 }
 
 /* --- connect/disconnect --- */
-static char pending_connect[128] = "";
-static void cb_password(Job *j)
+/* --- nhập mật khẩu inline ngay dưới dòng SSID được chọn --- */
+static char pw_ssid[128];
+static char pw_buf[64];
+static int pw_len;
+static int pw_mode;   /* 1 = đang hiện ô nhập password */
+static int pw_row;    /* index dòng other-network đang được nhập */
+
+static void submit_pw(void)
 {
-	size_t l = j->len;
-	while (l && (j->out[l - 1] == '\n' || j->out[l - 1] == '\r')) l--;
-	if (l == 0 || l >= 120) return;
-	char pw[128];
-	memcpy(pw, j->out, l);
-	pw[l] = '\0';
+	if (!pw_len || !pw_ssid[0]) { pw_mode = 0; return; }
 	char qp[300], qs[300], cmd[1000];
-	sh_quote(qp, sizeof(qp), pw);
-	sh_quote(qs, sizeof(qs), pending_connect);
+	sh_quote(qp, sizeof(qp), pw_buf);
+	sh_quote(qs, sizeof(qs), pw_ssid);
 	snprintf(cmd, sizeof(cmd), "nmcli dev wifi connect %s password %s", qs, qp);
 	run_bg(cmd);
-	pending_connect[0] = '\0';
 	/* refresh sau 3s cho nmcli kịp nối */
 	run_bg("( sleep 3; killall -USR1 netpanel 2>/dev/null ) >/dev/null 2>&1 &");
+	pw_mode = 0;
+	pw_len = 0;
+	pw_buf[0] = '\0';
+	pw_ssid[0] = '\0';
+	g_need_redraw = 1;
 }
 
-static void do_connect(const char *ssid)
+static void do_connect(const char *ssid, int secured)
 {
 	for (int i = 0; i < ni.known_n; i++)
 		if (!strcmp(ni.known[i], ssid)) {
@@ -513,11 +518,26 @@ static void do_connect(const char *ssid)
 			g_need_redraw = 1;
 			return;
 		}
-	snprintf(pending_connect, sizeof(pending_connect), "%s", ssid);
-	char qs[300], cmd[600];
-	sh_quote(qs, sizeof(qs), ssid);
-	snprintf(cmd, sizeof(cmd), "dmenu -P -p 'Password (%s):' </dev/null", qs);
-	job_run(cmd, cb_password);
+	if (!secured) {
+		/* mạng mở — connect luôn không cần mật khẩu */
+		char qs[300], cmd[600];
+		sh_quote(qs, sizeof(qs), ssid);
+		snprintf(cmd, sizeof(cmd), "nmcli dev wifi connect %s", qs);
+		run_bg(cmd);
+		run_bg("( sleep 3; killall -USR1 netpanel 2>/dev/null ) >/dev/null 2>&1 &");
+		g_need_redraw = 1;
+		return;
+	}
+	/* mạng khóa — mở ô nhập mật khẩu trong panel */
+	snprintf(pw_ssid, sizeof(pw_ssid), "%s", ssid);
+	pw_mode = 1;
+	pw_row = -1;
+	/* tìm row để vẽ đúng vị trí */
+	for (int i = 0; i < ni.other_n; i++)
+		if (!strcmp(ni.other[i], ssid)) { pw_row = i; break; }
+	pw_len = 0;
+	pw_buf[0] = '\0';
+	g_need_redraw = 1;
 }
 
 static void do_disconnect(void)
@@ -599,7 +619,7 @@ static int hits_n;
 enum {
 	ID_TOGGLE = 1, ID_QR,
 	ID_DNS0, ID_DNS1, ID_DNS2, ID_DNS3,
-	ID_RUN, ID_RESCAN,
+	ID_RUN, ID_RESCAN, ID_PW_CONNECT,
 	ID_KNOWN_BASE = 100, ID_OTHER_BASE = 200,
 };
 
@@ -716,6 +736,7 @@ static int panel_height(void)
 	h += (ni.known_n ? (ni.known_n > MAX_LIST_ITEMS ? MAX_LIST_ITEMS : ni.known_n) : 1) * 32;
 	h += 14 + 34;                             /* gap + other title */
 	h += (ni.other_n ? (ni.other_n > MAX_LIST_ITEMS ? MAX_LIST_ITEMS : ni.other_n) : 1) * 32;
+	h += pw_mode ? 46 : 0;                    /* ô nhập mật khẩu inline */
 	h += PAD;
 	return h;
 }
@@ -886,9 +907,29 @@ static void draw_panel(void)
 			draw_text(PAD + 26, y + 19, ni.other[i],
 			          is_cur ? f_bold : f_norm, is_cur ? &value_c : &label_c);
 			if (ni.other_sec[i])
-				draw_text_r(W - PAD, y + 19, "", f_small, &label_c);
+				draw_text_r(W - PAD, y + 19, "", f_small, &label_c);
 			add_hit(ID_OTHER_BASE + i, PAD - 8, y, W - 2 * PAD + 16, 30);
 			y += 32;
+			/* ô nhập mật khẩu ngay dưới SSID được chọn */
+			if (pw_mode && pw_row == i) {
+				rrect_fill(PAD - 8, y + 2, W - 2 * PAD + 16, 40, 0, bg_card.pixel);
+				draw_text(PAD, y + 26, "Password:", f_small, &label_c);
+				char masked[80];
+				int k;
+				for (k = 0; k < pw_len && k < 60; k++) masked[k] = '*';
+				masked[k] = '\0';
+				draw_text(PAD + textw(f_small, "Password:") + 12, y + 27,
+				          masked, f_norm, &value_c);
+				/* con trỏ nhấp nháy theo giây */
+				if (time(NULL) & 1) {
+					int mx = PAD + textw(f_small, "Password:") + 12 + textw(f_norm, masked);
+					XSetForeground(dpy, gc, value_c.pixel);
+					XFillRectangle(dpy, pm, gc, mx + 2, y + 14, 2, 15);
+				}
+				draw_button(ID_PW_CONNECT, W - PAD - 76, y + 9, 72, 24,
+				            "Connect", 1);
+				y += 46;
+			}
 		}
 	}
 	y += PAD;
@@ -902,6 +943,9 @@ static void handle_click(int id)
 	case ID_TOGGLE: toggle_wifi(); break;
 	case ID_QR: show_qr(); break;
 	case ID_RUN: start_speedtest(); break;
+	case ID_PW_CONNECT:
+		submit_pw();
+		break;
 	case ID_RESCAN:
 		rescan_requested = 1;
 		kick_status();
@@ -914,13 +958,13 @@ static void handle_click(int id)
 			int i = id - ID_OTHER_BASE;
 			if (i < ni.other_n) {
 				if (ni.other_use[i]) do_disconnect();
-				else do_connect(ni.other[i]);
+				else do_connect(ni.other[i], ni.other_sec[i]);
 			}
 		} else if (id >= ID_KNOWN_BASE) {
 			int i = id - ID_KNOWN_BASE;
 			if (i < ni.known_n) {
 				if (ni.has_wifi && !strcmp(ni.known[i], ni.essid)) do_disconnect();
-				else do_connect(ni.known[i]);
+				else do_connect(ni.known[i], 1);
 			}
 		}
 	}
@@ -1123,9 +1167,28 @@ int main(void)
 					if (id > 0) handle_click(id);
 				}
 				break;
-			case KeyPress:
-				if (XLookupKeysym(&ev.xkey, 0) == XK_Escape) running = 0;
+			case KeyPress: {
+				KeySym ks = XLookupKeysym(&ev.xkey, 0);
+				if (pw_mode) {
+					if (ks == XK_Escape) {
+						pw_mode = 0; pw_len = 0; g_need_redraw = 1;
+					} else if (ks == XK_Return || ks == XK_KP_Enter) {
+						submit_pw();
+					} else if (ks == XK_BackSpace && pw_len > 0) {
+						pw_len--; pw_buf[pw_len] = '\0'; g_need_redraw = 1;
+					} else {
+						char c;
+						if (XLookupString(&ev.xkey, &c, 1, NULL, NULL) == 1 &&
+						    (unsigned char)c >= 32 && pw_len < 63) {
+							pw_buf[pw_len++] = c; pw_buf[pw_len] = '\0';
+							g_need_redraw = 1;
+						}
+					}
+				} else if (ks == XK_Escape) {
+					running = 0;
+				}
 				break;
+			}
 			default:
 				break;
 			}

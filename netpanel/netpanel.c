@@ -358,6 +358,9 @@ static int pw_len;
 static int pw_mode;   /* 1 = đang hiện ô nhập password */
 static int pw_row;    /* index dòng other-network đang được nhập */
 
+static int radio_pending;            /* đang chờ nmcli áp dụng on/off */
+static time_t radio_pending_until;   /* sau mốc này nhận lại status thật */
+
 static void cb_status(Job *j)
 {
 	ni.scanning = 0;
@@ -368,6 +371,12 @@ static void cb_status(Job *j)
 	int mode = 0; /* 0=meta, 1=known list, 2=scan list */
 	while (next_line(&p, line, sizeof(line))) {
 		if (!strncmp(line, "radio ", 6)) {
+			/* đang chờ nmcli áp dụng toggle → bỏ qua giá trị CŨ
+			   (query trả về trạng thái trước khi đổi, ghi đè sẽ làm
+			   toggle nhảy qua lại); hết hạn chờ mới nhận status thật */
+			if (radio_pending && time(NULL) < radio_pending_until)
+				continue;
+			radio_pending = 0;
 			ni.radio_on = strstr(line + 6, "enabled") != NULL;
 		} else if (!strncmp(line, "conn ", 5)) {
 			snprintf(ni.conn_name, sizeof(ni.conn_name), "%s", line + 5);
@@ -500,10 +509,17 @@ static void ask_custom_dns(void)
 }
 
 /* --- toggle wifi --- */
+
 static void toggle_wifi(void)
 {
+	/* debounce + serialize: bỏ click trong lúc nmcli chưa kịp áp dụng
+	   (tránh 2 lệnh radio song song tranh chấp nhau) */
+	if (radio_pending && time(NULL) < radio_pending_until)
+		return;
+	radio_pending = 1;
+	radio_pending_until = time(NULL) + 20;
 	run_bg(ni.radio_on ? "nmcli radio wifi off" : "nmcli radio wifi on");
-	ni.radio_on = !ni.radio_on;
+	ni.radio_on = !ni.radio_on; /* optimistic — status thật đến từ cb_status */
 	ni.has_wifi = 0;
 	ni.essid[0] = '\0';
 	g_need_redraw = 1;
@@ -633,15 +649,41 @@ static void show_qr(void)
 }
 
 /* --- speed test --- */
+static char st_iface[IFNAMSIZ];  /* interface đang đo */
+static int st_failed;            /* curl lỗi / không có kết quả */
+
+/* job xong: curl in %{speed_download} (bytes/s) ra stdout */
+static void cb_speedtest(Job *j)
+{
+	double sp = 0;
+	sscanf(j->out, "%lf", &sp);
+	ni.testing = 0;
+	if (sp > 0) {
+		st_failed = 0;
+		double mbps = sp / (1024.0 * 1024.0);
+		if (mbps > ni.dl_peak) ni.dl_peak = mbps;
+	} else {
+		st_failed = 1;
+	}
+	g_need_redraw = 1;
+}
+
 static void start_speedtest(void)
 {
 	if (ni.testing) return;
+	int mode = iface_active(ni.essid, sizeof(ni.essid));
+	snprintf(st_iface, sizeof(st_iface), "%s", mode == 1 ? IFACE_WIRED : IFACE_WIFI);
 	unsigned long long dummy;
-	get_rx_tx(IFACE_WIFI, &ni.rx_at_start, &dummy);
+	get_rx_tx(st_iface, &ni.rx_at_start, &dummy);
 	ni.testing = 1;
 	ni.t_start = time(NULL);
 	ni.dl_peak = 0;
-	run_bg("curl -s -o /dev/null --max-time 12 '" SPEED_URL "' ; killall -USR1 netpanel 2>/dev/null");
+	st_failed = 0;
+	char cmd[512];
+	snprintf(cmd, sizeof(cmd),
+	         "curl -s -o /dev/null --max-time 15 -w '%%{speed_download}' '" SPEED_URL "' ; echo");
+	job_run(cmd, cb_speedtest);
+	g_need_redraw = 1;
 }
 
 static void tick_speedtest(void)
@@ -650,7 +692,8 @@ static void tick_speedtest(void)
 	double dt = difftime(time(NULL), ni.t_start);
 	if (dt <= 0) dt = 1;
 	unsigned long long rx_now, tx_now;
-	get_rx_tx(IFACE_WIFI, &rx_now, &tx_now);
+	get_rx_tx(st_iface, &rx_now, &tx_now);
+	if (rx_now < ni.rx_at_start) return; /* counter reset/wrap */
 	double mbps = (double)(rx_now - ni.rx_at_start) / dt / (1024.0 * 1024.0);
 	if (mbps > ni.dl_peak) ni.dl_peak = mbps;
 	g_need_redraw = 1;
@@ -912,12 +955,17 @@ static void draw_panel(void)
 	draw_text(PAD, y + 9, "\xf3\xb0\x92\x85 SPEED TEST", f_small, &label_c);
 	{
 		char spbuf[64] = "";
-		if (ni.testing)
+		XftColor *spc = &label_c;
+		if (ni.testing) {
 			snprintf(spbuf, sizeof(spbuf), "%s %.1f MB/s", spinner(), ni.dl_peak);
-		else if (ni.dl_peak > 0)
+			spc = &ok_c;
+		} else if (st_failed) {
+			snprintf(spbuf, sizeof(spbuf), "Failed");
+			spc = &err_c;
+		} else if (ni.dl_peak > 0) {
 			snprintf(spbuf, sizeof(spbuf), "%.1f MB/s", ni.dl_peak);
-		draw_text(PAD + textw(f_small, "\xf3\xb0\x92\x85 SPEED TEST") + 12, y + 9, spbuf, f_small,
-		          ni.testing ? &ok_c : &label_c);
+		}
+		draw_text(PAD + textw(f_small, "\xf3\xb0\x92\x85 SPEED TEST") + 12, y + 9, spbuf, f_small, spc);
 	}
 	y += 34;
 	draw_button(ID_RUN, W - PAD - 84, y, 84, 26, ni.testing ? "Running…" : "Run", 0);
@@ -1234,6 +1282,9 @@ int main(void)
 			conn_status = 0;
 			g_need_redraw = 1;
 		}
+		/* hết hạn chờ toggle wifi → nhận lại status thật từ lần quét sau */
+		if (radio_pending && time(NULL) > radio_pending_until)
+			radio_pending = 0;
 
 		while (XPending(dpy)) {
 			XEvent ev;

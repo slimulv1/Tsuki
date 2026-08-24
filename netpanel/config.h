@@ -50,4 +50,4 @@ static const struct { const char *name; const char *dns; } dns_providers[] = {
 #define DNS_NCUSTOM 4 /* index nút Custom */
 
 /* speed test */
-#define SPEED_URL "https://speed.cloudflare.com/__down?bytes=104857600"
+#define SPEED_URL "https://speed.cloudflare.com/__down?bytes=25000000"

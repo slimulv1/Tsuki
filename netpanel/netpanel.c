@@ -361,6 +361,8 @@ static int pw_row;    /* index dòng other-network đang được nhập */
 static int radio_pending;            /* đang chờ nmcli áp dụng on/off */
 static time_t radio_pending_until;   /* sau mốc này nhận lại status thật */
 
+static int dns_ignore_auto; /* ipv4.ignore-auto-dns của connection */
+
 static void cb_status(Job *j)
 {
 	ni.scanning = 0;
@@ -380,22 +382,24 @@ static void cb_status(Job *j)
 			ni.radio_on = strstr(line + 6, "enabled") != NULL;
 		} else if (!strncmp(line, "conn ", 5)) {
 			snprintf(ni.conn_name, sizeof(ni.conn_name), "%s", line + 5);
-		} else if (!strncmp(line, "dns ", 4)) {
-			const char *d = line + 4;
+		} else if (!strncmp(line, "ignore ", 7)) {
+			dns_ignore_auto = !strcmp(line + 7, "yes");
+		} else if (!strncmp(line, "dnsconf ", 8)) {
+			/* DNS tĩnh trên connection; ignore-auto=no hoặc rỗng = DHCP/auto
+			   (kể cả khi DNS router cấp cho device) */
+			const char *d = line + 8;
 			int nprov = (int)(sizeof(dns_providers) / sizeof(dns_providers[0]));
-			if (!d[0] || !strcmp(d, "--")) {
-				ni.dns_sel = 0; /* không có DNS tĩnh = DHCP/auto */
+			if (!dns_ignore_auto || !d[0] || !strcmp(d, "--")) {
+				ni.dns_sel = 0;
 			} else {
-				/* so IP đầu tiên của từng preset với DNS đang đặt;
-				   không khớp preset nào → Custom */
 				ni.dns_sel = DNS_NCUSTOM;
-				for (int i = 1; i < nprov && ni.dns_sel == DNS_NCUSTOM; i++) {
+				for (int k = 1; k < nprov && ni.dns_sel == DNS_NCUSTOM; k++) {
 					char tok[48];
-					if (!dns_providers[i].dns ||
-					    sscanf(dns_providers[i].dns, "%47s", tok) != 1)
+					if (!dns_providers[k].dns ||
+					    sscanf(dns_providers[k].dns, "%47s", tok) != 1)
 						continue;
 					if (strstr(d, tok))
-						ni.dns_sel = i;
+						ni.dns_sel = k;
 				}
 			}
 		} else if (!strcmp(line, "__KNOWN__")) {
@@ -451,8 +455,9 @@ static void kick_status(void)
 	snprintf(cmd, sizeof(cmd),
 	         "echo \"radio $(nmcli radio wifi)\";"
 	         "IF=" IFACE_WIFI ";"
-	         "nmcli -t -f NAME,DEVICE connection show --active | grep -m1 \":$IF\" | cut -d: -f1 | sed 's/^/conn /';"
-	         "echo \"dns $(nmcli -t --get-values IP4.DNS device show $IF 2>/dev/null | grep -v '^$' | tr '\\n' ' ')\";"
+	         "C=$(nmcli -t -f NAME,DEVICE connection show --active | grep -m1 \":$IF\" | cut -d: -f1);"
+	         "[ -n \"$C\" ] && { nmcli -t -f ipv4.ignore-auto-dns connection show \"$C\" | cut -d: -f2 | sed 's/^/ignore /';"
+	         "nmcli -t -f ipv4.dns connection show \"$C\" | cut -d: -f2- | sed 's/^/dnsconf /'; }"
 	         "echo __KNOWN__;"
 	         "nmcli -t -f NAME,TYPE connection show 2>/dev/null | grep 802-11-wireless | cut -d: -f1;"
 	         "if [ \"$(nmcli radio wifi)\" = enabled ]; then echo __SCAN__;"

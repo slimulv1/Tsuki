@@ -289,17 +289,10 @@ EOF
 # fi
 
 # ---------------------------------------------------------------------------
-# 8) dunst: đổi màu [colors] + urgency_critical rồi khởi động lại
+# 8) dunst: sync colors via dunstwal.sh (comprehensive, handles all urgency levels)
 # ---------------------------------------------------------------------------
-DUNSTRC="$HOME/.config/dunst/dunstrc"
-if [ -f "$DUNSTRC" ]; then
-    cp "$DUNSTRC" "$DUNSTRC.bak" 2>/dev/null
-    sed -i "/^\[colors\]/,/^\[/{s/^[[:space:]]*background = .*/	background = \"$color0\"/}" "$DUNSTRC"
-    sed -i "/^\[colors\]/,/^\[/{s/^[[:space:]]*foreground = .*/	foreground = \"$foreground\"/}" "$DUNSTRC"
-    sed -i "/^\[urgency_critical\]/,/^\[/{s/^[[:space:]]*frame_color = .*/	frame_color = \"$accent\"/}" "$DUNSTRC"
-    killall dunst 2>/dev/null
-    while pgrep -u "$(id -u)" -x dunst >/dev/null 2>&1; do sleep 0.1; done
-    dunst >/dev/null 2>&1 &
+if [ -x "$SCRIPTS/dunstwal.sh" ]; then
+    "$SCRIPTS/dunstwal.sh"
 fi
 
 # ---------------------------------------------------------------------------

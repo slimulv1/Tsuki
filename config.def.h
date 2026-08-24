@@ -88,12 +88,14 @@ static const Rule rules[] = {
     { "st-256color",   NULL,       NULL,       1 << 0,       0,           0,           -1 },
     { "kitty",         NULL,       NULL,       1 << 0,       0,           0,           -1 },
     { "Steam",         NULL,       NULL,       1 << 0,       0,           0,           -1 },
+    { "[Ss]teamwebhelper", NULL,   NULL,       1 << 0,       0,           0,           -1 },
     { "[Gg]amescope",  NULL,       NULL,       1 << 0,       0,           0,           -1 },
+    { "^steam_app_",   NULL,       NULL,       1 << 0,       0,           0,           -1 },
     /* tag II: browsers */
     { "Firefox",       NULL,       NULL,       1 << 1,       0,           0,           -1 },
     { "Brave-origin",  NULL,       NULL,       1 << 1,       0,           0,           -1 },
     /* tag III: chat */
-    { "discord-ptb",   NULL,       NULL,       1 << 2,       0,           0,           -1 },
+    { "[Dd]iscord",    NULL,       NULL,       1 << 2,       0,           0,           -1 },
     { "eww",           NULL,       NULL,       0,            0,           1,           -1 },
 };
 

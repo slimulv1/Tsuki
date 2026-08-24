@@ -88,15 +88,17 @@ static const Rule rules[] = {
     { "st-256color",   NULL,       NULL,       1 << 0,       0,           0,           -1 },
     { "kitty",         NULL,       NULL,       1 << 0,       0,           0,           -1 },
     { "Steam",         NULL,       NULL,       1 << 0,       0,           0,           -1 },
-    { "[Ss]teamwebhelper", NULL,   NULL,       1 << 0,       0,           0,           -1 },
-    { "[Gg]amescope",  NULL,       NULL,       1 << 0,       0,           0,           -1 },
-    { "^steam_app_",   NULL,       NULL,       1 << 0,       0,           0,           -1 },
+    /* strstr matching: "Steam" also covers "Steamwebhelper"; "amescope"
+     * matches both gamescope and Gamescope */
+    { "amescope",      NULL,       NULL,       1 << 0,       0,           0,           -1 },
+    { "steam_app_",    NULL,       NULL,       1 << 0,       0,           0,           -1 },
     /* tag II: browsers */
     { "Firefox",       NULL,       NULL,       1 << 1,       0,           0,           -1 },
     { "Brave-origin",  NULL,       NULL,       1 << 1,       0,           0,           -1 },
     { "Brave",         NULL,       NULL,       1 << 1,       0,           0,           -1 },
     /* tag III: chat */
-    { "[Dd]iscord",    NULL,       NULL,       1 << 2,       0,           0,           -1 },
+    { "discord",       NULL,       NULL,       1 << 2,       0,           0,           -1 },
+    { "Discord",       NULL,       NULL,       1 << 2,       0,           0,           -1 },
     { "eww",           NULL,       NULL,       0,            0,           1,           -1 },
 };
 

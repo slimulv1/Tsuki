@@ -94,6 +94,7 @@ static const Rule rules[] = {
     /* tag II: browsers */
     { "Firefox",       NULL,       NULL,       1 << 1,       0,           0,           -1 },
     { "Brave-origin",  NULL,       NULL,       1 << 1,       0,           0,           -1 },
+    { "Brave",         NULL,       NULL,       1 << 1,       0,           0,           -1 },
     /* tag III: chat */
     { "[Dd]iscord",    NULL,       NULL,       1 << 2,       0,           0,           -1 },
     { "eww",           NULL,       NULL,       0,            0,           1,           -1 },

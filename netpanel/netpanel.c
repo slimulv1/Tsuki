@@ -567,6 +567,8 @@ static XftFont *f_norm, *f_bold, *f_small, *f_icon;
 static Colormap cmap;
 static Visual *vis;
 static Cursor cur_hand, cur_norm;
+static Window old_focus;   /* focus cần trả lại khi đóng panel */
+static int old_revert;
 
 static XftColor bg_panel, bg_card, bg_hover, bg_select, border_c, label_c, value_c,
                 ok_c, err_c, white_c;
@@ -1022,6 +1024,9 @@ int main(void)
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 	if (kgrab != GrabSuccess || pgrab != GrabSuccess)
 		fprintf(stderr, "netpanel: grab failed k=%d p=%d\n", kgrab, pgrab);
+	/* lưu focus hiện tại để trả lại khi đóng — tránh dwm mất focus,
+	   phím gõ "chết" cho tới khi click vào cửa sổ khác */
+	XGetInputFocus(dpy, &old_focus, &old_revert);
 	XSetInputFocus(dpy, win, RevertToNone, CurrentTime);
 	XSync(dpy, False);
 
@@ -1133,6 +1138,10 @@ int main(void)
 
 	XUngrabPointer(dpy, CurrentTime);
 	XUngrabKeyboard(dpy, CurrentTime);
+	/* trả focus về cửa sổ cũ trước khi phá panel — nếu không dwm sẽ
+	   giữ focus trỏ tới window đã chết → không gõ được gì */
+	if (old_focus != None && old_focus != win && old_focus != PointerRoot)
+		XSetInputFocus(dpy, old_focus, old_revert, CurrentTime);
 	XftDrawDestroy(xftdraw);
 	XFreePixmap(dpy, pm);
 	XDestroyWindow(dpy, win);

@@ -891,7 +891,7 @@ static void draw_panel(void)
 	y += 14;
 
 	/* ---- DNS provider ---- */
-	draw_text(PAD, y + 9, "DNS PROVIDER", f_small, &label_c);
+	draw_text(PAD, y + 9, "\xf3\xb0\xa7\x9b DNS PROVIDER", f_small, &label_c);
 	y += 34;
 	{
 		int bn = (int)(sizeof(dns_providers) / sizeof(dns_providers[0]));
@@ -905,14 +905,14 @@ static void draw_panel(void)
 	y += 30 + 14;
 
 	/* ---- speed test ---- */
-	draw_text(PAD, y + 9, "SPEED TEST", f_small, &label_c);
+	draw_text(PAD, y + 9, "\xf3\xb0\x92\x85 SPEED TEST", f_small, &label_c);
 	{
 		char spbuf[64] = "";
 		if (ni.testing)
 			snprintf(spbuf, sizeof(spbuf), "%s %.1f MB/s", spinner(), ni.dl_peak);
 		else if (ni.dl_peak > 0)
 			snprintf(spbuf, sizeof(spbuf), "%.1f MB/s", ni.dl_peak);
-		draw_text(PAD + textw(f_small, "SPEED TEST") + 12, y + 9, spbuf, f_small,
+		draw_text(PAD + textw(f_small, "\xf3\xb0\x92\x85 SPEED TEST") + 12, y + 9, spbuf, f_small,
 		          ni.testing ? &ok_c : &label_c);
 	}
 	y += 34;
@@ -921,7 +921,7 @@ static void draw_panel(void)
 
 	/* ---- known networks ---- */
 	{
-		draw_text(PAD, y + 9, "KNOWN NETWORKS", f_small, &label_c);
+		draw_text(PAD, y + 9, "\xf3\xb0\x97\xa0 KNOWN NETWORKS", f_small, &label_c);
 		y += 34;
 		int n = ni.known_n;
 		if (!n) {
@@ -950,10 +950,10 @@ static void draw_panel(void)
 	/* ---- other networks ---- */
 	{
 		char ttl[80];
-		snprintf(ttl, sizeof(ttl), "OTHER NETWORKS%s%s",
+		snprintf(ttl, sizeof(ttl), "\xf3\xb0\x80\xa1 OTHER NETWORKS%s%s",
 		         ni.scanning ? "  " : "", ni.scanning ? spinner() : "");
 		draw_text(PAD, y + 9, ttl, f_small, &label_c);
-		draw_text_r(W - PAD, y + 9, "Rescan", f_small,
+		draw_text_r(W - PAD, y + 9, "\xf3\xb0\x91\x90 Rescan", f_small,
 		            hover_id == ID_RESCAN ? &value_c : &label_c);
 		add_hit(ID_RESCAN, W - PAD - 76, y - 4, 80, 20);
 		y += 34;
@@ -996,16 +996,16 @@ static void draw_panel(void)
 			/* ô nhập mật khẩu ngay dưới SSID được chọn */
 			if (pw_mode && pw_row == i) {
 				rrect_fill(PAD - 8, y + 2, W - 2 * PAD + 16, 40, 0, bg_card.pixel);
-				draw_text(PAD, y + 26, "Password:", f_small, &label_c);
+				draw_text(PAD, y + 26, "\xef\x80\xa3 Password:", f_small, &label_c);
 				char masked[80];
 				int k;
 				for (k = 0; k < pw_len && k < 60; k++) masked[k] = '*';
 				masked[k] = '\0';
-				draw_text(PAD + textw(f_small, "Password:") + 12, y + 27,
+				draw_text(PAD + textw(f_small, "\xef\x80\xa3 Password:") + 12, y + 27,
 				          masked, f_norm, &value_c);
 				/* con trỏ nhấp nháy theo giây */
 				if (time(NULL) & 1) {
-					int mx = PAD + textw(f_small, "Password:") + 12 + textw(f_norm, masked);
+					int mx = PAD + textw(f_small, "\xef\x80\xa3 Password:") + 12 + textw(f_norm, masked);
 					XSetForeground(dpy, gc, value_c.pixel);
 					XFillRectangle(dpy, pm, gc, mx + 2, y + 14, 2, 15);
 				}

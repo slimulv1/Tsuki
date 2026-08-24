@@ -392,12 +392,25 @@ static void cb_status(Job *j)
 			} else if (mode == 2 && ni.other_n < 64) {
 				char use[8] = "", ssid[96] = "", sec[32] = "";
 				int sig = 0;
-				if (sscanf(line, "%7[^:]:%d:%95[^:]:%31[^\n]", use, &sig, ssid, sec) >= 3) {
-					snprintf(ni.other[ni.other_n], 128, "%s", ssid);
-					ni.other_sig[ni.other_n] = sig;
-					ni.other_sec[ni.other_n] = sec[0] && strcmp(sec, "--") ? 1 : 0;
-					ni.other_use[ni.other_n] = (use[0] == '*');
-					ni.other_n++;
+				if (sscanf(line, "%7[^:]:%d:%95[^:]:%31[^\n]", use, &sig, ssid, sec) >= 3 &&
+				    ssid[0]) { /* bỏ qua mạng ẩn không phát SSID */
+					int dup = 0;
+					/* đã lưu trong Known Networks → không lặp lại ở OTHER
+					   (known luôn parse xong trước vì script xuất trước scan) */
+					for (int k = 0; k < ni.known_n && !dup; k++)
+						if (!strcmp(ni.known[k], ssid))
+							dup = 1;
+					/* trùng SSID trong chính list quét (mạng 2 băng tần) */
+					for (int k = 0; k < ni.other_n && !dup; k++)
+						if (!strcmp(ni.other[k], ssid))
+							dup = 1;
+					if (!dup) {
+						snprintf(ni.other[ni.other_n], 128, "%s", ssid);
+						ni.other_sig[ni.other_n] = sig;
+						ni.other_sec[ni.other_n] = sec[0] && strcmp(sec, "--") ? 1 : 0;
+						ni.other_use[ni.other_n] = (use[0] == '*');
+						ni.other_n++;
+					}
 				}
 			}
 		}
@@ -489,6 +502,44 @@ static char pw_buf[64];
 static int pw_len;
 static int pw_mode;   /* 1 = đang hiện ô nhập password */
 static int pw_row;    /* index dòng other-network đang được nhập */
+static int pw_known_before; /* 1 nếu ssid đã là profile đã lưu TRƯỚC khi thử connect
+                             * → sai mk thì KHÔNG delete profile (giữ mật khẩu cũ) */
+
+/* trạng thái kết nối sau khi submit mật khẩu (ux: feedback gần vị trí nhập,
+ * tự tắt sau ~4s theo quy tắc toast 3-5s của ui-ux-pro-max) */
+static int conn_status;   /* 0=none 1=thành công 2=sai mật khẩu 3=đang kiểm tra */
+static char conn_msg[128];
+static time_t conn_msg_until;
+static int conn_row;
+
+static void cb_connect_done(Job *j)
+{
+	if (strstr(j->out, "Error") || strstr(j->out, "error") ||
+	    strstr(j->out, "failed")) {
+		/* sai mật khẩu: nmcli dev wifi connect VẪN tạo profile rác
+		   dù activation fail → tự gỡ profile đó nếu nó chưa có sẵn,
+		   giữ ô nhập để người dùng sửa lại */
+		conn_status = 2;
+		snprintf(conn_msg, sizeof(conn_msg), "Sai mật khẩu — thử lại");
+		pw_mode = 1;
+		if (!pw_known_before) {
+			char qd[400], del[600];
+			sh_quote(qd, sizeof(qd), pw_ssid);
+			snprintf(del, sizeof(del), "nmcli connection delete %s", qd);
+			run_bg(del);
+		}
+	} else {
+		/* đúng mật khẩu: nmcli tự lưu profile + password */
+		conn_status = 1;
+		snprintf(conn_msg, sizeof(conn_msg), "Kết nối %s thành công", pw_ssid);
+		pw_mode = 0;
+		pw_len = 0;
+		pw_buf[0] = '\0';
+	}
+	conn_row = pw_row;
+	conn_msg_until = time(NULL) + 4;
+	g_need_redraw = 1;
+}
 
 static void submit_pw(void)
 {
@@ -496,14 +547,16 @@ static void submit_pw(void)
 	char qp[300], qs[300], cmd[1000];
 	sh_quote(qp, sizeof(qp), pw_buf);
 	sh_quote(qs, sizeof(qs), pw_ssid);
-	snprintf(cmd, sizeof(cmd), "nmcli dev wifi connect %s password %s", qs, qp);
-	run_bg(cmd);
+	snprintf(cmd, sizeof(cmd), "nmcli dev wifi connect %s password %s 2>&1", qs, qp);
+	conn_status = 3;
+	snprintf(conn_msg, sizeof(conn_msg), "Đang kiểm tra mật khẩu…");
+	conn_row = pw_row;
+	conn_msg_until = time(NULL) + 12; /* giới hạn chờ tối đa */
+	job_run(cmd, cb_connect_done);
 	/* refresh sau 3s cho nmcli kịp nối */
 	run_bg("( sleep 3; killall -USR1 netpanel 2>/dev/null ) >/dev/null 2>&1 &");
-	pw_mode = 0;
-	pw_len = 0;
-	pw_buf[0] = '\0';
-	pw_ssid[0] = '\0';
+	/* không xóa pw state ở đây — cb_connect_done quyết định giữ (sai)
+	   hay xóa (đúng) để người dùng biết kết quả */
 	g_need_redraw = 1;
 }
 
@@ -530,6 +583,9 @@ static void do_connect(const char *ssid, int secured)
 	}
 	/* mạng khóa — mở ô nhập mật khẩu trong panel */
 	snprintf(pw_ssid, sizeof(pw_ssid), "%s", ssid);
+	pw_known_before = 0;
+	for (int i = 0; i < ni.known_n; i++)
+		if (!strcmp(ni.known[i], ssid)) { pw_known_before = 1; break; }
 	pw_mode = 1;
 	pw_row = -1;
 	/* tìm row để vẽ đúng vị trí */
@@ -737,6 +793,7 @@ static int panel_height(void)
 	h += 14 + 34;                             /* gap + other title */
 	h += (ni.other_n ? (ni.other_n > MAX_LIST_ITEMS ? MAX_LIST_ITEMS : ni.other_n) : 1) * 32;
 	h += pw_mode ? 46 : 0;                    /* ô nhập mật khẩu inline */
+	h += (conn_status && time(NULL) < conn_msg_until) ? 32 : 0; /* banner kết quả */
 	h += PAD;
 	return h;
 }
@@ -910,6 +967,19 @@ static void draw_panel(void)
 				draw_text_r(W - PAD, y + 19, "", f_small, &label_c);
 			add_hit(ID_OTHER_BASE + i, PAD - 8, y, W - 2 * PAD + 16, 30);
 			y += 32;
+			/* banner kết quả: xanh=đúng mật khẩu, đỏ=sai (ux: error
+			   hiện cạnh vị trí nhập, toast tự tắt 3-5s) */
+			if (conn_status && conn_row == i && time(NULL) < conn_msg_until) {
+				XftColor *bc = conn_status == 1 ? &ok_c
+				             : conn_status == 2 ? &err_c : &label_c;
+				const char *icon = conn_status == 1 ? "✓"
+				                 : conn_status == 2 ? "✗" : "⋯";
+				rrect_fill(PAD - 8, y + 2, W - 2 * PAD + 16, 28, 0, bg_card.pixel);
+				rrect_stroke(PAD - 8, y + 2, W - 2 * PAD + 16, 28, 0, bc->pixel);
+				draw_text(PAD + 4, y + 21, icon, f_small, bc);
+				draw_text(PAD + 22, y + 21, conn_msg, f_small, bc);
+				y += 32;
+			}
 			/* ô nhập mật khẩu ngay dưới SSID được chọn */
 			if (pw_mode && pw_row == i) {
 				rrect_fill(PAD - 8, y + 2, W - 2 * PAD + 16, 40, 0, bg_card.pixel);
@@ -947,8 +1017,10 @@ static void handle_click(int id)
 		submit_pw();
 		break;
 	case ID_RESCAN:
-		rescan_requested = 1;
-		kick_status();
+		if (!pw_mode) { /* đang nhập mk thì không rescan (giữ list ổn định) */
+			rescan_requested = 1;
+			kick_status();
+		}
 		g_need_redraw = 1;
 		break;
 	default:
@@ -1138,6 +1210,14 @@ int main(void)
 
 		poll_jobs();
 
+		/* toast hết hạn → tự tắt (quy tắc auto-dismiss 3-5s) */
+		/* pending (status 3) không tự hết hạn — chờ nmcli trả kết quả
+		   (sai mật khẩu NetworkManager có thể mất 30-60s mới báo lỗi) */
+		if (conn_status && conn_status != 3 && time(NULL) > conn_msg_until) {
+			conn_status = 0;
+			g_need_redraw = 1;
+		}
+
 		while (XPending(dpy)) {
 			XEvent ev;
 			XNextEvent(dpy, &ev);
@@ -1204,7 +1284,10 @@ int main(void)
 			get_ip_gw(mode == 1 ? IFACE_WIRED : IFACE_WIFI);
 			get_signal_perc();
 			kick_ping();
-			kick_status();
+			/* đang nhập mật khẩu thì KHÔNG rescan định kỳ — tránh
+			   đổi thứ tự list làm ô nhập neo nhầm SSID */
+			if (!pw_mode)
+				kick_status();
 			g_need_redraw = 1;
 		}
 

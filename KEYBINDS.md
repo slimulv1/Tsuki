@@ -6,12 +6,12 @@
 
 | Keybinding    | Action                    |
 |---------------|---------------------------|
-| Super + Enter | kitty (term)              |
+| Super + Enter | st (term)                 |
 | Super + r     | rofi -show drun           |
 | Super + c     | code                      |
 | Super + s     | brave-origin              |
 | Super + g     | steam                     |
-| Super + d     | equibop                   |
+| Super + d     | discord-ptb               |
 | Super + e     | thunar                    |
 | Super + z     | zalo                      |
 | Super + /     | Bảng keybinds này         |
@@ -33,7 +33,7 @@
 | Super + f             | Toggle fullscreen    |
 | Super + Shift + Space | Toggle floating      |
 | Super + Ctrl + w      | Tab mode             |
-| Super + Ctrl + q      | Quit (logout)        |
+| Super + Ctrl + q      | Restart dwm (re-exec)  |
 | Super + Ctrl + Del    | Shutdown system      |
 | Super + q             | Kill client          |
 | Super + Shift + r     | Rebuild & reload     |
@@ -45,7 +45,7 @@
 | Super + t                | tile                 |
 | Super + Shift + f        | monocle              |
 | Super + m                | spiral               |
-| Super + Ctrl + g         | grid                 |
+| Super + Ctrl + g         | gaplessgrid           |
 | Super + Ctrl + Shift + t | floating             |
 | Super + Space            | next layout          |
 | Super + Ctrl + , / .     | previous/next layout |
@@ -74,11 +74,11 @@
 | Keybinding               | Action                     |
 |--------------------------|----------------------------|
 | Super + Ctrl + t         | Toggle gaps                |
-| Super + Ctrl + i / d     | Outer gap +/-              |
-| Super + Ctrl + Shift + i | Inner gap +/-              |
-| Super + Ctrl + o         | Outer gap +/- (per client) |
-| Super + Ctrl + 6 / 7     | Inner H/V gap +/-          |
-| Super + Ctrl + 8 / 9     | Outer H/V gap +/-          |
+| Super + Ctrl + i / d     | All gaps +/-              |
+| Super + Ctrl + Shift + i | Inner gap +/-             |
+| Super + Ctrl + o / Ctrl+Shift+o | Outer gap +/-       |
+| Super + Ctrl + 6 / 7     | Inner H/V gap +/- (Shift = -) |
+| Super + Ctrl + 8 / 9     | Outer H/V gap +/- (Shift = -) |
 | Super + Ctrl + Shift + d | Reset gaps                 |
 
 ## Screenshots

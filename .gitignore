@@ -1,0 +1,17 @@
+# build artifacts
+*.o
+dwm
+dwm-*.tar.gz
+slock/slock
+st/st
+slstatus/slstatus
+dmenu/dmenu
+dmenu/stest
+
+# runtime state
+scripts/.wallpaper
+
+# editor / system
+*.swp
+*~
+.DS_Store

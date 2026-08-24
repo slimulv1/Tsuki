@@ -14,7 +14,9 @@ COM =\
 	components/cpu\
 	components/datetime\
 	components/ram\
-	components/run_command
+	components/run_command\
+	components/net_icon\
+	components/wifi_panel
 
 all: slstatus
 

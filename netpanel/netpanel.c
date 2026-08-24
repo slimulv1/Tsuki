@@ -351,6 +351,13 @@ static void kick_ping(void)
 }
 
 /* --- status tổng hợp mỗi ~5s --- */
+/* state ô nhập password — khai báo sớm vì cb_status cần ẩn ssid đang thử */
+static char pw_ssid[128];
+static char pw_buf[64];
+static int pw_len;
+static int pw_mode;   /* 1 = đang hiện ô nhập password */
+static int pw_row;    /* index dòng other-network đang được nhập */
+
 static void cb_status(Job *j)
 {
 	ni.scanning = 0;
@@ -388,6 +395,11 @@ static void cb_status(Job *j)
 			mode = 2;
 		} else if (line[0]) {
 			if (mode == 1 && ni.known_n < 64) {
+				/* nmcli lưu profile NGAY khi submit (trước khi biết
+				 * đúng/sai) → ẩn ssid đang thử khỏi KNOWN cho tới
+				 * khi có kết quả, tránh "tự ý" nhảy vào danh sách */
+				if (pw_mode && !strcmp(line, pw_ssid))
+					continue;
 				snprintf(ni.known[ni.known_n++], 128, "%s", line);
 			} else if (mode == 2 && ni.other_n < 64) {
 				char use[8] = "", ssid[96] = "", sec[32] = "";
@@ -400,10 +412,13 @@ static void cb_status(Job *j)
 					for (int k = 0; k < ni.known_n && !dup; k++)
 						if (!strcmp(ni.known[k], ssid))
 							dup = 1;
-					/* trùng SSID trong chính list quét (mạng 2 băng tần) */
+					/* trùng SSID trong chính list quét (mạng 2 băng tần),
+					 * hoặc chính là ssid đang thử mật khẩu */
 					for (int k = 0; k < ni.other_n && !dup; k++)
 						if (!strcmp(ni.other[k], ssid))
 							dup = 1;
+					if (pw_mode && !strcmp(ssid, pw_ssid))
+						dup = 1;
 					if (!dup) {
 						snprintf(ni.other[ni.other_n], 128, "%s", ssid);
 						ni.other_sig[ni.other_n] = sig;
@@ -497,11 +512,7 @@ static void toggle_wifi(void)
 
 /* --- connect/disconnect --- */
 /* --- nhập mật khẩu inline ngay dưới dòng SSID được chọn --- */
-static char pw_ssid[128];
-static char pw_buf[64];
-static int pw_len;
-static int pw_mode;   /* 1 = đang hiện ô nhập password */
-static int pw_row;    /* index dòng other-network đang được nhập */
+/* (pw_ssid/pw_buf/pw_len/pw_mode/pw_row đã khai báo sớm phía trên cb_status) */
 static int pw_known_before; /* 1 nếu ssid đã là profile đã lưu TRƯỚC khi thử connect
                              * → sai mk thì KHÔNG delete profile (giữ mật khẩu cũ) */
 
@@ -538,6 +549,8 @@ static void cb_connect_done(Job *j)
 	}
 	conn_row = pw_row;
 	conn_msg_until = time(NULL) + 4;
+	kick_status(); /* làm mới KNOWN/OTHER ngay (profile rác đã bị xóa /
+	                  profile mới đã được lưu khi thành công) */
 	g_need_redraw = 1;
 }
 

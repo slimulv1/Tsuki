@@ -8,6 +8,7 @@
  * Build: make  (cần libx11 libxft libxrender libxext fontconfig)
  */
 #include <X11/X.h>
+#include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
@@ -585,7 +586,7 @@ static Window old_focus;   /* focus cần trả lại khi đóng panel */
 static int old_revert;
 
 static XftColor bg_panel, bg_card, bg_hover, bg_select, border_c, label_c, value_c,
-                ok_c, err_c, white_c;
+                ok_c, err_c, white_c, border_dwm;
 
 #define CLR(dst, src) do { if (!XftColorAllocName(dpy, vis, cmap, (src), &(dst))) die("color " #dst); } while (0)
 
@@ -722,6 +723,8 @@ static void draw_panel(void)
 	hits_n = 0;
 	int W = PANEL_W;
 	rrect_fill(0, 0, W, panel_height(), 14, bg_panel.pixel);
+	/* viền ngoài 1px màu viền cửa sổ focused của dwm, chạy theo bo góc */
+	rrect_stroke(0, 0, W, panel_height(), 14, border_dwm.pixel);
 
 	int y = PAD;
 	const int x = PAD;
@@ -920,25 +923,6 @@ static void handle_click(int id)
 }
 
 /* ============ main ============ */
-static void reshape_mask(int H)
-{
-	Pixmap mask = XCreatePixmap(dpy, win, PANEL_W, H, 1);
-	GC mgc = XCreateGC(dpy, mask, 0, NULL);
-	XSetForeground(dpy, mgc, 0);
-	XFillRectangle(dpy, mask, mgc, 0, 0, PANEL_W, H);
-	XSetForeground(dpy, mgc, 1);
-	int r = 14;
-	XFillRectangle(dpy, mask, mgc, r, 0, PANEL_W - 2 * r, H);
-	XFillRectangle(dpy, mask, mgc, 0, r, PANEL_W, H - 2 * r);
-	XFillArc(dpy, mask, mgc, 0, 0, 2 * r, 2 * r, 90 * 64, 180 * 64);
-	XFillArc(dpy, mask, mgc, PANEL_W - 2 * r, 0, 2 * r, 2 * r, 270 * 64, 180 * 64);
-	XFillArc(dpy, mask, mgc, 0, H - 2 * r, 2 * r, 2 * r, 180 * 64, 180 * 64);
-	XFillArc(dpy, mask, mgc, PANEL_W - 2 * r, H - 2 * r, 2 * r, 2 * r, 0 * 64, 180 * 64);
-	XShapeCombineMask(dpy, win, ShapeBounding, 0, 0, mask, ShapeSet);
-	XFreeGC(dpy, mgc);
-	XFreePixmap(dpy, mask);
-}
-
 int main(void)
 {
 	memset(&ni, 0, sizeof(ni));
@@ -972,11 +956,21 @@ int main(void)
 	root = RootWindow(dpy, scr);
 	vis = DefaultVisual(dpy, scr);
 	cmap = DefaultColormap(dpy, scr);
-	gc = XCreateGC(dpy, root, 0, NULL);
+	/* ưu tiên ARGB 32-bit: bo góc bằng trong suốt thật → picom vẽ được
+	   shadow (XShape bị picom bỏ qua shadow) */
+	int depth = DefaultDepth(dpy, scr);
+	XVisualInfo vinfo;
+	if (XMatchVisualInfo(dpy, scr, 32, TrueColor, &vinfo)) {
+		vis = vinfo.visual;
+		cmap = XCreateColormap(dpy, root, vis, AllocNone);
+		depth = 32;
+	}
+	/* gc tạo sau, trên pixmap ARGB (depth 32) để tránh BadMatch */
 
 	CLR(bg_panel, C_BG_PANEL); CLR(bg_card, C_BG_CARD); CLR(bg_hover, C_BG_HOVER);
 	CLR(bg_select, C_BG_SELECT); CLR(border_c, C_BORDER); CLR(label_c, C_LABEL);
 	CLR(value_c, C_VALUE); CLR(ok_c, C_OK); CLR(err_c, C_ERR); CLR(white_c, "#ffffff");
+	CLR(border_dwm, C_BORDER_DWM);
 
 	f_norm = XftFontOpenName(dpy, scr, font_norm);
 	f_bold = XftFontOpenName(dpy, scr, font_bold);
@@ -1007,16 +1001,30 @@ int main(void)
 	int H = panel_height();
 	XSetWindowAttributes wa;
 	wa.override_redirect = True;
-	wa.background_pixel = bg_panel.pixel;
+	wa.background_pixel = 0; /* trong suốt — nền vẽ trong pixmap ARGB */
 	wa.border_pixel = 0;
+	wa.colormap = cmap;
 	wa.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask |
 	                PointerMotionMask | KeyPressMask | StructureNotifyMask;
 	win = XCreateWindow(dpy, root, sw - PANEL_W - 8, bar_h + 2, PANEL_W, H, 0,
-	                    CopyFromParent, InputOutput, CopyFromParent,
-	                    CWOverrideRedirect | CWBackPixel | CWBorderPixel | CWEventMask, &wa);
-	reshape_mask(H);
-	pm = XCreatePixmap(dpy, win, PANEL_W, H, DefaultDepth(dpy, scr));
+	                    depth, InputOutput, vis,
+	                    CWOverrideRedirect | CWBackPixel | CWBorderPixel |
+	                    CWColormap | CWEventMask, &wa);
+	pm = XCreatePixmap(dpy, win, PANEL_W, H, depth);
+	gc = XCreateGC(dpy, pm, 0, NULL); /* GC depth-32 khớp pixmap ARGB */
 	xftdraw = XftDrawCreate(dpy, pm, vis, cmap);
+
+	/* khai báo loại cửa sổ + class cho picom/compositor nhận diện */
+	{
+		Atom wt = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
+		Atom vals[2];
+		vals[0] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_POPUP_MENU", False);
+		vals[1] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", False);
+		XChangeProperty(dpy, win, wt, XA_ATOM, 32, PropModeReplace,
+		                (unsigned char *)vals, 2);
+		XClassHint ch2 = { "netpanel", "Netpanel" };
+		XSetClassHint(dpy, win, &ch2);
+	}
 
 	XMapRaised(dpy, win);
 	XSync(dpy, False); /* bắt buộc: đảm bảo server đã map xong trước khi grab */
@@ -1139,11 +1147,13 @@ int main(void)
 			if (newH != H) {
 				H = newH;
 				XFreePixmap(dpy, pm);
-				pm = XCreatePixmap(dpy, win, PANEL_W, H, DefaultDepth(dpy, scr));
+				pm = XCreatePixmap(dpy, win, PANEL_W, H, depth);
 				XftDrawChange(xftdraw, pm);
 				XResizeWindow(dpy, win, PANEL_W, H);
-				reshape_mask(H);
 			}
+			/* xóa trong suốt trước khi vẽ — góc panel sẽ để alpha 0 */
+			XSetForeground(dpy, gc, 0);
+			XFillRectangle(dpy, pm, gc, 0, 0, PANEL_W, H);
 			draw_panel();
 			XCopyArea(dpy, pm, win, gc, 0, 0, PANEL_W, H, 0, 0);
 			XFlush(dpy);

@@ -16,6 +16,7 @@ static const char *font_icon  = "JetBrainsMono Nerd Font Mono:style=Regular:size
 #define C_BG_HOVER   "#333338"
 #define C_BG_SELECT  "#3a3a3a"
 #define C_BORDER     "#555555"
+#define C_BORDER_DWM "#7842d7" /* viền ngoài panel = viền cửa sổ focused của dwm (themes/wal.h blue[]) */
 #define C_LABEL      "#87879b"
 #define C_VALUE      "#e0e0e8"
 #define C_OK         "#a5d793"

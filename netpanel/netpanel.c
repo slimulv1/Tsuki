@@ -671,9 +671,11 @@ static void rrect_stroke(int x, int y, int w, int h, int r, unsigned long pix)
 static void draw_toggle(int x, int y, int on)
 {
 	int w = 36, h = 18;
-	rrect_fill(x, y, w, h, h / 2, (on ? ok_c : border_c).pixel);
+	/* track vuông + viền, knob vuông — style sharp đồng bộ panel */
+	rrect_fill(x, y, w, h, 0, (on ? ok_c : border_c).pixel);
+	rrect_stroke(x, y, w, h, 0, border_dwm.pixel);
 	XSetForeground(dpy, gc, white_c.pixel);
-	XFillArc(dpy, pm, gc, on ? x + w - h + 2 : x + 2, y + 2, h - 4, h - 4, 0, 360 * 64);
+	XFillRectangle(dpy, pm, gc, on ? x + w - h + 3 : x + 3, y + 3, h - 6, h - 6);
 }
 
 static void draw_button(int id, int x, int y, int w, int h, const char *label, int selected)
@@ -724,7 +726,9 @@ static void draw_panel(void)
 	int W = PANEL_W;
 	rrect_fill(0, 0, W, panel_height(), 0, bg_panel.pixel);
 	/* viền ngoài 1px màu viền cửa sổ focused của dwm, chạy theo bo góc */
+	/* viền ngoài 2px: stroke kép ở mép trong */
 	rrect_stroke(0, 0, W, panel_height(), 0, border_dwm.pixel);
+	rrect_stroke(1, 1, W - 2, panel_height() - 2, 0, border_dwm.pixel);
 
 	int y = PAD;
 	const int x = PAD;

@@ -28,7 +28,7 @@ LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lXrender -lImlib2
 # flags
 CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_XOPEN_SOURCE=700L -DVERSION=\"${VERSION}\" ${XINERAMAFLAGS}
 #CFLAGS   = -g -std=c99 -pedantic -Wall -O0 ${INCS} ${CPPFLAGS}
-CFLAGS   = -std=c99 -pedantic -Wall -Wno-deprecated-declarations -O3 -march=native -flto -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat=2 -Werror=format-security -fPIE ${INCS} ${CPPFLAGS}
+CFLAGS   = -std=c99 -pedantic -Wall -O3 -march=native -flto -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat=2 -Werror=format-security -fPIE ${INCS} ${CPPFLAGS}
 LDFLAGS  = -pie -z relro -z now -flto ${LIBS}
 
 # Solaris

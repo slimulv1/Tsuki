@@ -518,7 +518,7 @@ static int pw_known_before; /* 1 nếu ssid đã là profile đã lưu TRƯỚC 
 
 /* trạng thái kết nối sau khi submit mật khẩu (ux: feedback gần vị trí nhập,
  * tự tắt sau ~4s theo quy tắc toast 3-5s của ui-ux-pro-max) */
-static int conn_status;   /* 0=none 1=thành công 2=sai mật khẩu 3=đang kiểm tra */
+static int conn_status;   /* 0=none 1=ok 2=wrong pw 3=checking */
 static char conn_msg[128];
 static time_t conn_msg_until;
 static int conn_row;
@@ -531,7 +531,7 @@ static void cb_connect_done(Job *j)
 		   dù activation fail → tự gỡ profile đó nếu nó chưa có sẵn,
 		   giữ ô nhập để người dùng sửa lại */
 		conn_status = 2;
-		snprintf(conn_msg, sizeof(conn_msg), "Sai mật khẩu — thử lại");
+		snprintf(conn_msg, sizeof(conn_msg), "Wrong password — try again");
 		pw_mode = 1;
 		if (!pw_known_before) {
 			char qd[400], del[600];
@@ -542,7 +542,7 @@ static void cb_connect_done(Job *j)
 	} else {
 		/* đúng mật khẩu: nmcli tự lưu profile + password */
 		conn_status = 1;
-		snprintf(conn_msg, sizeof(conn_msg), "Kết nối %s thành công", pw_ssid);
+		snprintf(conn_msg, sizeof(conn_msg), "Connected to %s", pw_ssid);
 		pw_mode = 0;
 		pw_len = 0;
 		pw_buf[0] = '\0';
@@ -562,7 +562,7 @@ static void submit_pw(void)
 	sh_quote(qs, sizeof(qs), pw_ssid);
 	snprintf(cmd, sizeof(cmd), "nmcli dev wifi connect %s password %s 2>&1", qs, qp);
 	conn_status = 3;
-	snprintf(conn_msg, sizeof(conn_msg), "Đang kiểm tra mật khẩu…");
+	snprintf(conn_msg, sizeof(conn_msg), "Checking password…");
 	conn_row = pw_row;
 	conn_msg_until = time(NULL) + 12; /* giới hạn chờ tối đa */
 	job_run(cmd, cb_connect_done);
@@ -925,7 +925,7 @@ static void draw_panel(void)
 		y += 34;
 		int n = ni.known_n;
 		if (!n) {
-			draw_text(PAD, y + 16, ni.radio_on ? "(chưa có profile đã lưu)" : "(wi-fi đang tắt)",
+			draw_text(PAD, y + 16, ni.radio_on ? "(no saved profiles)" : "(wi-fi is off)",
 			          f_small, &label_c);
 			y += 32;
 		}
@@ -953,16 +953,16 @@ static void draw_panel(void)
 		snprintf(ttl, sizeof(ttl), "OTHER NETWORKS%s%s",
 		         ni.scanning ? "  " : "", ni.scanning ? spinner() : "");
 		draw_text(PAD, y + 9, ttl, f_small, &label_c);
-		draw_text_r(W - PAD, y + 9, "⟳ Rescan", f_small,
+		draw_text_r(W - PAD, y + 9, "Rescan", f_small,
 		            hover_id == ID_RESCAN ? &value_c : &label_c);
 		add_hit(ID_RESCAN, W - PAD - 76, y - 4, 80, 20);
 		y += 34;
 		int n = ni.other_n;
 		if (!n) {
 			draw_text(PAD, y + 16,
-			          !ni.radio_on ? "(wi-fi đang tắt)"
-			            : ni.scanning ? "đang quét…"
-			            : "(không thấy mạng nào)",
+			          !ni.radio_on ? "(wi-fi is off)"
+			            : ni.scanning ? "scanning…"
+			            : "(no networks found)",
 			          f_small, &label_c);
 			y += 32;
 		}

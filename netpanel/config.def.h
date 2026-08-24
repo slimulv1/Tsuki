@@ -34,14 +34,19 @@ static const char *taglines[] = {
 	"CHASING LATENCY", "JUGGLING SUBNETS", "POLISHING FIBER",
 };
 
+/* NextDNS: đọc từ systemd-resolved (/etc/systemd/resolved.conf DNS=...#xxx.dns.nextdns.io)
+ * Lưu ý: nmcli không hỗ trợ DoT nên chỉ dùng IP anycast (vẫn đúng profile lọc) */
+#define NEXTDNS_DNS "45.90.28.0 45.90.30.0"
+
 /* DNS presets: name, dns string cho nmcli (NULL = DHCP/auto) */
 static const struct { const char *name; const char *dns; } dns_providers[] = {
 	{ "DHCP",       NULL },
 	{ "Cloudflare", "1.1.1.1 1.0.0.1" },
 	{ "Google",     "8.8.8.8 8.8.4.4" },
+	{ "NextDNS",    NEXTDNS_DNS },
 	{ "Custom",     "" },
 };
-#define DNS_NCUSTOM 3 /* index nút Custom */
+#define DNS_NCUSTOM 4 /* index nút Custom */
 
 /* speed test */
 #define SPEED_URL "https://speed.cloudflare.com/__down?bytes=104857600"

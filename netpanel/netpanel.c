@@ -365,9 +365,22 @@ static void cb_status(Job *j)
 			snprintf(ni.conn_name, sizeof(ni.conn_name), "%s", line + 5);
 		} else if (!strncmp(line, "dns ", 4)) {
 			const char *d = line + 4;
-			ni.dns_sel = strstr(d, "1.1.1.1") || strstr(d, "1.0.0.1") ? 1
-			           : strstr(d, "8.8.8.8") || strstr(d, "8.8.4.4") ? 2
-			           : (d[0] && strcmp(d, "--")) ? 3 : 0;
+			int nprov = (int)(sizeof(dns_providers) / sizeof(dns_providers[0]));
+			if (!d[0] || !strcmp(d, "--")) {
+				ni.dns_sel = 0; /* không có DNS tĩnh = DHCP/auto */
+			} else {
+				/* so IP đầu tiên của từng preset với DNS đang đặt;
+				   không khớp preset nào → Custom */
+				ni.dns_sel = DNS_NCUSTOM;
+				for (int i = 1; i < nprov && ni.dns_sel == DNS_NCUSTOM; i++) {
+					char tok[48];
+					if (!dns_providers[i].dns ||
+					    sscanf(dns_providers[i].dns, "%47s", tok) != 1)
+						continue;
+					if (strstr(d, tok))
+						ni.dns_sel = i;
+				}
+			}
 		} else if (!strcmp(line, "__KNOWN__")) {
 			mode = 1;
 		} else if (!strcmp(line, "__SCAN__")) {
@@ -401,7 +414,7 @@ static void kick_status(void)
 	         "echo \"radio $(nmcli radio wifi)\";"
 	         "IF=" IFACE_WIFI ";"
 	         "nmcli -t -f NAME,DEVICE connection show --active | grep -m1 \":$IF\" | cut -d: -f1 | sed 's/^/conn /';"
-	         "echo \"dns $(nmcli -t --get-values IP4.DNS device show $IF 2>/dev/null | grep -v '^$' | head -n1)\";"
+	         "echo \"dns $(nmcli -t --get-values IP4.DNS device show $IF 2>/dev/null | grep -v '^$' | tr '\\n' ' ')\";"
 	         "echo __KNOWN__;"
 	         "nmcli -t -f NAME,TYPE connection show 2>/dev/null | grep 802-11-wireless | cut -d: -f1;"
 	         "if [ \"$(nmcli radio wifi)\" = enabled ]; then echo __SCAN__;"
@@ -430,7 +443,8 @@ static void apply_dns(int idx)
 	char qc[300], cmd[900];
 	sh_quote(qc, sizeof(qc), ni.conn_name);
 	snprintf(cmd, sizeof(cmd),
-	         "nmcli con mod %s ipv4.ignore-auto-dns %s ipv4.dns '%s' && nmcli con up %s",
+	         "nmcli con mod %s ipv4.ignore-auto-dns %s ipv4.dns '%s' && nmcli con up %s"
+	         " && resolvectl flush-caches",
 	         qc, ignore, dns, qc);
 	ni.dns_applying = 1;
 	g_need_redraw = 1;
@@ -783,7 +797,7 @@ static void draw_panel(void)
 	y += 34;
 	{
 		int bn = (int)(sizeof(dns_providers) / sizeof(dns_providers[0]));
-		int gap = 8;
+		int gap = 6;
 		int bw = (W - 2 * PAD - (bn - 1) * gap) / bn;
 		for (int i = 0; i < bn; i++)
 			draw_button(ID_DNS0 + i, PAD + i * (bw + gap), y, bw, 26,

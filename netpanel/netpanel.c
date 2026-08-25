@@ -358,6 +358,7 @@ static int pw_len;
 static int pw_mode;   /* 1 = đang hiện ô nhập password */
 static int pw_row;    /* index dòng other-network đang được nhập */
 
+static time_t radio_kick_at;         /* mốc kick_status bổ sung sau toggle */
 static int radio_pending;            /* đang chờ nmcli áp dụng on/off */
 static time_t radio_pending_until;   /* sau mốc này nhận lại status thật */
 
@@ -521,8 +522,9 @@ static void toggle_wifi(void)
 	   (tránh 2 lệnh radio song song tranh chấp nhau) */
 	if (radio_pending && time(NULL) < radio_pending_until)
 		return;
+	radio_kick_at = time(NULL) + 3; /* quét lại mạng sớm thay vì đợi tick 5s */
 	radio_pending = 1;
-	radio_pending_until = time(NULL) + 20;
+	radio_pending_until = time(NULL) + 3; /* chỉ chặn double-click; chặn lâu làm click BẬT bị nuốt */
 	run_bg(ni.radio_on ? "nmcli radio wifi off" : "nmcli radio wifi on");
 	ni.radio_on = !ni.radio_on; /* optimistic — status thật đến từ cb_status */
 	ni.has_wifi = 0;
@@ -1290,6 +1292,10 @@ int main(void)
 		/* hết hạn chờ toggle wifi → nhận lại status thật từ lần quét sau */
 		if (radio_pending && time(NULL) > radio_pending_until)
 			radio_pending = 0;
+		if (radio_kick_at && time(NULL) >= radio_kick_at) {
+			radio_kick_at = 0;
+			kick_status();
+		}
 
 		while (XPending(dpy)) {
 			XEvent ev;

@@ -319,8 +319,13 @@ static void poll_jobs(void)
 
 /* ============ các job cụ thể ============ */
 
-/* --- ping gateway --- */
+/* --- ping gateway ---
+ * probe nhẹ: 2 gói, deadline tổng 3s, LC_ALL=C để parse ổn định,
+ * -n bỏ resolve ngược; EWMA làm mượt giá trị hiển thị */
 static time_t last_ping = 0;
+static float ewma_ping = -1.0f;   /* -1 = chưa có dữ liệu */
+static float ewma_loss = -1.0f;
+
 static void cb_ping(Job *j)
 {
 	ni.pinging = 0;
@@ -329,18 +334,29 @@ static void cb_ping(Job *j)
 	char line[512];
 	char *p = j->out;
 	while (next_line(&p, line, sizeof(line))) {
-		float mn, av, mx, md;
 		int pc;
-		if ((sscanf(line, "%*d packets transmitted, %*d received, %d%% packet loss", &pc) == 1 ||
-		     sscanf(line, "%*d packets transmitted, %*d received, +%*d errors, %d%% packet loss", &pc) == 1))
-			loss = pc;
-		if (sscanf(line, "rtt min/avg/max/mdev = %f/%f/%f/%f ms", &mn, &av, &mx, &md) == 4 ||
-		    sscanf(line, "round-trip min/avg/max/mdev = %f/%f/%f/%f ms", &mn, &av, &mx, &md) == 4)
+		float mn, av, mx, md;
+		char *lp;
+		if ((lp = strstr(line, "packet loss")) != NULL) {
+			char *q = lp;
+			while (q > line && q[-1] >= '0' && q[-1] <= '9') q--;
+			if (sscanf(q, "%d%% packet loss", &pc) == 1) loss = pc;
+		}
+		if ((sscanf(line, "rtt min/avg/max/mdev = %f/%f/%f/%f", &mn, &av, &mx, &md) == 4 ||
+		     sscanf(line, "round-trip min/avg/max/mdev = %f/%f/%f/%f", &mn, &av, &mx, &md) == 4))
 			avg = av;
 	}
-	if (avg >= 0) snprintf(ni.ping_s, sizeof(ni.ping_s), "%.1f ms", avg);
+	if (avg < 0 && loss < 0)
+		return; /* output lạ — giữ nguyên giá trị cũ */
+
+	if (avg >= 0)
+		ewma_ping = ewma_ping < 0 ? avg : 0.6f * ewma_ping + 0.4f * avg;
+	if (loss >= 0)
+		ewma_loss = ewma_loss < 0 ? (float)loss : 0.6f * ewma_loss + 0.4f * (float)loss;
+
+	if (ewma_ping >= 0) snprintf(ni.ping_s, sizeof(ni.ping_s), "%.1f ms", (double)ewma_ping);
 	else snprintf(ni.ping_s, sizeof(ni.ping_s), "—");
-	if (loss >= 0) snprintf(ni.loss_s, sizeof(ni.loss_s), "%d%%", loss);
+	if (ewma_loss >= 0) snprintf(ni.loss_s, sizeof(ni.loss_s), "%.0f%%", (double)ewma_loss);
 	else snprintf(ni.loss_s, sizeof(ni.loss_s), "—");
 	g_need_redraw = 1;
 }
@@ -351,14 +367,13 @@ static void kick_ping(void)
 	if (time(NULL) - last_ping < 5) return;
 	last_ping = time(NULL);
 	ni.pinging = 1;
-	char qg[128], cmd[512];
+	char qg[128], cmd[560];
 	sh_quote(qg, sizeof(qg), ni.gw);
-	snprintf(cmd, sizeof(cmd), "ping -c 3 -W 1 %s 2>/dev/null", qg);
+	snprintf(cmd, sizeof(cmd), "LC_ALL=C ping -n %s -c 2 -W 1 -w 3 %s 2>/dev/null",
+	         strchr(ni.gw, ':') ? "-6" : "-4", qg);
 	if (!job_run(cmd, cb_ping)) ni.pinging = 0;
 }
 
-/* --- status tổng hợp mỗi ~5s --- */
-/* state ô nhập password — khai báo sớm vì cb_status cần ẩn ssid đang thử */
 static char pw_ssid[128];
 static char pw_buf[64];
 static int pw_len;
@@ -881,6 +896,19 @@ static int panel_height(void)
 	return h;
 }
 
+/* màu ô Ping/Packet Loss theo chất lượng: xanh tốt, xám trung bình, đỏ kém */
+static XftColor *grid_quality_color(int is_ping)
+{
+	if (is_ping) {
+		if ((ewma_loss > 0.5f) || (ewma_ping >= 200.0f)) return &err_c;
+		if (ewma_ping >= 0.0f && ewma_ping < 80.0f && ewma_loss <= 0.5f) return &ok_c;
+	} else {
+		if (ewma_loss > 0.5f) return &err_c;
+		if (ewma_loss >= 0.0f && ewma_loss <= 0.5f) return &ok_c;
+	}
+	return &label_c;
+}
+
 static void draw_panel(void)
 {
 	hits_n = 0;
@@ -953,7 +981,8 @@ static void draw_panel(void)
 			for (int c = 0; c < 2; c++) {
 				int cx = PAD + c * (colw + 24);
 				draw_text(cx, y + 15, grid_labels[r][c], f_small, &label_c);
-				draw_text_r(cx + colw, y + 16, vals[r][c], f_norm, &value_c);
+				draw_text_r(cx + colw, y + 16, vals[r][c], f_norm,
+				           r == 0 ? grid_quality_color(c == 0) : &value_c);
 			}
 			y += 32;
 		}

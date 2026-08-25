@@ -1644,7 +1644,7 @@ int main(void)
 	wa.colormap = cmap;
 	wa.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask |
 	                PointerMotionMask | KeyPressMask | StructureNotifyMask;
-	win = XCreateWindow(dpy, root, sw - PANEL_W - 8, bar_h + 2, PANEL_W, H, 0,
+	win = XCreateWindow(dpy, root, sw - PANEL_W - 8, bar_h + 6, PANEL_W, H, 0,
 	                    depth, InputOutput, vis,
 	                    CWOverrideRedirect | CWBackPixel | CWBorderPixel |
 	                    CWColormap | CWEventMask, &wa);

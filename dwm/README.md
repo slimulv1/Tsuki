@@ -31,9 +31,9 @@ sudo pacman -S --needed base-devel libx11 libxft libxinerama fontconfig freetype
 
 ```sh
 git clone https://github.com/slimulv1/dwm-dotfiles.git
-cd dwm-dotfiles
+cd dwm-dotfiles/dwm
 
-cd dwm     && sudo make clean install && cd ..   # window manager
+sudo make clean install              # window manager
 cd st      && sudo make clean install && cd ..   # terminal
 cd slock   && sudo make clean install && cd ..   # lock screen
 cd dmenu   && sudo make clean install && cd ..   # launcher
@@ -41,7 +41,7 @@ cd netpanel && sudo make clean install && cd ..  # wifi panel
 cd slstatus && sudo make install && cd ..        # statusbar (cũng build local cho run.sh)
 ```
 
-> `slstatus` được chạy qua `scripts/run.sh` bằng **binary local** (`~/dwm/slstatus/slstatus`) để `dwmwal.sh` tự rebuild + đổi màu khi đổi wallpaper mà không cần quyền root.
+> `slstatus` được chạy qua `scripts/run.sh` bằng **binary local** (`~/dwm/dwm/slstatus/slstatus`) để `dwmwal.sh` tự rebuild + đổi màu khi đổi wallpaper mà không cần quyền root.
 
 ### 3. Dotfiles
 
@@ -54,7 +54,7 @@ cp -r .config/* ~/.config/           # hoặc symlink từng thư mục
 Thêm vào `~/.xinitrc`:
 
 ```sh
-exec ~/dwm/scripts/run.sh
+exec ~/dwm/dwm/scripts/run.sh
 ```
 
 `run.sh` sẽ: nạp Xresources, set wallpaper (feh), chạy picom, polkit, fcitx5, slstatus (loop tự phục hồi), updater updates + mediacard, rồi exec dwm.

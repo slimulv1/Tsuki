@@ -3,7 +3,7 @@
 # Ưu tiên netpanel (popup X11 thuần C tự vẽ); fallback nm-connection-editor / nmtui.
 # Gọi từ dwm spawn nên cần định tuyến DISPLAY nếu chưa có.
 
-NETPANEL="$HOME/dwm/netpanel/netpanel"
+NETPANEL="$HOME/dwm/dwm/netpanel/netpanel"
 
 if [ -x "$NETPANEL" ]; then
     exec "$NETPANEL"

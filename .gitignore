@@ -1,15 +1,15 @@
 # build artifacts
 *.o
-dwm
-dwm-*.tar.gz
-slock/slock
-st/st
-slstatus/slstatus
-dmenu/dmenu
-dmenu/stest
+dwm/dwm
+dwm/dwm-*.tar.gz
+dwm/slock/slock
+dwm/st/st
+dwm/slstatus/slstatus
+dwm/dmenu/dmenu
+dwm/dmenu/stest
 
 # runtime state
-scripts/.wallpaper
+dwm/scripts/.wallpaper
 
 # editor / system
 *.swp

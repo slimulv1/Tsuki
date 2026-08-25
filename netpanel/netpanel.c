@@ -395,7 +395,7 @@ static void cb_ping(Job *j)
 	if (ewma_ping >= 0) snprintf(ni.ping_s, sizeof(ni.ping_s), "%.1f ms", (double)ewma_ping);
 	else snprintf(ni.ping_s, sizeof(ni.ping_s), "—");
 	if (ewma_loss >= 0) snprintf(ni.loss_s, sizeof(ni.loss_s), "%.0f%%", (double)ewma_loss);
-	else snprintf(ni.loss_s, sizeof(ni.loss_s), "—");
+	else snprintf(ni.loss_s, sizeof(ni.loss_s), "N/A");
 	g_need_redraw = 1;
 }
 
@@ -1427,9 +1427,7 @@ static void draw_panel(void)
 		snprintf(ttl, sizeof(ttl), "\xf3\xb0\x80\xa1 OTHER NETWORKS%s%s",
 		         ni.scanning ? "  " : "", ni.scanning ? spinner() : "");
 		draw_text(PAD, y + 9, ttl, f_small, &label_c);
-		draw_text_r(W - PAD, y + 9, "\xf3\xb0\x91\x90 Rescan", f_small,
-		            hover_id == ID_RESCAN ? &value_c : &label_c);
-		add_hit(ID_RESCAN, W - PAD - 76, y - 4, 80, 20);
+		draw_button(ID_RESCAN, W - PAD - 64, y - 2, 64, 24, "Rescan", 0);
 		y += 34;
 		int n = ni.other_n;
 		if (!n) {

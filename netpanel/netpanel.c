@@ -244,16 +244,29 @@ static void run_bg(const char *cmd)
 	}
 }
 
-static Job *job_run(const char *cmd, void (*cb)(Job *))
+/* như job_run nhưng cấp thêm stdin cho child — dùng để truyền SECRET
+ * (mật khẩu wifi) vì argv nằm lộ trong /proc/<pid>/cmdline cho mọi user */
+static Job *job_run_ex(const char *cmd, void (*cb)(Job *), const char *input)
 {
-	int pfd[2];
+	int pfd[2], ipfd[2];
+	int has_in = input && input[0];
 	if (pipe(pfd) < 0) return NULL;
+	if (has_in && pipe(ipfd) < 0) { close(pfd[0]); close(pfd[1]); return NULL; }
 	pid_t pid = fork();
-	if (pid < 0) { close(pfd[0]); close(pfd[1]); return NULL; }
+	if (pid < 0) {
+		close(pfd[0]); close(pfd[1]);
+		if (has_in) { close(ipfd[0]); close(ipfd[1]); }
+		return NULL;
+	}
 	if (pid == 0) {
 		close(pfd[0]);
 		dup2(pfd[1], STDOUT_FILENO);
 		close(pfd[1]);
+		if (has_in) {
+			dup2(ipfd[0], STDIN_FILENO);
+			close(ipfd[0]);
+			close(ipfd[1]);
+		}
 		int dn = open("/dev/null", O_WRONLY);
 		if (dn >= 0) { dup2(dn, STDERR_FILENO); if (dn > 2) close(dn); }
 		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
@@ -265,6 +278,18 @@ static Job *job_run(const char *cmd, void (*cb)(Job *))
 	fcntl(pfd[0], F_SETFD, FD_CLOEXEC);
 	fcntl(pfd[1], F_SETFD, FD_CLOEXEC);
 	close(pfd[1]);
+	if (has_in) {
+		fcntl(ipfd[1], F_SETFD, FD_CLOEXEC);
+		close(ipfd[0]);
+		/* input nhỏ (<256B) — ghi trực tiếp rồi đóng, không block */
+		size_t off = 0, ln = strlen(input);
+		while (off < ln) {
+			ssize_t w = write(ipfd[1], input + off, ln - off);
+			if (w <= 0) { if (w < 0 && errno == EINTR) continue; break; }
+			off += (size_t)w;
+		}
+		close(ipfd[1]);
+	}
 	int fl = fcntl(pfd[0], F_GETFL);
 	fcntl(pfd[0], F_SETFL, fl | O_NONBLOCK);
 	Job *j = ecalloc(1, sizeof(Job));
@@ -272,6 +297,11 @@ static Job *job_run(const char *cmd, void (*cb)(Job *))
 	j->next = jobs;
 	jobs = j;
 	return j;
+}
+
+static Job *job_run(const char *cmd, void (*cb)(Job *))
+{
+	return job_run_ex(cmd, cb, NULL);
 }
 
 static void reap(int sig) { (void)sig; while (waitpid(-1, NULL, WNOHANG) > 0) {} }
@@ -387,6 +417,22 @@ static time_t radio_pending_until;   /* sau mốc này nhận lại status thậ
 static int st_seq;           /* job status mới nhất; job cũ hơn bị bỏ qua */
 static int dns_ignore_auto; /* ipv4.ignore-auto-dns của connection */
 
+/* trạng thái kết nối sau khi submit mật khẩu (ux: feedback gần vị trí nhập,
+ * tự tắt sau ~4s theo quy tắc toast 3-5s của ui-ux-pro-max)
+ * KHAI BÁO SỚM trước cb_status vì H3 sync banner đọc/ghi trực tiếp các biến này */
+static int conn_status;   /* 0=none 1=ok 2=wrong pw 3=checking */
+static char conn_msg[128];
+static time_t conn_msg_until;
+static int conn_row;
+/* action đang chạy: ssid mục tiêu + có phải reconnect mạng đã lưu không */
+static char conn_target[128];
+static int conn_was_known;
+/* generation counter: timeout tăng lên để callback đến muộn bị bỏ qua */
+static int conn_seq;
+/* mốc 30s > auth-timeout ~25s của NetworkManager: lỗi sai mật khẩu (đã lưu)
+ * phải kịp land khi action còn track thì mới hiện được "Wrong password" */
+static time_t conn_deadline;
+
 static void cb_status(Job *j)
 {
 	/* kết quả của job cũ hơn (phát trước lần kick gần nhất) thì bỏ —
@@ -458,12 +504,17 @@ static void cb_status(Job *j)
 					for (int k = 0; k < ni.other_n && !dup; k++)
 						if (!strcmp(ni.other[k], ssid))
 							dup = 1;
-					if (pw_mode && !strcmp(ssid, pw_ssid))
-						dup = 1;
+					/* LƯU Ý: KHÔNG loại pw_ssid khỏi OTHER — ssid đang
+					 * thử phải nằm đây để pw_row/banner neo đúng vị trí
+					 * (chỉ bị ẩn khỏi KNOWN ở mode 1 phía trên) */
+					/* OWE (Enhanced Open): mã hóa traffic nhưng KHÔNG cần
+					   mật khẩu — không hiện ổ khóa, không mở prompt */
+					int secured = sec[0] && strcmp(sec, "--") &&
+					              strncmp(sec, "OWE", 3) != 0;
 					if (!dup) {
 						snprintf(ni.other[ni.other_n], 128, "%s", ssid);
 						ni.other_sig[ni.other_n] = sig;
-						ni.other_sec[ni.other_n] = sec[0] && strcmp(sec, "--") ? 1 : 0;
+						ni.other_sec[ni.other_n] = secured;
 						ni.other_use[ni.other_n] = (use[0] == '*');
 						ni.other_n++;
 					}
@@ -471,6 +522,18 @@ static void cb_status(Job *j)
 			}
 		}
 	}
+	/* resolve vị trí row cho ô nhập mở mà chưa biết row (known-fail):
+	   ssid bị tách khỏi KNOWN phía trên nên sẽ xuất hiện trong OTHER */
+	if (pw_mode && pw_row < 0 && pw_ssid[0])
+		for (int k = 0; k < ni.other_n; k++)
+			if (!strcmp(ni.other[k], pw_ssid)) {
+				pw_row = k;
+				/* banner kết quả (Wrong password/timeout) neo cùng
+				   ssid — conn_row cũ trỏ index KNOWN đã hết nghĩa */
+				if (conn_status == 2 && time(NULL) < conn_msg_until)
+					conn_row = k;
+				break;
+			}
 	g_need_redraw = 1;
 }
 
@@ -568,17 +631,27 @@ static void toggle_wifi(void)
 /* --- nhập mật khẩu inline ngay dưới dòng SSID được chọn --- */
 /* (pw_ssid/pw_buf/pw_len/pw_mode/pw_row đã khai báo sớm phía trên cb_status) */
 static int pw_known_before; /* 1 nếu ssid đã là profile đã lưu TRƯỚC khi thử connect
-                             * → sai mk thì KHÔNG delete profile (giữ mật khẩu cũ) */
+                             * sai mk thì KHÔNG delete profile (giữ mật khẩu cũ) */
 
-/* trạng thái kết nối sau khi submit mật khẩu (ux: feedback gần vị trí nhập,
- * tự tắt sau ~4s theo quy tắc toast 3-5s của ui-ux-pro-max) */
-static int conn_status;   /* 0=none 1=ok 2=wrong pw 3=checking */
-static char conn_msg[128];
-static time_t conn_msg_until;
-static int conn_row;
+/* mở ô nhập mật khẩu cho ssid (dùng khi connect mới hoặc known-fail) */
+static void open_pw_prompt(const char *ssid, int known_before)
+{
+	snprintf(pw_ssid, sizeof(pw_ssid), "%s", ssid);
+	pw_known_before = known_before;
+	pw_mode = 1;
+	pw_len = 0;
+	pw_buf[0] = '\0';
+	pw_row = -1; /* index cũ là stale — để cb_status resolve lại theo ssid */
+	g_need_redraw = 1;
+}
 
 static void cb_connect_done(Job *j)
 {
+	/* kết quả của phiên submit cũ hơn (sau timeout) thì bỏ */
+	if (j->seq && j->seq != conn_seq)
+		return;
+	conn_deadline = 0;
+	conn_target[0] = '\0';
 	/* marker do shell wrapper in ra (fallback: từ khóa lỗi nmcli) */
 	if (strstr(j->out, "NETPANEL_FAIL") ||
 	    strstr(j->out, "Error") || strstr(j->out, "error") ||
@@ -608,26 +681,70 @@ static void submit_pw(void)
 {
 	if (conn_status == 3) return; /* đang chờ kết quả — chống double-submit */
 	if (!pw_len || !pw_ssid[0]) { pw_mode = 0; return; }
-	char qp[300], qs[300], cmd[1500];
-	sh_quote(qp, sizeof(qp), pw_buf);
+	char qs[300], cmd[1600];
 	sh_quote(qs, sizeof(qs), pw_ssid);
-	/* wrapper shell: tự xóa profile rác khi activation fail — phải nằm
-	   trong shell (không phải callback) để vẫn chạy dù panel đã đóng
-	   giữa chừng nmcli retry 30-60s */
+	/* BẢO MẬT: mật khẩu KHÔNG đi qua argv — /proc/<pid>/cmdline world-readable
+	   suốt 30-60s nmcli retry. Secret đi qua stdin (job_run_ex), rồi được bơm
+	   vào profile qua editor 'nmcli connection edit' bằng printf builtin
+	   (không spawn process nào chứa mật khẩu). Wrapper tự xóa profile rác
+	   khi activation fail — chạy trong shell để vẫn hoàn tất dù panel đóng. */
 	snprintf(cmd, sizeof(cmd),
-	         "out=$(nmcli dev wifi connect %s password %s 2>&1); "
-	         "case \"$out\" in *Error*|*error*|*failed*) "
-	         "nmcli connection delete %s >/dev/null 2>&1; echo NETPANEL_FAIL; ;; "
-	         "*) echo NETPANEL_OK; ;; esac", qs, qp, qs);
+	         "u=$(uuidgen); IFS= read -r pw; "
+	         "if nmcli connection add type wifi con-name %1$s ssid %1$s "
+	         "connection.uuid \"$u\" wifi-sec.key-mgmt wpa-psk >/dev/null 2>&1 "
+	         "&& printf 'set wifi-sec.psk %%s\\nsave\\nquit\\n' \"$pw\" "
+	         "| nmcli connection edit uuid \"$u\" >/dev/null 2>&1 "
+	         "&& nmcli connection up uuid \"$u\" >/dev/null 2>&1; then "
+	         "echo NETPANEL_OK; else "
+	         "nmcli connection delete uuid \"$u\" >/dev/null 2>&1 "
+	         "|| nmcli connection delete %1$s >/dev/null 2>&1; " /* retry theo con-name nếu delete-by-uuid hụt */
+	         "echo NETPANEL_FAIL; fi",
+	         qs);
 	conn_status = 3;
 	snprintf(conn_msg, sizeof(conn_msg), "Checking password…");
 	conn_row = pw_row;
-	conn_msg_until = time(NULL) + 12; /* chỉ dùng hiển thị; pending không tự tắt */
-	job_run(cmd, cb_connect_done);
+	conn_msg_until = time(NULL) + 30;
+	snprintf(conn_target, sizeof(conn_target), "%s", pw_ssid);
+	conn_was_known = 0;
+	int my = ++conn_seq;
+	Job *jb = job_run_ex(cmd, cb_connect_done, pw_buf);
+	if (!jb) { conn_status = 0; return; }
+	jb->seq = my;
+	conn_deadline = time(NULL) + 30;
 	/* refresh sau 3s cho nmcli kịp nối */
 	run_bg("( sleep 3; killall -USR1 netpanel 2>/dev/null ) >/dev/null 2>&1 &");
 	/* không xóa pw state ở đây — cb_connect_done quyết định giữ (sai)
 	   hay xóa (đúng) để người dùng biết kết quả */
+	g_need_redraw = 1;
+}
+
+/* --- connect mạng ĐÃ LƯU qua job có phát hiện lỗi ---
+ * `nmcli con up` fire-and-forget cũ là điểm mù: mật khẩu lưu sai chỉ fail
+ * sau auth-timeout ~25s của NM mà không ai hay. Giờ chạy như job + timeout
+ * 30s → fail kịp hiện banner và mở lại ô nhập mật khẩu. */
+static void cb_known_connect(Job *j)
+{
+	if (j->seq && j->seq != conn_seq)
+		return; /* stale sau timeout */
+	conn_deadline = 0;
+	char ssid[128];
+	snprintf(ssid, sizeof(ssid), "%s", conn_target);
+	conn_target[0] = '\0';
+	if (strstr(j->out, "NETPANEL_FAIL") || strstr(j->out, "Error") ||
+	    strstr(j->out, "error") || strstr(j->out, "failed")) {
+		conn_status = 2;
+		conn_was_known = 0; /* banner theo ô nhập chuyển sang list OTHER */
+		snprintf(conn_msg, sizeof(conn_msg),
+		         "Wrong password — enter new one");
+		/* mở prompt: cb_status sẽ tách ssid khỏi KNOWN (đang pw_mode)
+		   và đẩy sang OTHER để render ô nhập đúng vị trí */
+		open_pw_prompt(ssid, 1);
+	} else {
+		conn_status = 1;
+		snprintf(conn_msg, sizeof(conn_msg), "Connected");
+	}
+	conn_msg_until = time(NULL) + 4;
+	kick_status();
 	g_need_redraw = 1;
 }
 
@@ -637,8 +754,21 @@ static void do_connect(const char *ssid, int secured)
 		if (!strcmp(ni.known[i], ssid)) {
 			char qs[300], cmd[512];
 			sh_quote(qs, sizeof(qs), ssid);
-			snprintf(cmd, sizeof(cmd), "nmcli con up %s", qs);
-			run_bg(cmd);
+			snprintf(cmd, sizeof(cmd),
+			         "if nmcli con up %s >/dev/null 2>&1; then "
+			         "echo NETPANEL_OK; else echo NETPANEL_FAIL; fi", qs);
+			if (conn_status == 3) return; /* một action mỗi lúc */
+			snprintf(conn_target, sizeof(conn_target), "%s", ssid);
+			conn_was_known = 1;
+			int my = ++conn_seq;
+			Job *jb = job_run(cmd, cb_known_connect);
+			if (!jb) return;
+			jb->seq = my;
+			conn_deadline = time(NULL) + 30;
+			conn_status = 3;
+			snprintf(conn_msg, sizeof(conn_msg), "Connecting…");
+			conn_row = i;
+			conn_msg_until = time(NULL) + 30;
 			g_need_redraw = 1;
 			return;
 		}
@@ -737,6 +867,99 @@ static void tick_speedtest(void)
 	g_need_redraw = 1;
 }
 
+/* --- wi-fi band pinning (2.4/5/6 GHz) ---
+ * Logic nặng nằm ở netpanel-band.sh (adapt omarchy-network-band): pin BAND
+ * chứ không pin BSSID (roaming còn nguyên), danh sách khả dụng luôn gồm band
+ * đang đứng, fail thì tự revert setting cũ. Panel chỉ poll + hiển thị. */
+static char band_cur[8] = "";      /* band radio đang đứng: ""|"2.4"|"5"|"6" */
+static char band_sel[8] = "auto";  /* lựa chọn đã pin; "auto" nếu không pin */
+static char band_avail[8][8];      /* các band SSID chạm tới được */
+static int  band_n;
+static int  band_busy;             /* đang chờ script đặt band (reconnect) */
+
+static int band_section_visible(void)
+{
+	return ni.has_wifi && (band_n > 1 || strcmp(band_sel, "auto") != 0);
+}
+
+static void cb_band(Job *j)
+{
+	char line[128], val[8], *p = j->out;
+	while (next_line(&p, line, sizeof(line))) {
+		if (sscanf(line, "band %7s", val) == 1)
+			snprintf(band_cur, sizeof(band_cur), "%s", val);
+		else if (sscanf(line, "selected %7s", val) == 1)
+			snprintf(band_sel, sizeof(band_sel), "%s", val);
+		else if (!strncmp(line, "available ", 10)) {
+			band_n = 0;
+			char *tok = line + 10;
+			while (*tok && band_n < 8) {
+				while (*tok == ' ') tok++;
+				if (!*tok) break;
+				char *e = strchr(tok, ' ');
+				size_t l = e ? (size_t)(e - tok) : strlen(tok);
+				if (l > 7) l = 7;
+				memcpy(band_avail[band_n], tok, l);
+				band_avail[band_n][l] = '\0';
+				band_n++;
+				tok = e ? e + 1 : tok + l;
+			}
+		}
+	}
+	g_need_redraw = 1;
+}
+
+static void band_script_cmd(char *dst, size_t dn, const char *arg)
+{
+	const char *home = getenv("HOME");
+	if (!home) { dst[0] = '\0'; return; }
+	char qp[300];
+	sh_quote(qp, sizeof(qp), home);
+	snprintf(dst, dn, "%s/dwm/netpanel/netpanel-band.sh%s%s", qp,
+	         arg ? " " : "", arg ? arg : "");
+}
+
+static void kick_band(void)
+{
+	if (band_busy || !ni.has_wifi) return;
+	char cmd[320];
+	band_script_cmd(cmd, sizeof(cmd), NULL);
+	if (!cmd[0]) return;
+	job_run(cmd, cb_band);
+}
+
+static void cb_band_apply(Job *j)
+{
+	band_busy = 0;
+	/* OK: đọc lại trạng thái thật sau reconnect.
+	   ERR: script TỰ revert setting cũ — cố ý KHÔNG đổi band_sel để
+	   pills phản chiếu đúng cái đang có hiệu lực, không phải cái vừa yêu cầu. */
+	if (strstr(j->out, "NETPANEL_BAND_OK")) {
+		band_sel[0] = '\0'; /* buộc refresh từ trạng thái thật */
+		kick_band();
+	}
+	g_need_redraw = 1;
+}
+
+static void apply_band(int idx) /* 0=auto 1=2.4 2=5 3=6 */
+{
+	static const char *t[] = { "auto", "2.4", "5", "6" };
+	/* conn_status==3: script sẽ `nmcli connection up` tranh chấp thiết bị
+	 * với activation đang chờ → cấm tới khi action connect xong */
+	if (idx < 0 || idx > 3 || band_busy || !ni.has_wifi || conn_status == 3)
+		return;
+	if (!strcmp(t[idx], band_sel)) return;
+	char cmd[360];
+	band_script_cmd(cmd, sizeof(cmd), t[idx]);
+	if (!cmd[0]) return;
+	band_busy = 1; /* giữ section ổn định qua lần reconnect mà đổi band gây ra */
+	g_need_redraw = 1;
+	/* job_run NULL (fork/pipe fail) thì phải nhả busy — không là section band
+	 * đóng băng vĩnh viễn vì cb_band_apply không bao giờ chạy */
+	if (!job_run(cmd, cb_band_apply))
+		band_busy = 0;
+}
+
 /* SIGUSR1: curl xong hoặc sau-connect refresh */
 static volatile sig_atomic_t got_usr1 = 0;
 static void on_usr1(int sig) { (void)sig; got_usr1 = 1; }
@@ -773,6 +996,7 @@ static int hits_n;
 enum {
 	ID_TOGGLE = 1, ID_QR,
 	ID_DNS0, ID_DNS1, ID_DNS2, ID_DNS3,
+	ID_BAND0, ID_BAND1, ID_BAND2, ID_BAND3,
 	ID_RUN, ID_RESCAN, ID_PW_CONNECT,
 	ID_KNOWN_BASE = 100, ID_OTHER_BASE = 200,
 };
@@ -884,6 +1108,7 @@ static int panel_height(void)
 	int h = PAD;
 	h += 44;                                  /* header */
 	h += 10 + GRID_ROWS * 32 + 14;            /* grid */
+	h += band_section_visible() ? 34 + 28 + 14 : 0; /* wi-fi band pills */
 	h += 34 + 28 + 14;                        /* dns */
 	h += 34 + 28 + 14;                        /* speed test */
 	h += 34;                                  /* known title */
@@ -907,6 +1132,28 @@ static XftColor *grid_quality_color(int is_ping)
 		if (ewma_loss >= 0.0f && ewma_loss <= 0.5f) return &ok_c;
 	}
 	return &label_c;
+}
+
+/* banner kết quả connect (xanh=ok, đỏ=sai/timeout, xám=đang chờ) —
+ * tách helper dùng chung cho cả vòng KNOWN lẫn OTHER. Chỉ list SỞ HỮU
+ * action mới vẽ (`in_known` khớp nguồn gốc conn_was_known) để không
+ * lặp ở hai list khi index trùng — panel_height chỉ đếm banner 1 lần.
+ * Trả về 32 nếu đã vẽ, 0 nếu không. */
+static int draw_result_banner_if(int row, int y, int in_known)
+{
+	if (!conn_status || conn_row != row || time(NULL) >= conn_msg_until)
+		return 0;
+	if (in_known != (conn_was_known != 0))
+		return 0;
+	XftColor *bc = conn_status == 1 ? &ok_c
+	             : conn_status == 2 ? &err_c : &label_c;
+	const char *icon = conn_status == 1 ? "✓"
+	                 : conn_status == 2 ? "✗" : "⋯";
+	rrect_fill(PAD - 8, y + 2, PANEL_W - 2 * PAD + 16, 28, 0, bg_card.pixel);
+	rrect_stroke(PAD - 8, y + 2, PANEL_W - 2 * PAD + 16, 28, 0, bc->pixel);
+	draw_text(PAD + 4, y + 21, icon, f_small, bc);
+	draw_text(PAD + 22, y + 21, conn_msg, f_small, bc);
+	return 32;
 }
 
 static void draw_panel(void)
@@ -989,6 +1236,29 @@ static void draw_panel(void)
 	}
 	y += 14;
 
+	/* ---- wi-fi band ---- */
+	if (band_section_visible()) {
+		char ttl[64];
+		const char *title = "󰤨 WI-FI BAND";
+		/* auto + đã biết band đang đứng → hiện kèm band hiện tại */
+		if (!strcmp(band_sel, "auto") && band_cur[0] && strcmp(band_cur, "?")) {
+			snprintf(ttl, sizeof(ttl), "%s WI-FI BAND \xc2\xb7 %s",
+			         "󰤨", band_cur);
+			title = ttl;
+		}
+		draw_text(PAD, y + 9, title, f_small, &label_c);
+		y += 34;
+		int bn = band_n > 0 ? band_n : 1;
+		if (bn > 4) bn = 4;
+		int bw = ((W - 2 * PAD) - (bn - 1) * 6) / bn; /* cùng kiểu int như dns pills */
+		draw_button(ID_BAND0, PAD, y, bw, 26, "Auto", !strcmp(band_sel, "auto"));
+		for (int i = 0; i < bn - 1 && i < 3; i++)
+			draw_button(ID_BAND0 + 1 + i, PAD + (i + 1) * (bw + 6),
+			            y, bw, 26, band_avail[i],
+			            !strcmp(band_sel, band_avail[i]));
+		y += 30 + 14;
+	}
+
 	/* ---- DNS provider ---- */
 	draw_text(PAD, y + 9, "\xf3\xb0\xa7\x9b DNS PROVIDER", f_small, &label_c);
 	y += 34;
@@ -1044,9 +1314,10 @@ static void draw_panel(void)
 			          is_cur ? f_bold : f_norm, is_cur ? &value_c : &label_c);
 			if (is_cur)
 				draw_text_r(W - PAD - 20, y + 19, "Connected", f_small, &ok_c);
-			draw_text_r(W - PAD, y + 19, "", f_small, &label_c);
+			draw_text_r(W - PAD, y + 19, "", f_small, &label_c);
 			add_hit(ID_KNOWN_BASE + i, PAD - 8, y, W - 2 * PAD + 16, 30);
 			y += 32;
+			y += draw_result_banner_if(i, y, 1);
 		}
 	}
 	y += 14;
@@ -1084,19 +1355,10 @@ static void draw_panel(void)
 				draw_text_r(W - PAD, y + 19, "", f_small, &label_c);
 			add_hit(ID_OTHER_BASE + i, PAD - 8, y, W - 2 * PAD + 16, 30);
 			y += 32;
-			/* banner kết quả: xanh=đúng mật khẩu, đỏ=sai (ux: error
-			   hiện cạnh vị trí nhập, toast tự tắt 3-5s) */
-			if (conn_status && conn_row == i && time(NULL) < conn_msg_until) {
-				XftColor *bc = conn_status == 1 ? &ok_c
-				             : conn_status == 2 ? &err_c : &label_c;
-				const char *icon = conn_status == 1 ? "✓"
-				                 : conn_status == 2 ? "✗" : "⋯";
-				rrect_fill(PAD - 8, y + 2, W - 2 * PAD + 16, 28, 0, bg_card.pixel);
-				rrect_stroke(PAD - 8, y + 2, W - 2 * PAD + 16, 28, 0, bc->pixel);
-				draw_text(PAD + 4, y + 21, icon, f_small, bc);
-				draw_text(PAD + 22, y + 21, conn_msg, f_small, bc);
-				y += 32;
-			}
+			/* banner kết quả: helper chung KNOWN/OTHER (xanh=đúng
+			   mật khẩu, đỏ=sai — ux: error hiện cạnh vị trí nhập,
+			   toast tự tắt 3-5s) */
+			y += draw_result_banner_if(i, y, 0);
 			/* ô nhập mật khẩu ngay dưới SSID được chọn */
 			if (pw_mode && pw_row == i) {
 				rrect_fill(PAD - 8, y + 2, W - 2 * PAD + 16, 40, 0, bg_card.pixel);
@@ -1143,6 +1405,8 @@ static void handle_click(int id)
 	default:
 		if (id >= ID_DNS0 && id <= ID_DNS3)
 			apply_dns(id - ID_DNS0);
+		else if (id >= ID_BAND0 && id <= ID_BAND3)
+			apply_band(id - ID_BAND0);
 		else if (id >= ID_OTHER_BASE) {
 			int i = id - ID_OTHER_BASE;
 			if (i < ni.other_n) {
@@ -1166,6 +1430,7 @@ int main(void)
 	snprintf(ni.ping_s, sizeof(ni.ping_s), "…");
 	snprintf(ni.loss_s, sizeof(ni.loss_s), "…");
 
+	signal(SIGPIPE, SIG_IGN); /* write vào pipe child chết sớm không được giết panel */
 	signal(SIGCHLD, reap);
 	signal(SIGUSR1, on_usr1);
 	signal(SIGUSR2, on_usr2);
@@ -1402,6 +1667,27 @@ int main(void)
 
 		time_t now = time(NULL);
 		tick_speedtest();
+		/* pending quá deadline (30s > auth-timeout NM) mà không hồi âm →
+		   tự hủy phiên: tăng conn_seq vô hiệu callback đến muộn, hiện
+		   banner timeout và mở lại ô nhập mật khẩu để thử lại */
+		if (conn_status == 3 && conn_deadline && now > conn_deadline) {
+			conn_seq++;               /* vô hiệu callback muộn */
+			conn_deadline = 0;
+			conn_status = 2;
+			char tgt[128];
+			snprintf(tgt, sizeof(tgt), "%s", conn_target);
+			conn_target[0] = '\0';
+			snprintf(conn_msg, sizeof(conn_msg), "Connection timed out");
+			if (conn_was_known && tgt[0]) {
+				open_pw_prompt(tgt, 1);
+				conn_was_known = 0; /* banner theo prompt sang list OTHER */
+			} else if (pw_ssid[0]) {
+				pw_mode = 1;
+			}
+			conn_msg_until = now + 4;
+			kick_status();
+			g_need_redraw = 1;
+		}
 		if (now - last_tick >= 5) {
 			last_tick = now;
 			int mode = iface_active(ni.essid, sizeof(ni.essid));
@@ -1410,6 +1696,7 @@ int main(void)
 			get_ip_gw(mode == 1 ? IFACE_WIRED : IFACE_WIFI);
 			get_signal_perc();
 			kick_ping();
+			kick_band();
 			/* đang nhập mật khẩu thì KHÔNG rescan định kỳ — tránh
 			   đổi thứ tự list làm ô nhập neo nhầm SSID */
 			if (!pw_mode)

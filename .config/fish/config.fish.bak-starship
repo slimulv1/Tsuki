@@ -1,0 +1,28 @@
+source /usr/share/cachyos-fish-config/cachyos-config.fish
+
+# overwrite greeting
+# potentially disabling fastfetch
+#function fish_greeting
+#    # smth smth
+#end
+if status is-login
+    set -Ux GTK_IM_MODULE fcitx
+    set -Ux QT_IM_MODULE fcitx
+    set -Ux XMODIFIERS @im=fcitx
+    set -Ux SDL_IM_MODULE fcitx
+    set -Ux GLFW_IM_MODULE ibus
+end
+
+
+
+# bun
+set --export BUN_INSTALL "$HOME/.bun"
+set --export PATH $BUN_INSTALL/bin $PATH
+export OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true
+
+function fish_greeting
+    anifetch ~/.config/fastfetch/images/cirno.gif -ca "--symbols wide --fg-only"
+end
+
+# chadwm (dwm build) - start via startx on a fresh X session
+alias chadwm='startx ~/.config/chadwm/scripts/run.sh'

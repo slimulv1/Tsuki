@@ -1,0 +1,37 @@
+# CachyOS system config — stderr silenced: upstream has 2 broken `alias vim = helix`
+# lines (spaces around '=') that print warnings and define nothing.
+source /usr/share/cachyos-fish-config/cachyos-config.fish 2>/dev/null
+
+# restore intended aliases (broken upstream)
+alias vim 'helix'
+alias nvim 'helix'
+
+# overwrite greeting
+# potentially disabling fastfetch
+#function fish_greeting
+#    # smth smth
+#end
+if status is-login
+    set -Ux GTK_IM_MODULE fcitx
+    set -Ux QT_IM_MODULE fcitx
+    set -Ux XMODIFIERS @im=fcitx
+    set -Ux SDL_IM_MODULE fcitx
+    set -Ux GLFW_IM_MODULE ibus
+end
+
+
+
+# bun
+set --export BUN_INSTALL "$HOME/.bun"
+set --export PATH $BUN_INSTALL/bin $PATH
+export OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true
+
+function fish_greeting
+    anifetch ~/.config/fastfetch/images/cirno.gif -ca "--symbols wide --fg-only"
+end
+
+# chadwm (dwm build) - start via startx on a fresh X session
+alias chadwm='startx ~/.config/chadwm/scripts/run.sh'
+
+# starship prompt — Arisa's terminal decor
+starship init fish | source

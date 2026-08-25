@@ -1,0 +1,59 @@
+# CachyOS system config — stderr silenced: upstream has 2 broken `alias vim = helix`
+# lines (spaces around '=') that print warnings and define nothing.
+source /usr/share/cachyos-fish-config/cachyos-config.fish 2>/dev/null
+
+# restore intended aliases (broken upstream)
+alias vim 'nvim'
+alias arisa 'opencode'
+alias Arisa 'opencode'
+alias opencode-clean 'rm -rf ~/.local/share/opencode ~/.config/opencode ~/.cache/opencode ~/.local/state/opencode /tmp/opencode ./.opencode.json ./.opencode/ 2>/dev/null; and echo "✅ Đã xóa sạch dữ liệu OpenCode"'
+alias cdwm 'vim ~/dwm/config.h'
+alias mdwm 'cd ~/dwm; sudo make install; cd -'
+# overwrite greeting
+# potentially disabling fastfetch
+#function fish_greeting
+#    # smth smth
+#end
+if status is-login
+    set -Ux GTK_IM_MODULE fcitx
+    set -Ux QT_IM_MODULE fcitx
+    set -Ux XMODIFIERS @im=fcitx
+    set -Ux SDL_IM_MODULE fcitx
+    set -Ux GLFW_IM_MODULE ibus
+end
+
+
+
+# bun
+set --export BUN_INSTALL "$HOME/.bun"
+set --export PATH $BUN_INSTALL/bin $PATH
+export OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true
+
+#function fish_greeting
+#    anifetch ~/.config/fastfetch/images/cirno.gif -ca "--symbols wide --fg-only"
+#end
+
+
+
+# starship prompt — Arisa's terminal decor
+starship init fish | source
+
+# nicer ls/cat (eza + bat are installed) — Arisa's taste
+alias ls 'eza --icons --group-directories-first'
+alias ll 'eza --icons --group-directories-first --time-style long-iso -l'
+alias la 'eza --icons --group-directories-first --time-style long-iso -la'
+alias lt 'eza --icons --group-directories-first --tree --level 2'
+alias cat 'bat --paging=never'
+
+# Arisa's greeting — thay lời chào mặc định của fish
+function fish_greeting
+    set_color --bold bb9af7
+    echo "アリサ、オンライン — ターミナル準備完了。ご主人様、今日は何をいたしましょうか？"
+    set_color normal
+end
+
+# Lớp Bảo Vệ Arisa — công cụ nhanh (scan/backup/restore/check)
+alias scan-skill '~/.local/bin/scan-skill.sh --all'
+alias backup-opencode '~/.local/bin/backup-opencode.sh'
+alias restore-opencode '~/.local/bin/restore-opencode.sh'
+alias check-skills '~/.local/bin/check-skills.sh'

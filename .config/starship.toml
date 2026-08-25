@@ -1,0 +1,29 @@
+# ═══════════════════════════════════════════════════════════
+#  Starship — prompt giống ảnh Loom (powerline style)
+#  /bin/fish  user  ~  ❯  — nền đen → xám đậm → xám nhạt
+#  (backup cũ: starship.toml.bak-pre-image)
+# ═══════════════════════════════════════════════════════════
+
+add_newline = false
+scan_timeout = 30
+command_timeout = 500
+
+format = "$username$directory$character"
+
+# ── Username: /bin/fish (nền đen) + user (nền xám đậm) ──────
+[username]
+show_always = true
+format = "[ /bin/fish ](bg:#11111b fg:#c0caf5)[ $user ](bg:#2e3440 fg:#d8dee9)"
+
+# ── Directory (nền xám nhạt, prompt_pwd style như fish) ─────
+[directory]
+style = "bg:#3b4252 fg:#d8dee9"
+format = "[$path]($style) "
+truncation_length = 0
+fish_style_pwd_dir_length = 0
+
+# ── Prompt character ❯ ──────────────────────────────────────
+[character]
+success_symbol = "[❯](bold #88c0d0)"
+error_symbol = "[❯](bold #f7768e)"
+vimcmd_symbol = "[❮](bold #9ece6a)"

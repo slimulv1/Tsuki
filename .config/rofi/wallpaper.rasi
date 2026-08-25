@@ -1,0 +1,104 @@
+@import "/home/magnus/.cache/wal/colors-rofi-dark.rasi"
+
+configuration {
+  display-drun: " ";
+  display-window: " :";
+  display-filebrowser: " ";
+
+  show-icons: true;
+  drun-display-format: "{icon} {name}";
+}
+
+* {
+  font: "CaskaydiaCove Nerd Font 12";
+  icon-font: "CaskaydiaCove Nerd Font Medium 18";
+
+    active-foreground: @foreground;
+    normal-background: @background;
+    normal-foreground: @foreground;
+
+    urgent-foreground: @foreground;
+}
+
+window {
+  background-color: @background;
+  transparency: "real";
+  height: 43%;
+  width: 60%;
+  border-color: @background;
+  border: 0 ;
+  border-radius: 0px;
+}
+
+mainbox {
+  background-color: transparent;
+  padding: 30px 30px 30px 30px;
+}
+
+inputbar {
+  background-color: transparent;
+  padding: 5px 10px 25px 10px;
+}
+
+prompt {
+  background-color: transparent;
+  text-color: @normal-foreground;
+  padding: 0px 10px 0px 0px;
+}
+
+entry {
+  background-color: transparent;
+  text-color: @normal-foreground;
+}
+
+message {
+  background-color: transparent;
+  padding: 0px 10px 12px 14px;
+  text-color: @foreground;
+}
+
+listview {
+  background-color: transparent;
+  padding: 0px 5px 0px 5px;
+  spacing: 0.2;
+  columns: 5;
+  rows: 1;
+  scrollbar: false;
+}
+
+element {
+  background-color: transparent;
+  padding: 5px 2px 5px 2px;
+}
+
+element.normal.normal {
+    background-color: transparent;
+    text-color: @foreground;
+}
+element.selected.normal {
+    border-radius: 7px;
+    background-color: @selected-normal-background;
+    color: @selected-normal-foreground;
+}
+element.alternate.normal {
+    background-color: transparent;
+    text-color: @foreground;
+}
+
+element selected {
+  background-color: @foreground;
+  color: @background;
+}
+
+element-icon {
+  size: 213px;
+  border: 0px;
+}
+
+element-text {
+  expand: true;
+}
+
+element-text, element-icon {
+    background-color: inherit;
+}

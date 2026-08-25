@@ -2,8 +2,6 @@
 
 Bộ rice Linux của tôi: **dwm** (window manager) + **slstatus** (statusbar) + dotfiles cho Arch/CachyOS. Màu theme tự sinh từ wallpaper — đổi hình nền là toàn bộ bar, rofi, dunst đổi màu theo.
 
-![screenshot](assets/wallpaper.png)
-
 ## Thành phần
 
 | Thành phần | Vai trò |
@@ -43,6 +41,14 @@ cd slstatus && sudo make install && cd ..        # statusbar (cũng build local 
 
 > `slstatus` được chạy qua `scripts/run.sh` bằng **binary local** (`~/dwm/slstatus/slstatus`) để `dwmwal.sh` tự rebuild + đổi màu khi đổi wallpaper mà không cần quyền root.
 
+### 3. Đưa nguồn về ~/dwm
+
+Các script chạy theo đường dẫn `$HOME/dwm`, nên cần nội dung thư mục `dwm/` nằm tại `~/dwm`:
+
+```sh
+mkdir -p ~/dwm && cp -r dwm/* ~/dwm/   # hoặc rsync/symlink
+```
+
 ### 3. Dotfiles
 
 ```sh
@@ -66,8 +72,6 @@ Nhấn **Super + w** → chọn ảnh trong rofi picker. `dwmwal.sh` tự:
 1. Extract palette từ ảnh (`walgen.py`)
 2. Rebuild dwm + sinh lại màu slstatus (CPU/RAM/disk/temp luôn dùng biến thể sáng, dễ đọc trên bar tối)
 3. Cập nhật màu rofi, dunst
-
-Ảnh nền mẫu: [`assets/wallpaper.png`](assets/wallpaper.png).
 
 ## Keybinds
 

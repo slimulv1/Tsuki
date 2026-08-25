@@ -7,8 +7,8 @@
 #include "../util.h"
 
 /* doc: so update pacman tu ~/.cache/dwm-updates
- * n > 0 -> icon + so mau ON (trang), nhu bar.sh cu
- * n = 0 -> chi icon mau OFF (xanh), khong so
+ * n > 0 -> icon + so mau ON (trang)
+ * n = 0 -> AN HOAN TOAN (tra ve chuoi rong, khong icon khong so)
  * Mau lay tu args truyen trong config.h: "ONHEX OFFHEX" (hex khong co '#'),
  * dwmwal.sh thay 2 sentinel UPD_ON_HEX / UPD_OFF_HEX moi khi doi wallpaper. */
 const char *
@@ -45,18 +45,15 @@ updates(const char *arg)
         }
 
 /* parse "ONHEX OFFHEX" tu args (config.h); fallback mau mac dinh
-	 * icon: n = 0 -> \uF013 gear (da update het), n > 0 -> \uF013 gear + so update phia sau */
-	if (arg && sscanf(arg, "%7s %7s", on, off) == 2) {
-		if (n > 0)
+ * icon: n = 0 -> AN (chuoi rong), n > 0 -> \uF013 gear + so update */
+	if (n > 0) {
+		if (arg && sscanf(arg, "%7s %7s", on, off) == 2)
 			snprintf(buf, sizeof(buf), "^c%s^\uF013 %ld^d^ ", on, n);
 		else
-			snprintf(buf, sizeof(buf), "^c%s^\uF013^d^ ", off);
-	} else {
-		if (n > 0)
 			snprintf(buf, sizeof(buf), "^c#c3d3df^\uF013 %ld^d^ ", n);
-		else
-			snprintf(buf, sizeof(buf), "^c#386282^\uF013^d^ ");
+	} else {
+		buf[0] = '\0';
 	}
 
-        return buf;
+	return buf;
 }

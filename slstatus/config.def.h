@@ -70,6 +70,9 @@ static const struct arg args[] = {
     // LUU Y: dwm status2d CHI hieu ^c#HEX^ / ^b#HEX^ / ^d^ - KHONG hieu ^Cindex^
 
     // (truoc day ^C9^ bi hien thi nguyen van, thanh bar khong co mau).
+    // RIENG net_icon + wifi_panel: MAU CO DINH (literal, khong XXX_HEX) —
+    // khong doi theo wallpaper, va PHAI luon ton tai o day vi dwmwal.sh
+    // tai sinh config.h TU FILE NAY moi lan doi hinh nen.
 
 /* function       format                          argument */
 { updates,       "%s", "UPD_ON_HEX UPD_OFF_HEX" },  /* ON=trang khi co update, OFF=xanh khi khong */
@@ -77,6 +80,8 @@ static const struct arg args[] = {
 { ram_used,      "^cRAM_HEX^ %s^d^ ",           NULL },
 { disk_perc,     "^cDISK_HEX^󰋊 %s%%^d^ ",        "/" },
 { run_command, "^cTEMP_HEX^󱩱 %s°C^d^ ",        "/home/magnus/dwm/scripts/cpu_temp.sh" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
+{ net_icon,      "^c#7842d7^ %s ",               NULL },  /* icon internet: MAU CO DINH #7842d7 — KHONG dung sentinel nen khong doi theo wallpaper; chi click vao icon (marker trong net_icon.c) -> netpanel.sh */
+{ wifi_panel,    "%s",                           NULL },  /* Wi-Fi Mini: chỉ tên mạng đang kết nối; màu nằm trong wifi_panel.c (#define) nên cũng cố định */
 { battery_perc,  "^cBAT_HEX^ %s%%^d^",          "BAT1" },
 { battery_state, "^cBATSTATE_HEX^%s^d^ ",        "BAT1" },
 { datetime,      "^cCLOCK_HEX^󰸗 %s^d^",          "%a, %d/%m, %H:%M" },

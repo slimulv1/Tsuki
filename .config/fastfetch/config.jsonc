@@ -1,0 +1,50 @@
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "kitty",
+    "source": "~/.config/fastfetch/images/Nix_snowflake.png",
+    "height": 7
+  },
+  "display": {
+    "separator": " → ",
+    "color": {
+      "keys": "cyan",
+      "output": "white"
+    }
+  },
+  "modules": [
+    {
+      "type": "command",
+      "key": "os",
+      "text": "echo \"NixOS ($USER)\""
+    },
+    {
+      "type": "kernel",
+      "key": "kr"
+    },
+    {
+      "type": "uptime",
+      "key": "up"
+    },
+    {
+      "type": "wm",
+      "key": "wm"
+    },
+    {
+      "type": "shell",
+      "key": "sh"
+    },
+    {
+      "type": "terminal",
+      "key": "term"
+    },
+    {
+      "type": "memory",
+      "key": "ram"
+    },
+    {
+      "type": "colors",
+      "symbol": "circle"
+    }
+  ]
+}

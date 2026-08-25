@@ -77,7 +77,7 @@ static const struct arg args[] = {
 { ram_used,      "^c#4f3c71^ %s^d^ ",           NULL },
 { disk_perc,     "^c#558145^󰋊 %s%%^d^ ",        "/" },
 { run_command, "^c#664d91^󱩱 %s°C^d^ ",        "/home/magnus/dwm/scripts/cpu_temp.sh" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
-{ net_icon,      "^c#7842d7^ %s ",               NULL },  /* icon internet: wired/wifi/offline, click Button1 vao status -> netpanel.sh */
+{ net_icon,      "^c#7842d7^ %s ",               NULL },  /* icon internet: wired/wifi/offline, CHỈ click vào icon (marker trong net_icon.c) -> netpanel.sh */
 { wifi_panel,    "%s",                           NULL },  /* Wi-Fi Mini: chỉ tên mạng đang kết nối (icon + rx/tx đã bỏ) */
 { battery_perc,  "^c#7842d7^ %s%%^d^",          "BAT1" },
 { battery_state, "^c#a5d793^%s^d^ ",        "BAT1" },

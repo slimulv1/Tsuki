@@ -278,7 +278,7 @@ static const Button buttons[] = {
     { ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
     { ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
     { ClkWinTitle,          0,              Button2,        zoom,           {0} },
-    { ClkStatusText,        0,              Button1,        spawn,          SHCMD("/home/magnus/dwm/scripts/netpanel.sh") }, /* click trái vào status → panel mạng */
+    { ClkNetIcon,           0,              Button1,        spawn,          SHCMD("/home/magnus/dwm/scripts/netpanel.sh") }, /* CHỈ click vào icon internet mới mở netpanel (hit-test marker trong dwm.c buttonpress) */
     { ClkStatusText,        0,              Button2,        spawn,          SHCMD("st") },
 
     /* Keep movemouse? */

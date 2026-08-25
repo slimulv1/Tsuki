@@ -25,6 +25,20 @@
 #define WIRED_IFACE "enp8s0"
 #define WIFI_IFACE  "wlan0"
 
+/*
+ * Marker vô hình bao quanh icon để dwm hit-test click (2026-08-25):
+ * "^c#010203^^d^" chỉ set màu rồi reset ngay → không vẽ gì lên bar.
+ * Cơ chế: dwm ghi tọa độ pixel NGAY LÚC VẼ — khi gặp mã màu #010203
+ * trong pass vẽ của drawstatusbar(), nó lưu vị trí x hiện tại vào
+ * m->neticon_x0 (marker mở) và m->neticon_x1 (marker đóng); buttonpress
+ * chỉ so ev->x với vùng [x0, x1+4). Nhờ vậy vùng click TỰ CẬP NHẬT khi
+ * system tray thêm/bớt icon làm dịch chuyển status, CHỈ click đúng vào
+ * icon mới mở netpanel.
+ * Màu #010203 phải KHÔNG được dùng ở bất kỳ component nào khác trong
+ * slstatus config.h — nếu trùng thì hit-test sẽ sai vùng.
+ */
+#define NETICON_MARK "^c#010203^^d^"
+
 /* palette đồng bộ theme slstatus config.h */
 #define C_OK    "#a5d793" /* xanh lá như battery_state */
 #define C_WARN  "#cec4de" /* trắng ngà */
@@ -70,7 +84,7 @@ net_icon(const char *unused)
 				fclose(wf);
 			}
 			close(fd);
-			snprintf(buf, sizeof(buf), "^c%s^%s^d^",
+			snprintf(buf, sizeof(buf), NETICON_MARK "^c%s^%s^d^" NETICON_MARK,
 			         perc >= 60 ? C_OK : C_WARN,
 			         perc >= 67 ? "󰤨" : perc >= 34 ? "󰤧" : "󰤦");
 			return buf;
@@ -84,12 +98,12 @@ net_icon(const char *unused)
 		int c = fgetc(f);
 		fclose(f);
 		if (c == '1') {
-			snprintf(buf, sizeof(buf), "^c%s^󰈀^d^", C_OK);
+			snprintf(buf, sizeof(buf), NETICON_MARK "^c%s^󰈀^d^" NETICON_MARK, C_OK);
 			return buf;
 		}
 	}
 
 	/* 3) offline */
-	snprintf(buf, sizeof(buf), "^c%s^󰤭^d^", C_ERR);
+	snprintf(buf, sizeof(buf), NETICON_MARK "^c%s^󰤭^d^" NETICON_MARK, C_ERR);
 	return buf;
 }

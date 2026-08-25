@@ -151,6 +151,7 @@ enum {
   ClkTabClose,
   ClkLtSymbol,
   ClkStatusText,
+  ClkNetIcon,
   ClkWinTitle,
   ClkClientWin,
   ClkRootWin,
@@ -444,6 +445,9 @@ struct Monitor {
   Pixmap tagmap[LENGTH(tags)];
   int previewshow;
   int ntabs;
+  /* tọa độ pixel thật của icon internet trên bar, do drawstatusbar()
+   * ghi lại lúc vẽ (hit-test click mở netpanel); -1 = chưa có */
+  int neticon_x0, neticon_x1;
   int tab_widths[MAXTABS];
   int tab_btn_w[3];
   const Layout *lt[2];
@@ -658,8 +662,16 @@ void buttonpress(XEvent *e) {
 			}
 	}
 
-  if (ev->x > selmon->ww - (int)TEXTW(stext))
-         click = ClkStatusText;
+  if (ev->x > selmon->ww - (int)TEXTW(stext)) {
+    /* hit-test icon internet: drawstatusbar() đã ghi tọa độ pixel THẬT của
+     * icon (giữa cặp marker vô hình "^c#010203^^d^" do slstatus net_icon.c
+     * nhúng) vào neticon_x0/x1 lúc vẽ bar → chỉ cần so sánh, không tính lại.
+     * +4px nới lề mép phải cho dễ bấm; neticon_x0 >= 0 chặn trường hợp bar
+     * chưa vẽ lần nào chứa marker (giá trị -1 mặc định). */
+    click = (selmon->neticon_x0 >= 0 &&
+             ev->x >= selmon->neticon_x0 && ev->x < selmon->neticon_x1 + 4)
+              ? ClkNetIcon : ClkStatusText;
+  }
   else
          click = ClkWinTitle;
   }
@@ -971,6 +983,7 @@ Monitor *createmon(void) {
   for (i = 0; i < LENGTH(tags); i++)
 	  m->tagmap[i] = 0;
   m->previewshow = 0;
+  m->neticon_x0 = m->neticon_x1 = -1;
   strncpy(m->ltsymbol, layouts[0].symbol, sizeof m->ltsymbol);
   	m->pertag = ecalloc(1, sizeof(Pertag));
 	m->pertag->curtag = m->pertag->prevtag = 1;
@@ -1076,6 +1089,7 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
   p = statusbuf;
   text = p;
   memcpy(p, stext, len);
+  m->neticon_x0 = m->neticon_x1 = -1; /* hit-test icon internet: reset mỗi lần vẽ */
 
   /* compute width of the status text */
   w = 0;
@@ -1141,6 +1155,16 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
           char buf[8];
           memcpy(buf, (char *)text + i + 1, 7);
           buf[7] = '\0';
+          /* marker net_icon "^c#010203^^d^" (mở hoặc đóng): màu #010203 là
+           * DUY NHẤT do net_icon.c của slstatus nhúng vào → chỉ cần so màu,
+           * KHÔNG peek byte sau (đã từng sai vì giữa "3" và "d" có 2 dấu ^).
+           * Ghi lại x hiện tại = vị trí pixel nơi nội dung kế tiếp được vẽ */
+          if (strcmp(buf, "#010203") == 0) {
+            if (m->neticon_x0 == -1)
+              m->neticon_x0 = x;
+            else
+              m->neticon_x1 = x;
+          }
           if (fg_is_temp)
             drw_clr_free(drw, &drw->scheme[ColFg]);
           drw_clr_create(drw, &drw->scheme[ColFg], buf, OPAQUE);

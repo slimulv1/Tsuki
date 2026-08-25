@@ -223,6 +223,7 @@ typedef struct Job {
 	char out[32768];
 	size_t len;
 	void (*cb)(struct Job *);
+	int seq;                 /* phiên bản kick_status phát ra job */
 	struct Job *next;
 } Job;
 
@@ -362,10 +363,15 @@ static time_t radio_kick_at;         /* mốc kick_status bổ sung sau toggle *
 static int radio_pending;            /* đang chờ nmcli áp dụng on/off */
 static time_t radio_pending_until;   /* sau mốc này nhận lại status thật */
 
+static int st_seq;           /* job status mới nhất; job cũ hơn bị bỏ qua */
 static int dns_ignore_auto; /* ipv4.ignore-auto-dns của connection */
 
 static void cb_status(Job *j)
 {
+	/* kết quả của job cũ hơn (phát trước lần kick gần nhất) thì bỏ —
+	   tránh dữ liệu lỗi thời ghi đè trạng thái mới */
+	if (j->seq && j->seq != st_seq)
+		return;
 	ni.scanning = 0;
 	ni.known_n = 0;
 	ni.other_n = 0;
@@ -458,14 +464,18 @@ static void kick_status(void)
 	         "IF=" IFACE_WIFI ";"
 	         "C=$(nmcli -t -f NAME,DEVICE connection show --active | grep -m1 \":$IF\" | cut -d: -f1);"
 	         "[ -n \"$C\" ] && { nmcli -t -f ipv4.ignore-auto-dns connection show \"$C\" | cut -d: -f2 | sed 's/^/ignore /';"
-	         "nmcli -t -f ipv4.dns connection show \"$C\" | cut -d: -f2- | sed 's/^/dnsconf /'; }"
+	         "nmcli -t -f ipv4.dns connection show \"$C\" | cut -d: -f2- | sed 's/^/dnsconf /'; };"
 	         "echo __KNOWN__;"
 	         "nmcli -t -f NAME,TYPE connection show 2>/dev/null | grep 802-11-wireless | cut -d: -f1;"
 	         "if [ \"$(nmcli radio wifi)\" = enabled ]; then echo __SCAN__;"
 	         "nmcli -t -f IN-USE,SIGNAL,SSID,SECURITY dev wifi list %s 2>/dev/null; fi",
 	         rescan);
 	if (rescan[0]) ni.scanning = 1;
-	job_run(cmd, cb_status);
+	{
+		int my = ++st_seq;
+		Job *jb = job_run(cmd, cb_status);
+		if (jb) jb->seq = my;
+	}
 }
 
 /* --- apply DNS --- */

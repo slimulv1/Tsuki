@@ -41,9 +41,6 @@ cd slstatus && sudo make install && cd ..        # statusbar (cũng build local 
 
 > `slstatus` được chạy qua `scripts/run.sh` bằng **binary local** (`~/dwm/slstatus/slstatus`) để `dwmwal.sh` tự rebuild + đổi màu khi đổi wallpaper mà không cần quyền root.
 
-### 3. Đưa nguồn về ~/dwm
-
-Các script chạy theo đường dẫn `$HOME/dwm`, nên cần nội dung thư mục `dwm/` nằm tại `~/dwm`:
 
 ```sh
 mkdir -p ~/dwm && cp -r dwm/* ~/dwm/   # hoặc rsync/symlink

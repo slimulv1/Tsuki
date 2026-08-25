@@ -460,7 +460,7 @@ static void kick_status(void)
 	rescan_requested = 0;
 	char cmd[1024];
 	snprintf(cmd, sizeof(cmd),
-	         "echo \"radio $(nmcli radio wifi)\";"
+	         "echo radio $(nmcli radio wifi);"
 	         "IF=" IFACE_WIFI ";"
 	         "C=$(nmcli -t -f NAME,DEVICE connection show --active | grep -m1 \":$IF\" | cut -d: -f1);"
 	         "[ -n \"$C\" ] && { nmcli -t -f ipv4.ignore-auto-dns connection show \"$C\" | cut -d: -f2 | sed 's/^/ignore /';"

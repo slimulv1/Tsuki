@@ -1067,7 +1067,7 @@ static Window old_focus;   /* focus cần trả lại khi đóng panel */
 static int old_revert;
 
 static XftColor bg_panel, bg_card, bg_hover, bg_select, border_c, label_c, value_c,
-                ok_c, err_c, white_c, border_dwm, black_c;
+                ok_c, err_c, white_c, border_dwm, black_c, accent_c;
 
 #define CLR(dst, src) do { if (!XftColorAllocName(dpy, vis, cmap, (src), &(dst))) die("color " #dst); } while (0)
 
@@ -1165,7 +1165,8 @@ static void draw_button(int id, int x, int y, int w, int h, const char *label, i
 	int hovered = (hover_id == id);
 	rrect_fill(x, y, w, h, 0,
 	           selected ? bg_select.pixel : hovered ? bg_hover.pixel : bg_panel.pixel);
-	rrect_stroke(x, y, w, h, 0, border_c.pixel);
+	/* pill đang chọn viền accent (đồng bộ màu dwm border) */
+	rrect_stroke(x, y, w, h, 0, selected ? accent_c.pixel : border_c.pixel);
 	XftColor *tc = selected ? &value_c : hovered ? &value_c : &label_c;
 	draw_text(x + (w - textw(f_small, label)) / 2,
 	          y + (h - f_small->height) / 2 + f_small->ascent, label, f_small, tc);
@@ -1190,17 +1191,17 @@ static const char *grid_labels[GRID_ROWS][2] = {
 static int panel_height(void)
 {
 	int h = PAD;
-	h += 44;                                  /* header */
+	h += 44 + 8;                              /* header */
+	/* wi-fi QR overlay neo dưới header: bấm icon là thấy code ngay */
+	h += qr_section_visible() ? qr_block_height() : 0;
 	h += 10 + GRID_ROWS * 32 + 14;            /* grid */
 	h += band_section_visible() ? 34 + 28 + 14 : 0; /* wi-fi band pills */
-	h += 34 + 28 + 14;                        /* dns */
-	h += 34 + 28 + 14;                        /* speed test */
-	if (qr_section_visible())
-		h += qr_block_height();               /* wi-fi QR share */
 	h += 34;                                  /* known title */
 	h += (ni.known_n ? (ni.known_n > MAX_LIST_ITEMS ? MAX_LIST_ITEMS : ni.known_n) : 1) * 32;
 	h += 14 + 34;                             /* gap + other title */
 	h += (ni.other_n ? (ni.other_n > MAX_LIST_ITEMS ? MAX_LIST_ITEMS : ni.other_n) : 1) * 32;
+	h += 14 + 34 + 28 + 14;                   /* gap + dns */
+	h += 34;                                  /* speed test (1 hàng) */
 	h += pw_mode ? 46 : 0;                    /* ô nhập mật khẩu inline */
 	h += (conn_status && time(NULL) < conn_msg_until) ? 32 : 0; /* banner kết quả */
 	h += PAD;
@@ -1257,26 +1258,70 @@ static void draw_panel(void)
 
 	/* ---- header ---- */
 	{
-		const char *icon = ni.has_wired ? "󰈀" : !ni.radio_on ? "󰤭"
-		                 : ni.perc >= 67 ? "󰤨" : ni.perc >= 34 ? "󰤧" : "󰤦";
+		const char *icon = ni.has_wifi ? (ni.perc >= 67 ? "󰤨" : ni.perc >= 34 ? "󰤧" : "󰤦")
+		                 : ni.has_wired ? "󰈀"
+		                 : !ni.radio_on ? "󰤭" : "󰤦";
 		XftColor *ic = (!ni.has_wifi && !ni.has_wired) ? &err_c : &value_c;
 		draw_text(x, y + 26, icon, f_icon, ic);
 
 		int tx = x + 34;
-		const char *title = ni.has_wired ? "Wired" : ni.has_wifi ? ni.essid
+		const char *title = ni.has_wifi ? ni.essid : ni.has_wired ? "Wired"
 		                  : ni.radio_on ? "Wi-Fi" : "Wi-Fi off";
 		draw_text(tx, y + 18, title, f_bold, &value_c);
+		if (ni.has_wired && ni.has_wifi)
+			draw_text(tx + textw(f_bold, title) + 10, y + 18,
+			          "WIRED", f_small, &label_c);
 		const char *tag = taglines[(unsigned long)(time(NULL) / 3600) %
 		                           (sizeof(taglines) / sizeof(taglines[0]))];
 		draw_text(tx, y + 33, tag, f_small, &label_c);
 
-		int qx = W - PAD - 46 - 22;
-		draw_text(qx, y + 21, "󰐲", f_icon, hover_id == ID_QR ? &value_c : &label_c);
-		add_hit(ID_QR, qx - 6, y, 34, 28);
+		int qx = W - PAD - 44 - 12 - 30;
+		draw_text(qx + 4, y + 21, "󰐲", f_icon, hover_id == ID_QR ? &value_c : &label_c);
+		add_hit(ID_QR, qx, y, 30, 28);
 		draw_toggle(W - PAD - 36, y + 5, ni.radio_on);
-		add_hit(ID_TOGGLE, W - PAD - 46, y - 2, 46, 32);
+		add_hit(ID_TOGGLE, W - PAD - 44, y - 2, 44, 32);
 	}
 	y += 44 + 8;
+
+	/* ---- wi-fi QR share ---- */
+	if (qr_section_visible()) {
+		draw_text(PAD, y + 9, "\xf3\xb0\xa7\xb3 WI-FI QR", f_small, &label_c);
+		int close_w = textw(f_small, "Close");
+		draw_text_r(W - PAD, y + 9, "Close", f_small,
+		            hover_id == ID_QR ? &value_c : &label_c);
+		add_hit(ID_QR, W - PAD - close_w - 8, y - 2, close_w + 16, 24);
+		y += 34;
+		if (qr_loading) {
+			char ldb[64];
+			snprintf(ldb, sizeof(ldb), "%s Generating QR code…", spinner());
+			draw_text(PAD, y + 16, ldb, f_small, &label_c);
+			y += 60;
+		} else if (qr_err[0]) {
+			draw_text(PAD, y + 16, qr_err, f_small, &err_c);
+			y += 60;
+		} else if (qr_size > 0) {
+			int mp = qr_module_px();
+			int side = qr_size * mp;
+			int qx0 = (W - side) / 2;
+			char capbuf[160];
+			rrect_fill(qx0 - 6, y - 6, side + 12, side + 12, 0, white_c.pixel);
+			XSetForeground(dpy, gc, black_c.pixel);
+			for (int r = 0; r < qr_size; r++)
+				for (int c = 0; c < qr_size; c++)
+					if (qr_grid[r][c] == '1')
+						XFillRectangle(dpy, pm, gc, qx0 + c * mp, y + r * mp, mp, mp);
+			y += side + 12;
+			snprintf(capbuf, sizeof(capbuf), "%s · %s", qr_ssid,
+			         qr_sec[0] ? qr_sec : "nopass");
+			draw_text((W - textw(f_small, capbuf)) / 2, y + 16, capbuf,
+			          f_small, &label_c);
+			y += 26;
+		} else {
+			/* không có dữ liệu mà cũng không loading/lỗi: đóng section */
+			qr_mode = 0;
+		}
+	}
+
 
 	/* ---- stats grid ---- */
 	{
@@ -1345,79 +1390,6 @@ static void draw_panel(void)
 		y += 30 + 14;
 	}
 
-	/* ---- DNS provider ---- */
-	draw_text(PAD, y + 9, "\xf3\xb0\xa7\x9b DNS PROVIDER", f_small, &label_c);
-	y += 34;
-	{
-		int bn = (int)(sizeof(dns_providers) / sizeof(dns_providers[0]));
-		int gap = 6;
-		int bw = (W - 2 * PAD - (bn - 1) * gap) / bn;
-		for (int i = 0; i < bn; i++)
-			draw_button(ID_DNS0 + i, PAD + i * (bw + gap), y, bw, 26,
-			            dns_providers[i].name,
-			            ni.dns_sel == i && !ni.dns_applying);
-	}
-	y += 30 + 14;
-
-	/* ---- speed test ---- */
-	draw_text(PAD, y + 9, "\xf3\xb0\x92\x85 SPEED TEST", f_small, &label_c);
-	{
-		char spbuf[64] = "";
-		XftColor *spc = &label_c;
-		if (ni.testing) {
-			snprintf(spbuf, sizeof(spbuf), "%s %.1f MB/s", spinner(), ni.dl_peak);
-			spc = &ok_c;
-		} else if (st_failed) {
-			snprintf(spbuf, sizeof(spbuf), "Failed");
-			spc = &err_c;
-		} else if (ni.dl_peak > 0) {
-			snprintf(spbuf, sizeof(spbuf), "%.1f MB/s", ni.dl_peak);
-		}
-		draw_text(PAD + textw(f_small, "\xf3\xb0\x92\x85 SPEED TEST") + 12, y + 9, spbuf, f_small, spc);
-	}
-	y += 34;
-	draw_button(ID_RUN, W - PAD - 84, y, 84, 26, ni.testing ? "Running…" : "Run", 0);
-	y += 28 + 14;
-
-	/* ---- wi-fi QR share ---- */
-	if (qr_section_visible()) {
-		draw_text(PAD, y + 9, "\xf3\xb0\xa7\xb3 WI-FI QR", f_small, &label_c);
-		int close_w = textw(f_small, "Close");
-		draw_text_r(W - PAD, y + 9, "Close", f_small,
-		            hover_id == ID_QR ? &value_c : &label_c);
-		add_hit(ID_QR, W - PAD - close_w - 8, y - 2, close_w + 16, 24);
-		y += 34;
-		if (qr_loading) {
-			char ldb[64];
-			snprintf(ldb, sizeof(ldb), "%s Generating QR code…", spinner());
-			draw_text(PAD, y + 16, ldb, f_small, &label_c);
-			y += 60;
-		} else if (qr_err[0]) {
-			draw_text(PAD, y + 16, qr_err, f_small, &err_c);
-			y += 60;
-		} else if (qr_size > 0) {
-			int mp = qr_module_px();
-			int side = qr_size * mp;
-			int qx0 = (W - side) / 2;
-			char capbuf[160];
-			rrect_fill(qx0 - 6, y - 6, side + 12, side + 12, 0, white_c.pixel);
-			XSetForeground(dpy, gc, black_c.pixel);
-			for (int r = 0; r < qr_size; r++)
-				for (int c = 0; c < qr_size; c++)
-					if (qr_grid[r][c] == '1')
-						XFillRectangle(dpy, pm, gc, qx0 + c * mp, y + r * mp, mp, mp);
-			y += side + 12;
-			snprintf(capbuf, sizeof(capbuf), "%s · %s", qr_ssid,
-			         qr_sec[0] ? qr_sec : "nopass");
-			draw_text((W - textw(f_small, capbuf)) / 2, y + 16, capbuf,
-			          f_small, &label_c);
-			y += 26;
-		} else {
-			/* không có dữ liệu mà cũng không loading/lỗi: đóng section */
-			qr_mode = 0;
-		}
-	}
-
 	/* ---- known networks ---- */
 	{
 		draw_text(PAD, y + 9, "\xf3\xb0\x97\xa0 KNOWN NETWORKS", f_small, &label_c);
@@ -1430,16 +1402,18 @@ static void draw_panel(void)
 		}
 		for (int i = 0; i < n && i < MAX_LIST_ITEMS; i++) {
 			int is_cur = ni.has_wifi && !strcmp(ni.known[i], ni.essid);
-			if (is_cur)
-				rrect_fill(PAD - 8, y, W - 2 * PAD + 16, 28, 0, bg_card.pixel);
-			else if (hover_id == ID_KNOWN_BASE + i)
+			if (is_cur) {
+				rrect_fill(PAD - 8, y, W - 2 * PAD + 16, 28, 0,
+				           bg_card.pixel);
+				XSetForeground(dpy, gc, accent_c.pixel);
+				XFillRectangle(dpy, pm, gc, PAD - 8, y, 2, 28);
+			} else if (hover_id == ID_KNOWN_BASE + i)
 				rrect_fill(PAD - 8, y, W - 2 * PAD + 16, 28, 0, bg_hover.pixel);
 			draw_text(PAD, y + 19, "󰤨", f_norm, is_cur ? &ok_c : &label_c);
 			draw_text(PAD + 26, y + 19, ni.known[i],
 			          is_cur ? f_bold : f_norm, is_cur ? &value_c : &label_c);
 			if (is_cur)
 				draw_text_r(W - PAD - 20, y + 19, "Connected", f_small, &ok_c);
-			draw_text_r(W - PAD, y + 19, "", f_small, &label_c);
 			add_hit(ID_KNOWN_BASE + i, PAD - 8, y, W - 2 * PAD + 16, 30);
 			y += 32;
 			y += draw_result_banner_if(i, y, 1);
@@ -1477,7 +1451,8 @@ static void draw_panel(void)
 			draw_text(PAD + 26, y + 19, ni.other[i],
 			          is_cur ? f_bold : f_norm, is_cur ? &value_c : &label_c);
 			if (ni.other_sec[i])
-				draw_text_r(W - PAD, y + 19, "", f_small, &label_c);
+				draw_text_r(W - PAD, y + 19, "\xf3\xb0\x8c\xbe",
+				            f_small, &label_c);
 			add_hit(ID_OTHER_BASE + i, PAD - 8, y, W - 2 * PAD + 16, 30);
 			y += 32;
 			/* banner kết quả: helper chung KNOWN/OTHER (xanh=đúng
@@ -1506,6 +1481,42 @@ static void draw_panel(void)
 			}
 		}
 	}
+	y += 14;
+
+	/* ---- DNS provider ---- */
+	draw_text(PAD, y + 9, "\xf3\xb0\xa7\x9b DNS PROVIDER", f_small, &label_c);
+	y += 34;
+	{
+		int bn = (int)(sizeof(dns_providers) / sizeof(dns_providers[0]));
+		int gap = 6;
+		int bw = (W - 2 * PAD - (bn - 1) * gap) / bn;
+		for (int i = 0; i < bn; i++)
+			draw_button(ID_DNS0 + i, PAD + i * (bw + gap), y, bw, 26,
+			            dns_providers[i].name,
+			            ni.dns_sel == i && !ni.dns_applying);
+	}
+	y += 30 + 14;
+
+	/* ---- speed test ---- */
+	draw_text(PAD, y + 9, "\xf3\xb0\x92\x85 SPEED TEST", f_small, &label_c);
+	{
+		char spbuf[64] = "";
+		XftColor *spc = &label_c;
+		if (ni.testing) {
+			snprintf(spbuf, sizeof(spbuf), "%s %.1f MB/s", spinner(), ni.dl_peak);
+			spc = &ok_c;
+		} else if (st_failed) {
+			snprintf(spbuf, sizeof(spbuf), "Failed");
+			spc = &err_c;
+		} else if (ni.dl_peak > 0) {
+			snprintf(spbuf, sizeof(spbuf), "%.1f MB/s", ni.dl_peak);
+		}
+		draw_text(PAD + textw(f_small, "\xf3\xb0\x92\x85 SPEED TEST") + 12, y + 9, spbuf, f_small, spc);
+	}
+	draw_button(ID_RUN, W - PAD - 64, y - 2, 64, 24,
+	            ni.testing ? "Running…" : "Run", 0);
+	y += 34;
+
 	y += PAD;
 	(void)x; (void)y;
 }
@@ -1599,6 +1610,7 @@ int main(void)
 	CLR(value_c, C_VALUE); CLR(ok_c, C_OK); CLR(err_c, C_ERR); CLR(white_c, "#ffffff");
 	CLR(border_dwm, C_BORDER_DWM);
 	CLR(black_c, "#111111");
+	CLR(accent_c, C_ACCENT);
 
 	f_norm = XftFontOpenName(dpy, scr, font_norm);
 	f_bold = XftFontOpenName(dpy, scr, font_bold);

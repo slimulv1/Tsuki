@@ -33,7 +33,7 @@ sudo pacman -S --needed base-devel libx11 libxft libxinerama fontconfig freetype
 git clone https://github.com/slimulv1/dwm-dotfiles.git
 cd dwm-dotfiles
 
-sudo make clean install              # dwm
+cd dwm     && sudo make clean install && cd ..   # window manager
 cd st      && sudo make clean install && cd ..   # terminal
 cd slock   && sudo make clean install && cd ..   # lock screen
 cd dmenu   && sudo make clean install && cd ..   # launcher

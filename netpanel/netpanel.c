@@ -259,6 +259,11 @@ static Job *job_run(const char *cmd, void (*cb)(Job *))
 		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
 		_exit(127);
 	}
+	/* CLOEXEC: tiến trình con (run_bg/job khác) không được giữ pipe
+	   của job đang chạy — nếu không EOF không bao giờ đến khi child
+	   sống lâu (feh, sleep, nmcli...) làm callback treo vô hạn */
+	fcntl(pfd[0], F_SETFD, FD_CLOEXEC);
+	fcntl(pfd[1], F_SETFD, FD_CLOEXEC);
 	close(pfd[1]);
 	int fl = fcntl(pfd[0], F_GETFL);
 	fcntl(pfd[0], F_SETFL, fl | O_NONBLOCK);
@@ -287,8 +292,9 @@ static void poll_jobs(void)
 				}
 				continue;
 			}
-			if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-				break; /* chưa có data */
+			if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK ||
+			              errno == EINTR))
+				break; /* chưa có data hoặc bị ngắt tín hiệu */
 			finished = 1; /* EOF hoặc lỗi → child xong */
 			break;
 		}

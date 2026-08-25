@@ -310,10 +310,10 @@ if [ -z "$DWMWAL_NO_REBUILD" ]; then
     cp "$SLST_DIR/config.def.h" "$SLST_DIR/config.h"
     sed -e "s|UPD_ON_HEX|${foreground:-#c3d3df}|" \
         -e "s|UPD_OFF_HEX|${color2:-#386282}|" \
-        -e "s|CPU_HEX|${color2:-#386282}|" \
-        -e "s|RAM_HEX|${color1:-#345b79}|" \
-        -e "s|DISK_HEX|${color3:-#3c688a}|" \
-        -e "s|TEMP_HEX|${color5:-#43759b}|" \
+        -e "s|CPU_HEX|${color10:-#82aaff}|" \
+        -e "s|RAM_HEX|${color9:-#bb9af7}|" \
+        -e "s|DISK_HEX|${color11:-#7ee787}|" \
+        -e "s|TEMP_HEX|${color13:-#c3a6ff}|" \
         -e "s|BAT_HEX|${accent:-#4296d7}|" \
         -e "s|BATSTATE_HEX|${color11:-#8cbadd}|" \
         -e "s|CLOCK_HEX|${color11:-#8cbadd}|" \

@@ -70,15 +70,18 @@ static const struct arg args[] = {
     // LUU Y: dwm status2d CHI hieu ^c#HEX^ / ^b#HEX^ / ^d^ - KHONG hieu ^Cindex^
 
     // (truoc day ^C9^ bi hien thi nguyen van, thanh bar khong co mau).
+    // RIENG net_icon + wifi_panel: MAU CO DINH (literal, khong XXX_HEX) —
+    // khong doi theo wallpaper, va PHAI luon ton tai o day vi dwmwal.sh
+    // tai sinh config.h TU FILE NAY moi lan doi hinh nen.
 
 /* function       format                          argument */
 { updates,       "%s", "#cec4de #79405a" },  /* ON=trang khi co update, OFF=xanh khi khong */
-{ cpu_perc,      " ^c#79405a^󰻠 %s%%^d^ ",        NULL },
-{ ram_used,      "^c#4f3c71^ %s^d^ ",           NULL },
-{ disk_perc,     "^c#558145^󰋊 %s%%^d^ ",        "/" },
-{ run_command, "^c#664d91^󱩱 %s°C^d^ ",        "/home/magnus/dwm/scripts/cpu_temp.sh" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
-{ net_icon,      "^c#7842d7^ %s ",               NULL },  /* icon internet: wired/wifi/offline, CHỈ click vào icon (marker trong net_icon.c) -> netpanel.sh */
-{ wifi_panel,    "%s",                           NULL },  /* Wi-Fi Mini: chỉ tên mạng đang kết nối (icon + rx/tx đã bỏ) */
+{ cpu_perc,      " ^c#d38aab^󰻠 %s%%^d^ ",        NULL },
+{ ram_used,      "^c#9d81d0^ %s^d^ ",           NULL },
+{ disk_perc,     "^c#a5d793^󰋊 %s%%^d^ ",        "/" },
+{ run_command, "^c#b9a4dd^󱩱 %s°C^d^ ",        "/home/magnus/dwm/scripts/cpu_temp.sh" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
+{ net_icon,      "^c#7842d7^ %s ",               NULL },  /* icon internet: MAU CO DINH #7842d7 — KHONG dung sentinel nen khong doi theo wallpaper; chi click vao icon (marker trong net_icon.c) -> netpanel.sh */
+{ wifi_panel,    "%s",                           NULL },  /* Wi-Fi Mini: chỉ tên mạng đang kết nối; màu nằm trong wifi_panel.c (#define) nên cũng cố định */
 { battery_perc,  "^c#7842d7^ %s%%^d^",          "BAT1" },
 { battery_state, "^c#a5d793^%s^d^ ",        "BAT1" },
 { datetime,      "^c#a5d793^󰸗 %s^d^",          "%a, %d/%m, %H:%M" },

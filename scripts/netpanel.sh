@@ -5,10 +5,6 @@
 
 NETPANEL="$HOME/dwm/netpanel/netpanel"
 
-if ! xset -q >/dev/null 2>&1 && [ -n "$DISPLAY" ]; then
-    : # DISPLAY có sẵn, ok
-fi
-
 if [ -x "$NETPANEL" ]; then
     exec "$NETPANEL"
 elif command -v nm-connection-editor >/dev/null 2>&1; then

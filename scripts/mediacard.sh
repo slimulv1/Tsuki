@@ -192,7 +192,7 @@ case "$1" in
             fi
             # Không có player: poll thưa dần để giảm fork vô ích (2s → 5s)
             if [ "$IDLE" -ge 3 ]; then
-                sleep 2
+                sleep 5
             else
                 sleep 2
             fi

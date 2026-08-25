@@ -8,6 +8,7 @@ CACHE_COLORS="$HOME/.cache/wal/colors"
 CACHE_ACCENTS="$HOME/.cache/wal/accents"
 
 [ -f "$CACHE_COLORS" ] || { echo "wal colors not found at $CACHE_COLORS"; exit 1; }
+[ -f "$DUNSTRC" ] || { echo "dunstrc not found at $DUNSTRC"; exit 1; }
 
 # Read wal colors (16 lines, 0-indexed)
 mapfile -t COLORS < "$CACHE_COLORS"
@@ -18,7 +19,9 @@ mapfile -t COLORS < "$CACHE_COLORS"
 BG="${COLORS[0]}"
 FG="${COLORS[7]}"        # color7 = light foreground
 BORDER="${COLORS[8]}"    # color8 = gray2 (dwm border color)
-ACCENT="${COLORS[4]}"    # color4 = accent
+ACCENT="${COLORS[4]:-${COLORS[${#COLORS[@]}-1]:-#89b4fa}}"    # color4 = accent
+BORDER="${BORDER:-$ACCENT}"   # file màu quá ngắn -> đừng ghi chuỗi rỗng vào dunstrc
+FG="${FG:-${COLORS[-1]:-#cdd6f4}}"
 
 if [ -f "$CACHE_ACCENTS" ]; then
     source "$CACHE_ACCENTS"
@@ -57,7 +60,10 @@ sed -i "/^\[urgency_critical\]/,/^\[/{
 
 # Reload dunst
 killall dunst 2>/dev/null
-while pgrep -u "$UID" -x dunst >/dev/null 2>&1; do sleep 0.1; done
+for _ in $(seq 50); do
+    pgrep -u "$UID" -x dunst >/dev/null 2>&1 || break
+    sleep 0.1
+done
 dunst &
 
 echo "dunst colors synced with wal:"

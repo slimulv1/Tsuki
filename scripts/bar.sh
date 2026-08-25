@@ -53,7 +53,7 @@ fi
 # load colors (live-reloaded when theme file regenerates)
 # GUARD: dash thoát (exit 2) khi `.` không đọc được file -> nếu wal bị xóa lúc
 # runtime, bar.sh sẽ chết vĩnh viễn (supervisor run.sh chỉ check 1 lần lúc boot).
-theme_file=~/dwm/dwm/scripts/bar_themes/wal
+theme_file=~/dwm/scripts/bar_themes/wal
 theme_ck=""
 [ -r "$theme_file" ] && . "$theme_file"
 

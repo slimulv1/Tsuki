@@ -41,7 +41,7 @@ cd netpanel && sudo make clean install && cd ..  # wifi panel
 cd slstatus && sudo make install && cd ..        # statusbar (cũng build local cho run.sh)
 ```
 
-> `slstatus` được chạy qua `scripts/run.sh` bằng **binary local** (`~/dwm/dwm/slstatus/slstatus`) để `dwmwal.sh` tự rebuild + đổi màu khi đổi wallpaper mà không cần quyền root.
+> `slstatus` được chạy qua `scripts/run.sh` bằng **binary local** (`~/dwm/slstatus/slstatus`) để `dwmwal.sh` tự rebuild + đổi màu khi đổi wallpaper mà không cần quyền root.
 
 ### 3. Dotfiles
 
@@ -54,7 +54,7 @@ cp -r .config/* ~/.config/           # hoặc symlink từng thư mục
 Thêm vào `~/.xinitrc`:
 
 ```sh
-exec ~/dwm/dwm/scripts/run.sh
+exec ~/dwm/scripts/run.sh
 ```
 
 `run.sh` sẽ: nạp Xresources, set wallpaper (feh), chạy picom, polkit, fcitx5, slstatus (loop tự phục hồi), updater updates + mediacard, rồi exec dwm.
@@ -90,4 +90,4 @@ Nhấn **Super + w** → chọn ảnh trong rofi picker. `dwmwal.sh` tự:
 
 ## License
 
-MIT — xem [LICENSE](LICENSE). dwm/slstatus/st/slock/dmenu thuộc [suckless.org](https://suckless.org).
+MIT — xem [LICENSE](LICENSE). slstatus/st/slock/dmenu thuộc [suckless.org](https://suckless.org).

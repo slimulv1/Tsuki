@@ -7,7 +7,7 @@
 # Toàn bộ đều nằm trong ~/dwm/scripts: dùng walgen.py riêng + cache riêng
 # (~/.cache/dwmwal), không chạm vào chuỗi script của WindowMaker.
 
-DWM_DIR="$HOME/dwm/dwm"
+DWM_DIR="$HOME/dwm"
 SCRIPTS="$DWM_DIR/scripts"
 CACHE="$HOME/.cache/dwmwal"
 WALL_DIR="$HOME/Pictures/Wallpapers"

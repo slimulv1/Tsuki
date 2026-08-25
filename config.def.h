@@ -148,9 +148,9 @@ static const Key keys[] = {
     /* modifier                         key         function        argument */
 
     // brightness and audio 
-    {0,             XF86XK_AudioLowerVolume,    spawn, SHCMD("dash ~/dwm/dwm/scripts/mediacard.sh volume down")},
-	{0,             XF86XK_AudioMute, spawn,    SHCMD("dash ~/dwm/dwm/scripts/mediacard.sh volume mute")},
-    {0,             XF86XK_AudioRaiseVolume,    spawn, SHCMD("dash ~/dwm/dwm/scripts/mediacard.sh volume up")},
+    {0,             XF86XK_AudioLowerVolume,    spawn, SHCMD("dash ~/dwm/scripts/mediacard.sh volume down")},
+	{0,             XF86XK_AudioMute, spawn,    SHCMD("dash ~/dwm/scripts/mediacard.sh volume mute")},
+    {0,             XF86XK_AudioRaiseVolume,    spawn, SHCMD("dash ~/dwm/scripts/mediacard.sh volume up")},
 	{0,				XF86XK_MonBrightnessUp,     spawn,	{.v = light_up}},
 	{0,				XF86XK_MonBrightnessDown,   spawn,	{.v = light_down}},
 
@@ -180,7 +180,7 @@ static const Key keys[] = {
     { MODKEY,                           XK_i,       incnmaster,     {.i = +1 } },
     { MODKEY,                           XK_d,       spawn,          SHCMD("discord-ptb")},
     { MODKEY,                           XK_slash,   spawn,          SHCMD("st -e bash -c 'bat ~/dwm/KEYBINDS.md || less ~/dwm/KEYBINDS.md'")},
-    { MODKEY,                           XK_w,       spawn,          SHCMD("dash ~/dwm/dwm/scripts/dwmwal.sh")},
+    { MODKEY,                           XK_w,       spawn,          SHCMD("dash ~/dwm/scripts/dwmwal.sh")},
 
     // shift view
     { MODKEY,                           XK_Left,    shiftview,      {.i = -1 } },
@@ -257,7 +257,7 @@ static const Key keys[] = {
     { MODKEY,                           XK_q,       killclient,     {0} },
 
     // restart: rebuild & reload
-    { MODKEY|ShiftMask,                 XK_r,       spawn, SHCMD("dash ~/dwm/dwm/scripts/rebuild.sh") },
+    { MODKEY|ShiftMask,                 XK_r,       spawn, SHCMD("dash ~/dwm/scripts/rebuild.sh") },
 
     // hide & restore windows (Super+x) + file manager (Super+e)
     { MODKEY,                           XK_e,       spawn,          SHCMD("thunar")},

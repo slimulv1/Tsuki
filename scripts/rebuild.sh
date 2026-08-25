@@ -11,7 +11,7 @@
 #   - `killall dwm` (SIGTERM) làm dwm thoát với exit code != 0 -> vòng lặp
 #     run.sh tự relaunch bản mới sau 0.3s.
 
-DWM_DIR="$HOME/dwm/dwm"
+DWM_DIR="$HOME/dwm"
 
 notify-send "dwm" "Rebuilding…" &
 

@@ -93,33 +93,41 @@ typedef struct NetInfo {
 
 static NetInfo ni;
 
-static int iface_active(char *out_essid, size_t on)
+static int wired_up(void)
 {
 	FILE *f = fopen("/sys/class/net/" IFACE_WIRED "/carrier", "r");
-	if (f) {
-		int c = fgetc(f);
-		fclose(f);
-		if (c == '1') return 1; /* wired */
-	}
+	if (!f)
+		return 0;
+	int c = fgetc(f);
+	fclose(f);
+	return c == '1';
+}
+
+/* 1 nếu wifi connected (độc lập với wired — cả 2 có thể cùng up) */
+static int wifi_essid(char *out_essid, size_t on)
+{
 	int fd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (fd >= 0) {
-		char essid[IW_ESSID_MAX_SIZE + 1] = "";
-		struct iwreq wrq;
-		memset(&wrq, 0, sizeof(wrq));
-		snprintf(wrq.ifr_name, IFNAMSIZ, "%s", IFACE_WIFI);
-		wrq.u.essid.pointer = essid;
-		wrq.u.essid.length = IW_ESSID_MAX_SIZE;
-		wrq.u.essid.flags = 0;
-		int ok = (ioctl(fd, SIOCGIWESSID, &wrq) >= 0 && wrq.u.essid.length > 0);
-		close(fd);
-		if (ok) {
-			size_t cl = wrq.u.essid.length < IW_ESSID_MAX_SIZE ? wrq.u.essid.length : IW_ESSID_MAX_SIZE;
-			if (cl > on - 1) cl = on - 1;
-			if (out_essid) { memcpy(out_essid, essid, cl); out_essid[cl] = '\0'; }
-			return 2; /* wifi */
-		}
+	if (fd < 0)
+		return 0;
+	char essid[IW_ESSID_MAX_SIZE + 1] = "";
+	struct iwreq wrq;
+	memset(&wrq, 0, sizeof(wrq));
+	snprintf(wrq.ifr_name, IFNAMSIZ, "%s", IFACE_WIFI);
+	wrq.u.essid.pointer = essid;
+	wrq.u.essid.length = IW_ESSID_MAX_SIZE;
+	wrq.u.essid.flags = 0;
+	int ok = (ioctl(fd, SIOCGIWESSID, &wrq) >= 0 && wrq.u.essid.length > 0);
+	close(fd);
+	if (!ok)
+		return 0;
+	size_t cl = wrq.u.essid.length < IW_ESSID_MAX_SIZE ? wrq.u.essid.length : IW_ESSID_MAX_SIZE;
+	if (cl > on - 1)
+		cl = on - 1;
+	if (out_essid) {
+		memcpy(out_essid, essid, cl);
+		out_essid[cl] = '\0';
 	}
-	return 0;
+	return 1;
 }
 
 static void get_signal_perc(void)
@@ -803,17 +811,94 @@ static void do_disconnect(void)
 	g_need_redraw = 1;
 }
 
-/* --- QR --- */
+/* --- QR (adapt omarchy wifiqr) --- */
+#define QR_MAX 129  /* qrencode version-40 tĩnh hiếm khi tới; chặn tràn grid */
+static int qr_mode;                       /* section QR đang mở */
+static int qr_loading;                    /* job đang chạy */
+static int qr_size;                       /* cạnh matrix (0 = chưa có/lỗi) */
+static char qr_sec[8];                    /* WPA / WEP / nopass */
+static char qr_ssid[128];
+static char qr_err[96];
+static unsigned char qr_grid[QR_MAX][QR_MAX];
+
+/* kích thước module px, co giãn theo size để vừa chiều rộng panel */
+static int qr_module_px(void)
+{
+	if (qr_size <= 0) return 2;
+	int mp = (PANEL_W - 2 * PAD - 32) / qr_size;
+	if (mp > 6) mp = 6;
+	if (mp < 2) mp = 2;
+	return mp;
+}
+
+static int qr_section_visible(void)
+{
+	return qr_mode && ni.has_wifi;
+}
+
+/* tổng chiều cao block QR trong draw_panel/panel_height — phải khớp nhau */
+static int qr_block_height(void)
+{
+	return 34 + ((qr_loading || qr_size <= 0) ? 60 : qr_size * qr_module_px() + 12 + 26);
+}
+
+static void cb_qr_done(Job *j)
+{
+	qr_loading = 0;
+	char *p = j->out, line[512];
+	int rows = 0, size = 0, ok = 1;
+	while (next_line(&p, line, sizeof(line))) {
+		if (!size && !strncmp(line, "meta\t", 5)) {
+			/* meta<TAB>iface<TAB>security<TAB>ssid — ssid nằm CUỐI để chứa tab.
+			   Tách tối đa 3 tab, phần còn lại nguyên vẹn là ssid. */
+			char *f1 = line + 5;
+			char *f2 = strchr(f1, '\t');
+			char *f3 = f2 ? strchr(f2 + 1, '\t') : NULL;
+			if (f3) {
+				*f3 = '\0';
+				char *ssid = f3 + 1;
+				char *end = strchr(ssid, '\t'); /* phòng ssid chứa thêm tab */
+				if (end) *end = '\0';
+				snprintf(qr_sec, sizeof(qr_sec), "%.*s", (int)(f3 - (f2 + 1)), f2 + 1);
+				snprintf(qr_ssid, sizeof(qr_ssid), "%s", ssid);
+			}
+			continue;
+		}
+		size_t l = strlen(line);
+		if (!ok || l == 0 || strspn(line, "01") != l ||
+		    l > QR_MAX || (size && (int)l != size))
+			{ ok = 0; continue; }
+		if (!size) size = (int)l;
+		memcpy(qr_grid[rows], line, l); /* '0'/'1' → 0/1 khi render */
+		rows++;
+	}
+	if (ok && rows == size && size > 0) {
+		qr_size = size;
+		qr_err[0] = '\0';
+	} else {
+		qr_size = 0;
+		snprintf(qr_err, sizeof(qr_err), "Could not generate the Wi-Fi QR code");
+	}
+	g_need_redraw = 1;
+}
+
 static void show_qr(void)
 {
 	if (!ni.has_wifi) return;
-	char qs[200], cmd[700];
-	sh_quote(qs, sizeof(qs), ni.essid);
-	snprintf(cmd, sizeof(cmd),
-	         "qrencode -t PNG -s 8 -o /tmp/netpanel-qr.png 'WIFI:T:WPA;S:%s;;'"
-	         " && feh --title netpanel-qr /tmp/netpanel-qr.png",
-	         qs);
-	run_bg(cmd);
+	if (qr_mode) {           /* toggle đóng */
+		qr_mode = 0;
+		g_need_redraw = 1;
+		return;
+	}
+	qr_mode = 1;
+	qr_loading = 1;
+	qr_size = 0;
+	qr_err[0] = '\0';
+	char hs[256], cmd[600];
+	sh_quote(hs, sizeof(hs), getenv("HOME") ? getenv("HOME") : "");
+	snprintf(cmd, sizeof(cmd), "%s/dwm/netpanel/netpanel-qr.sh", hs);
+	job_run(cmd, cb_qr_done);
+	g_need_redraw = 1;
 }
 
 /* --- speed test --- */
@@ -839,8 +924,7 @@ static void cb_speedtest(Job *j)
 static void start_speedtest(void)
 {
 	if (ni.testing) return;
-	int mode = iface_active(ni.essid, sizeof(ni.essid));
-	snprintf(st_iface, sizeof(st_iface), "%s", mode == 1 ? IFACE_WIRED : IFACE_WIFI);
+	snprintf(st_iface, sizeof(st_iface), "%s", wired_up() ? IFACE_WIRED : IFACE_WIFI);
 	unsigned long long dummy;
 	get_rx_tx(st_iface, &ni.rx_at_start, &dummy);
 	ni.testing = 1;
@@ -983,7 +1067,7 @@ static Window old_focus;   /* focus cần trả lại khi đóng panel */
 static int old_revert;
 
 static XftColor bg_panel, bg_card, bg_hover, bg_select, border_c, label_c, value_c,
-                ok_c, err_c, white_c, border_dwm;
+                ok_c, err_c, white_c, border_dwm, black_c;
 
 #define CLR(dst, src) do { if (!XftColorAllocName(dpy, vis, cmap, (src), &(dst))) die("color " #dst); } while (0)
 
@@ -1111,6 +1195,8 @@ static int panel_height(void)
 	h += band_section_visible() ? 34 + 28 + 14 : 0; /* wi-fi band pills */
 	h += 34 + 28 + 14;                        /* dns */
 	h += 34 + 28 + 14;                        /* speed test */
+	if (qr_section_visible())
+		h += qr_block_height();               /* wi-fi QR share */
 	h += 34;                                  /* known title */
 	h += (ni.known_n ? (ni.known_n > MAX_LIST_ITEMS ? MAX_LIST_ITEMS : ni.known_n) : 1) * 32;
 	h += 14 + 34;                             /* gap + other title */
@@ -1185,7 +1271,7 @@ static void draw_panel(void)
 		draw_text(tx, y + 33, tag, f_small, &label_c);
 
 		int qx = W - PAD - 46 - 22;
-		draw_text(qx, y + 21, "󰑖", f_icon, hover_id == ID_QR ? &value_c : &label_c);
+		draw_text(qx, y + 21, "󰐲", f_icon, hover_id == ID_QR ? &value_c : &label_c);
 		add_hit(ID_QR, qx - 6, y, 34, 28);
 		draw_toggle(W - PAD - 36, y + 5, ni.radio_on);
 		add_hit(ID_TOGGLE, W - PAD - 46, y - 2, 46, 32);
@@ -1292,6 +1378,45 @@ static void draw_panel(void)
 	y += 34;
 	draw_button(ID_RUN, W - PAD - 84, y, 84, 26, ni.testing ? "Running…" : "Run", 0);
 	y += 28 + 14;
+
+	/* ---- wi-fi QR share ---- */
+	if (qr_section_visible()) {
+		draw_text(PAD, y + 9, "\xf3\xb0\xa7\xb3 WI-FI QR", f_small, &label_c);
+		int close_w = textw(f_small, "Close");
+		draw_text_r(W - PAD, y + 9, "Close", f_small,
+		            hover_id == ID_QR ? &value_c : &label_c);
+		add_hit(ID_QR, W - PAD - close_w - 8, y - 2, close_w + 16, 24);
+		y += 34;
+		if (qr_loading) {
+			char ldb[64];
+			snprintf(ldb, sizeof(ldb), "%s Generating QR code…", spinner());
+			draw_text(PAD, y + 16, ldb, f_small, &label_c);
+			y += 60;
+		} else if (qr_err[0]) {
+			draw_text(PAD, y + 16, qr_err, f_small, &err_c);
+			y += 60;
+		} else if (qr_size > 0) {
+			int mp = qr_module_px();
+			int side = qr_size * mp;
+			int qx0 = (W - side) / 2;
+			char capbuf[160];
+			rrect_fill(qx0 - 6, y - 6, side + 12, side + 12, 0, white_c.pixel);
+			XSetForeground(dpy, gc, black_c.pixel);
+			for (int r = 0; r < qr_size; r++)
+				for (int c = 0; c < qr_size; c++)
+					if (qr_grid[r][c] == '1')
+						XFillRectangle(dpy, pm, gc, qx0 + c * mp, y + r * mp, mp, mp);
+			y += side + 12;
+			snprintf(capbuf, sizeof(capbuf), "%s · %s", qr_ssid,
+			         qr_sec[0] ? qr_sec : "nopass");
+			draw_text((W - textw(f_small, capbuf)) / 2, y + 16, capbuf,
+			          f_small, &label_c);
+			y += 26;
+		} else {
+			/* không có dữ liệu mà cũng không loading/lỗi: đóng section */
+			qr_mode = 0;
+		}
+	}
 
 	/* ---- known networks ---- */
 	{
@@ -1473,6 +1598,7 @@ int main(void)
 	CLR(bg_select, C_BG_SELECT); CLR(border_c, C_BORDER); CLR(label_c, C_LABEL);
 	CLR(value_c, C_VALUE); CLR(ok_c, C_OK); CLR(err_c, C_ERR); CLR(white_c, "#ffffff");
 	CLR(border_dwm, C_BORDER_DWM);
+	CLR(black_c, "#111111");
 
 	f_norm = XftFontOpenName(dpy, scr, font_norm);
 	f_bold = XftFontOpenName(dpy, scr, font_bold);
@@ -1556,10 +1682,10 @@ int main(void)
 
 	/* dữ liệu ban đầu */
 	{
-		int mode = iface_active(ni.essid, sizeof(ni.essid));
-		ni.has_wired = (mode == 1);
-		ni.has_wifi = (mode == 2);
-		get_ip_gw(mode ? (mode == 1 ? IFACE_WIRED : IFACE_WIFI) : IFACE_WIFI);
+		/* wired và wifi check ĐỘC LẬP — cả 2 có thể cùng up */
+		ni.has_wired = wired_up();
+		ni.has_wifi = wifi_essid(ni.essid, sizeof(ni.essid));
+		get_ip_gw(ni.has_wired ? IFACE_WIRED : IFACE_WIFI);
 		get_signal_perc();
 	}
 	kick_ping();
@@ -1690,10 +1816,10 @@ int main(void)
 		}
 		if (now - last_tick >= 5) {
 			last_tick = now;
-			int mode = iface_active(ni.essid, sizeof(ni.essid));
-			ni.has_wired = (mode == 1);
-			ni.has_wifi = (mode == 2);
-			get_ip_gw(mode == 1 ? IFACE_WIRED : IFACE_WIFI);
+			/* wired và wifi check ĐỘC LẬP — cả 2 có thể cùng up */
+			ni.has_wired = wired_up();
+			ni.has_wifi = wifi_essid(ni.essid, sizeof(ni.essid));
+			get_ip_gw(ni.has_wired ? IFACE_WIRED : IFACE_WIFI);
 			get_signal_perc();
 			kick_ping();
 			kick_band();

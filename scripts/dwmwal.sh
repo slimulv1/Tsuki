@@ -14,57 +14,8 @@ WALL_DIR="$HOME/Pictures/Wallpapers"
 
 [ -d "$WALL_DIR" ] || { notify-send "dwmwal" "No wallpaper dir: $WALL_DIR"; exit 1; }
 
-# Sinh colors-rofi.rasi (Material Design 3 tokens) từ bg/fg/accent
-# $1 = bg, $2 = fg, $3 = accent
-gen_md3_rofi() {
-    COLORS=$(python3 - "$1" "$2" "$3" <<'PYEOF'
-import sys
-def hx(h):
-    h = h.lstrip('#')
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
-def fx(c):
-    return '#%02x%02x%02x' % c
-def bl(a, b, t):
-    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
-def lm(c):
-    return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
-bg, fg, ac = (hx(a) for a in sys.argv[1:4])
-sur, ons, prim = bg, fg, ac
-onprim = (0, 0, 0) if lm(prim) > 150 else (255, 255, 255)
-pcont = bl(prim, (0, 0, 0), 0.45)
-onpcont = bl((255, 255, 255), prim, 0.15)
-svar = bl(sur, (0, 0, 0), 0.18)
-onsvar = bl(ons, sur, 0.35)
-outl = bl(sur, (255, 255, 255), 0.10)
-swin = 'rgba(%d, %d, %d, 0.6)' % sur
-print('* {')
-for k, v in (('surface', sur), ('on-surface', ons),
-             ('surface-variant', svar), ('on-surface-variant', onsvar),
-             ('outline', outl), ('primary', prim), ('on-primary', onprim),
-             ('primary-container', pcont), ('on-primary-container', onpcont)):
-    print('    %s: %s;' % (k, fx(v)))
-print('    surface-window: %s;' % swin)
-print('}')
-PYEOF
-)
-    printf '%s\n' "$COLORS" > "$CACHE/colors-rofi.rasi"
-}
-
-# Gieo màu theme cho rofi picker (từ wal.h hiện tại nếu chưa có colors-rofi.rasi)
-seed_colors_rofi() {
-    walf="$DWM_DIR/themes/wal.h"
-    [ -f "$walf" ] || return 0
-    bg=$(sed -n 's/.*black\[\]\s*=\s*"\s*\([^"]*\)".*/\1/p' "$walf" | head -1)
-    [ -n "$bg" ] || bg="#1a1d16"
-    fg=$(sed -n 's/.*gray3\[\]\s*=\s*"\s*\([^"]*\)".*/\1/p' "$walf" | head -1)
-    [ -n "$fg" ] || fg="#d1d8ca"
-    ac=$(sed -n 's/.*blue\[\]\s*=\s*"\s*\([^"]*\)".*/\1/p' "$walf" | head -1)
-    [ -n "$ac" ] || ac="#42d757"
-    gen_md3_rofi "$bg" "$fg" "$ac"
-}
-
 # ---------------------------------------------------------------------------
-# 1) Chọn wallpaper: đối số dòng lệnh (test) hoặc rofi picker
+# 1) Chọn wallpaper: đối số dòng lệnh hoặc wallpicker
 # ---------------------------------------------------------------------------
 if [ $# -ge 1 ]; then
     WALL="$1"
@@ -72,14 +23,9 @@ else
     WALLPAPER_FILES=$(find "$WALL_DIR" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) | sort)
     [ -z "$WALLPAPER_FILES" ] && { notify-send "dwmwal" "No wallpapers found"; exit 1; }
 
-    # Đảm bảo có màu theme cho rofi picker (từ wal.h hiện tại nếu chưa có)
-    mkdir -p "$CACHE"
-    [ -f "$CACHE/colors-rofi.rasi" ] || seed_colors_rofi
-
-    # Custom GTK3 picker (wallpicker.py) thay rofi: filmstrip carousel với
-    # animation OutCubic + crop-fill đúng tỷ lệ — rofi không làm được (icon
-    # scale kiểu FIT giữ nguyên tỷ lệ + box vuông, không per-item size, không
-    # animation). Picker print đường dẫn tuyệt đối ra stdout khi Enter.
+    # Custom GTK3 picker (wallpicker.py): filmstrip carousel với
+    # animation OutCubic + crop-fill đúng tỷ lệ. Picker print đường dẫn
+    # tuyệt đối ra stdout khi Enter.
     SELECTED=$(python3 "$SCRIPTS/wallpicker.py" --dir "$WALL_DIR" 2>/dev/null)
     [ -z "$SELECTED" ] && exit 0
     WALL="$SELECTED"
@@ -102,9 +48,6 @@ if [ -f "$CACHE/accents" ]; then
 else
     accent="$color4"
 fi
-
-# Làm mới màu theme rofi picker theo ảnh vừa chọn (tokens Material Design 3)
-gen_md3_rofi "$color0" "$foreground" "$accent"
 
 # ---------------------------------------------------------------------------
 # 3) Đặt wallpaper (feh) + lưu lại cho lần chạy sau

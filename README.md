@@ -51,17 +51,18 @@ sudo make clean install                            # window manager
 cd st      && sudo make clean install && cd ..     # terminal
 cd slock   && sudo make clean install && cd ..     # lock screen
 cd dmenu   && sudo make clean install && cd ..     # launcher
-cd netpanel && sudo make clean install && cd ..    # wifi panel
 cd slstatus && sudo make install                   # statusbar
+cd netpanel && make && cd ..                       # wifi panel (chỉ cần build)
 
 # decoder ảnh cho wallpaper picker
 make -f scripts/Makefile.imgdec
 ```
 
-Hai chỗ build local thay vì cài root, lý do như sau:
+Ba thứ được build local, không đụng tới root:
 
-- **slstatus** chạy bằng binary trong repo (`~/dwm/slstatus/slstatus`) để khi đổi wallpaper, script tự rebuild và đổi màu nó được mà không cần sudo.
-- **imgdec** cũng vậy — binary nhỏ nằm ngay trong `scripts/`. Thiếu nó thì picker vẫn chạy bình thường (tự chuyển sang Pillow/gdk-pixbuf), chỉ là decode chậm hơn một chút thôi.
+- **slstatus** chạy bằng binary trong repo (`~/dwm/slstatus/slstatus`) để khi đổi wallpaper, script tự rebuild và đổi màu nó mà không cần sudo.
+- **netpanel** cũng vậy — `netpanel.sh` gọi thẳng binary `~/dwm/netpanel/netpanel`, nên chỉ cần `make` là đủ.
+- **imgdec** là binary nhỏ nằm ngay trong `scripts/`. Thiếu nó thì picker vẫn chạy bình thường (tự chuyển sang Pillow/gdk-pixbuf), chỉ là decode chậm hơn một chút thôi.
 
 ### 3. Dotfiles
 

@@ -39,9 +39,9 @@ static const char *taglines[] = {
  * Lưu ý: nmcli không hỗ trợ DoT nên chỉ dùng IP anycast (vẫn đúng profile lọc) */
 #define NEXTDNS_DNS "45.90.28.0 45.90.30.0"
 
-/* DNS presets: name, dns string cho nmcli (NULL = DHCP/auto) */
+/* DNS presets: name, dns string cho nmcli (nullptr = DHCP/auto) */
 static const struct { const char *name; const char *dns; } dns_providers[] = {
-	{ "DHCP",       NULL },
+	{ "DHCP",       nullptr },
 	{ "Cloudflare", "1.1.1.1 1.0.0.1" },
 	{ "Google",     "8.8.8.8 8.8.4.4" },
 	{ "NextDNS",    NEXTDNS_DNS },

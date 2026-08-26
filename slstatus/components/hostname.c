@@ -10,7 +10,7 @@ hostname(const char *unused)
 {
 	if (gethostname(buf, sizeof(buf)) < 0) {
 		warn("gethostbyname:");
-		return NULL;
+		return nullptr;
 	}
 
 	return buf;

@@ -20,7 +20,7 @@ username(const char *unused)
 
 	if (!(pw = getpwuid(geteuid()))) {
 		warn("getpwuid '%d':", geteuid());
-		return NULL;
+		return nullptr;
 	}
 
 	return bprintf("%s", pw->pw_name);

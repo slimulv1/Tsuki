@@ -10,19 +10,19 @@
 	#define CPU_FREQ "/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"
 
 	const char *
-	cpu_freq(const char *unused)
+	cpu_freq(const char *unused[[maybe_unused]])
 	{
 		uintmax_t freq;
 
 		/* in kHz */
 		if (pscanf(CPU_FREQ, "%ju", &freq) != 1)
-			return NULL;
+			return nullptr;
 
 		return fmt_human(freq * 1000, 1000);
 	}
 
 	const char *
-	cpu_perc(const char *unused)
+	cpu_perc(const char *unused[[maybe_unused]])
 	{
 		static long double a[7];
 		long double b[7], sum;
@@ -32,16 +32,16 @@
 		if (pscanf("/proc/stat", "%*s %Lf %Lf %Lf %Lf %Lf %Lf %Lf",
 		           &a[0], &a[1], &a[2], &a[3], &a[4], &a[5], &a[6])
 		    != 7)
-			return NULL;
+			return nullptr;
 
 		if (b[0] == 0)
-			return NULL;
+			return nullptr;
 
 		sum = (b[0] + b[1] + b[2] + b[3] + b[4] + b[5] + b[6]) -
 		      (a[0] + a[1] + a[2] + a[3] + a[4] + a[5] + a[6]);
 
 		if (sum == 0)
-			return NULL;
+			return nullptr;
 
 		return bprintf("%d", (int)(100 *
 		               ((b[0] + b[1] + b[2] + b[5] + b[6]) -
@@ -53,7 +53,7 @@
 	#include <sys/sysctl.h>
 
 	const char *
-	cpu_freq(const char *unused)
+	cpu_freq(const char *unused[[maybe_unused]])
 	{
 		int freq, mib[2];
 		size_t size;
@@ -64,16 +64,16 @@
 		size = sizeof(freq);
 
 		/* in MHz */
-		if (sysctl(mib, 2, &freq, &size, NULL, 0) < 0) {
+		if (sysctl(mib, 2, &freq, &size, nullptr, 0) < 0) {
 			warn("sysctl 'HW_CPUSPEED':");
-			return NULL;
+			return nullptr;
 		}
 
 		return fmt_human(freq * 1E6, 1000);
 	}
 
 	const char *
-	cpu_perc(const char *unused)
+	cpu_perc(const char *unused[[maybe_unused]])
 	{
 		int mib[2];
 		static uintmax_t a[CPUSTATES];
@@ -86,18 +86,18 @@
 		size = sizeof(a);
 
 		memcpy(b, a, sizeof(b));
-		if (sysctl(mib, 2, &a, &size, NULL, 0) < 0) {
+		if (sysctl(mib, 2, &a, &size, nullptr, 0) < 0) {
 			warn("sysctl 'KERN_CPTIME':");
-			return NULL;
+			return nullptr;
 		}
 		if (b[0] == 0)
-			return NULL;
+			return nullptr;
 
 		sum = (a[CP_USER] + a[CP_NICE] + a[CP_SYS] + a[CP_INTR] + a[CP_IDLE]) -
 		      (b[CP_USER] + b[CP_NICE] + b[CP_SYS] + b[CP_INTR] + b[CP_IDLE]);
 
 		if (sum == 0)
-			return NULL;
+			return nullptr;
 
 		return bprintf("%d", 100 *
 		               ((a[CP_USER] + a[CP_NICE] + a[CP_SYS] +
@@ -111,23 +111,23 @@
 	#include <sys/sysctl.h>
 
 	const char *
-	cpu_freq(const char *unused)
+	cpu_freq(const char *unused[[maybe_unused]])
 	{
 		int freq;
 		size_t size;
 
 		size = sizeof(freq);
 		/* in MHz */
-		if (sysctlbyname("hw.clockrate", &freq, &size, NULL, 0) < 0 || !size) {
+		if (sysctlbyname("hw.clockrate", &freq, &size, nullptr, 0) < 0 || !size) {
 			warn("sysctlbyname 'hw.clockrate':");
-			return NULL;
+			return nullptr;
 		}
 
 		return fmt_human(freq * 1E6, 1000);
 	}
 
 	const char *
-	cpu_perc(const char *unused)
+	cpu_perc(const char *unused[[maybe_unused]])
 	{
 		size_t size;
 		static long a[CPUSTATES];
@@ -135,18 +135,18 @@
 
 		size = sizeof(a);
 		memcpy(b, a, sizeof(b));
-		if (sysctlbyname("kern.cp_time", &a, &size, NULL, 0) < 0 || !size) {
+		if (sysctlbyname("kern.cp_time", &a, &size, nullptr, 0) < 0 || !size) {
 			warn("sysctlbyname 'kern.cp_time':");
-			return NULL;
+			return nullptr;
 		}
 		if (b[0] == 0)
-			return NULL;
+			return nullptr;
 
 		sum = (a[CP_USER] + a[CP_NICE] + a[CP_SYS] + a[CP_INTR] + a[CP_IDLE]) -
 		      (b[CP_USER] + b[CP_NICE] + b[CP_SYS] + b[CP_INTR] + b[CP_IDLE]);
 
 		if (sum == 0)
-			return NULL;
+			return nullptr;
 
 		return bprintf("%d", 100 *
 		               ((a[CP_USER] + a[CP_NICE] + a[CP_SYS] +

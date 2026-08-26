@@ -36,7 +36,7 @@
 #include "config.h"
 
 /* ============ tiện ích chung ============ */
-static void die(const char *msg) { fprintf(stderr, "netpanel: %s\n", msg); exit(1); }
+[[noreturn]] static void die(const char *msg) { fprintf(stderr, "netpanel: %s\n", msg); exit(1); }
 static void *ecalloc(size_t n, size_t s) { void *p = calloc(n, s); if (!p) die("oom"); return p; }
 
 /* quote chuỗi để nhúng an toàn vào shell trong dấu '...' */
@@ -235,7 +235,7 @@ typedef struct Job {
 	struct Job *next;
 } Job;
 
-static Job *jobs = NULL;
+static Job *jobs = nullptr;
 
 /* fire-and-forget không cần output (tự Reaper dọn zombie) */
 static void run_bg(const char *cmd)
@@ -247,7 +247,7 @@ static void run_bg(const char *cmd)
 			dup2(dn, STDIN_FILENO); dup2(dn, STDOUT_FILENO); dup2(dn, STDERR_FILENO);
 			if (dn > 2) close(dn);
 		}
-		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+		execl("/bin/sh", "sh", "-c", cmd, (char *)nullptr);
 		_exit(127);
 	}
 }
@@ -258,13 +258,13 @@ static Job *job_run_ex(const char *cmd, void (*cb)(Job *), const char *input)
 {
 	int pfd[2], ipfd[2];
 	int has_in = input && input[0];
-	if (pipe(pfd) < 0) return NULL;
-	if (has_in && pipe(ipfd) < 0) { close(pfd[0]); close(pfd[1]); return NULL; }
+	if (pipe(pfd) < 0) return nullptr;
+	if (has_in && pipe(ipfd) < 0) { close(pfd[0]); close(pfd[1]); return nullptr; }
 	pid_t pid = fork();
 	if (pid < 0) {
 		close(pfd[0]); close(pfd[1]);
 		if (has_in) { close(ipfd[0]); close(ipfd[1]); }
-		return NULL;
+		return nullptr;
 	}
 	if (pid == 0) {
 		close(pfd[0]);
@@ -277,7 +277,7 @@ static Job *job_run_ex(const char *cmd, void (*cb)(Job *), const char *input)
 		}
 		int dn = open("/dev/null", O_WRONLY);
 		if (dn >= 0) { dup2(dn, STDERR_FILENO); if (dn > 2) close(dn); }
-		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+		execl("/bin/sh", "sh", "-c", cmd, (char *)nullptr);
 		_exit(127);
 	}
 	/* CLOEXEC: tiến trình con (run_bg/job khác) không được giữ pipe
@@ -309,10 +309,10 @@ static Job *job_run_ex(const char *cmd, void (*cb)(Job *), const char *input)
 
 static Job *job_run(const char *cmd, void (*cb)(Job *))
 {
-	return job_run_ex(cmd, cb, NULL);
+	return job_run_ex(cmd, cb, nullptr);
 }
 
-static void reap(int sig) { (void)sig; while (waitpid(-1, NULL, WNOHANG) > 0) {} }
+static void reap(int sig) { (void)sig; while (waitpid(-1, nullptr, WNOHANG) > 0) {} }
 
 static void poll_jobs(void)
 {
@@ -375,7 +375,7 @@ static void cb_ping(Job *j)
 		int pc;
 		float mn, av, mx, md;
 		char *lp;
-		if ((lp = strstr(line, "packet loss")) != NULL) {
+		if ((lp = strstr(line, "packet loss")) != nullptr) {
 			char *q = lp;
 			while (q > line && q[-1] >= '0' && q[-1] <= '9') q--;
 			if (sscanf(q, "%d%% packet loss", &pc) == 1) loss = pc;
@@ -402,8 +402,8 @@ static void cb_ping(Job *j)
 static void kick_ping(void)
 {
 	if (ni.pinging || !ni.gw[0]) return;
-	if (time(NULL) - last_ping < 5) return;
-	last_ping = time(NULL);
+	if (time(nullptr) - last_ping < 5) return;
+	last_ping = time(nullptr);
 	ni.pinging = 1;
 	char qg[128], cmd[560];
 	sh_quote(qg, sizeof(qg), ni.gw);
@@ -458,12 +458,13 @@ static void cb_status(Job *j)
 			/* đang chờ nmcli áp dụng toggle → bỏ qua giá trị CŨ
 			   (query trả về trạng thái trước khi đổi, ghi đè sẽ làm
 			   toggle nhảy qua lại); hết hạn chờ mới nhận status thật */
-			if (radio_pending && time(NULL) < radio_pending_until)
+			if (radio_pending && time(nullptr) < radio_pending_until)
 				continue;
 			radio_pending = 0;
-			ni.radio_on = strstr(line + 6, "enabled") != NULL;
+			ni.radio_on = strstr(line + 6, "enabled") != nullptr;
 		} else if (!strncmp(line, "conn ", 5)) {
-			snprintf(ni.conn_name, sizeof(ni.conn_name), "%s", line + 5);
+			snprintf(ni.conn_name, sizeof(ni.conn_name), "%.*s",
+			         (int)sizeof(ni.conn_name) - 1, line + 5);
 		} else if (!strncmp(line, "ignore ", 7)) {
 			dns_ignore_auto = !strcmp(line + 7, "yes");
 		} else if (!strncmp(line, "dnsconf ", 8)) {
@@ -495,7 +496,7 @@ static void cb_status(Job *j)
 				 * khi có kết quả, tránh "tự ý" nhảy vào danh sách */
 				if (pw_mode && !strcmp(line, pw_ssid))
 					continue;
-				snprintf(ni.known[ni.known_n++], 128, "%s", line);
+				snprintf(ni.known[ni.known_n++], 128, "%.*s", 127, line);
 			} else if (mode == 2 && ni.other_n < 64) {
 				char use[8] = "", ssid[96] = "", sec[32] = "";
 				int sig = 0;
@@ -538,7 +539,7 @@ static void cb_status(Job *j)
 				pw_row = k;
 				/* banner kết quả (Wrong password/timeout) neo cùng
 				   ssid — conn_row cũ trỏ index KNOWN đã hết nghĩa */
-				if (conn_status == 2 && time(NULL) < conn_msg_until)
+				if (conn_status == 2 && time(nullptr) < conn_msg_until)
 					conn_row = k;
 				break;
 			}
@@ -622,11 +623,11 @@ static void toggle_wifi(void)
 {
 	/* debounce + serialize: bỏ click trong lúc nmcli chưa kịp áp dụng
 	   (tránh 2 lệnh radio song song tranh chấp nhau) */
-	if (radio_pending && time(NULL) < radio_pending_until)
+	if (radio_pending && time(nullptr) < radio_pending_until)
 		return;
-	radio_kick_at = time(NULL) + 3; /* quét lại mạng sớm thay vì đợi tick 5s */
+	radio_kick_at = time(nullptr) + 3; /* quét lại mạng sớm thay vì đợi tick 5s */
 	radio_pending = 1;
-	radio_pending_until = time(NULL) + 3; /* chỉ chặn double-click; chặn lâu làm click BẬT bị nuốt */
+	radio_pending_until = time(nullptr) + 3; /* chỉ chặn double-click; chặn lâu làm click BẬT bị nuốt */
 	run_bg(ni.radio_on ? "nmcli radio wifi off" : "nmcli radio wifi on");
 	ni.radio_on = !ni.radio_on; /* optimistic — status thật đến từ cb_status */
 	ni.has_wifi = 0;
@@ -673,13 +674,14 @@ static void cb_connect_done(Job *j)
 	} else {
 		/* đúng mật khẩu: nmcli tự lưu profile + password */
 		conn_status = 1;
-		snprintf(conn_msg, sizeof(conn_msg), "Connected to %s", pw_ssid);
+		snprintf(conn_msg, sizeof(conn_msg), "Connected to %.*s",
+		         (int)sizeof(conn_msg) - 14, pw_ssid);
 		pw_mode = 0;
 		pw_len = 0;
 		pw_buf[0] = '\0';
 	}
 	conn_row = pw_row;
-	conn_msg_until = time(NULL) + 4;
+	conn_msg_until = time(nullptr) + 4;
 	kick_status(); /* làm mới KNOWN/OTHER ngay (profile rác đã bị xóa /
 	                  profile mới đã được lưu khi thành công) */
 	g_need_redraw = 1;
@@ -711,14 +713,14 @@ static void submit_pw(void)
 	conn_status = 3;
 	snprintf(conn_msg, sizeof(conn_msg), "Checking password…");
 	conn_row = pw_row;
-	conn_msg_until = time(NULL) + 30;
+	conn_msg_until = time(nullptr) + 30;
 	snprintf(conn_target, sizeof(conn_target), "%s", pw_ssid);
 	conn_was_known = 0;
 	int my = ++conn_seq;
 	Job *jb = job_run_ex(cmd, cb_connect_done, pw_buf);
 	if (!jb) { conn_status = 0; return; }
 	jb->seq = my;
-	conn_deadline = time(NULL) + 30;
+	conn_deadline = time(nullptr) + 30;
 	/* refresh sau 3s cho nmcli kịp nối */
 	run_bg("( sleep 3; killall -USR1 netpanel 2>/dev/null ) >/dev/null 2>&1 &");
 	/* không xóa pw state ở đây — cb_connect_done quyết định giữ (sai)
@@ -751,7 +753,7 @@ static void cb_known_connect(Job *j)
 		conn_status = 1;
 		snprintf(conn_msg, sizeof(conn_msg), "Connected");
 	}
-	conn_msg_until = time(NULL) + 4;
+	conn_msg_until = time(nullptr) + 4;
 	kick_status();
 	g_need_redraw = 1;
 }
@@ -772,11 +774,11 @@ static void do_connect(const char *ssid, int secured)
 			Job *jb = job_run(cmd, cb_known_connect);
 			if (!jb) return;
 			jb->seq = my;
-			conn_deadline = time(NULL) + 30;
+			conn_deadline = time(nullptr) + 30;
 			conn_status = 3;
 			snprintf(conn_msg, sizeof(conn_msg), "Connecting…");
 			conn_row = i;
-			conn_msg_until = time(NULL) + 30;
+			conn_msg_until = time(nullptr) + 30;
 			g_need_redraw = 1;
 			return;
 		}
@@ -853,7 +855,7 @@ static void cb_qr_done(Job *j)
 			   Tách tối đa 3 tab, phần còn lại nguyên vẹn là ssid. */
 			char *f1 = line + 5;
 			char *f2 = strchr(f1, '\t');
-			char *f3 = f2 ? strchr(f2 + 1, '\t') : NULL;
+			char *f3 = f2 ? strchr(f2 + 1, '\t') : nullptr;
 			if (f3) {
 				*f3 = '\0';
 				char *ssid = f3 + 1;
@@ -928,7 +930,7 @@ static void start_speedtest(void)
 	unsigned long long dummy;
 	get_rx_tx(st_iface, &ni.rx_at_start, &dummy);
 	ni.testing = 1;
-	ni.t_start = time(NULL);
+	ni.t_start = time(nullptr);
 	ni.dl_peak = 0;
 	st_failed = 0;
 	char cmd[512];
@@ -941,7 +943,7 @@ static void start_speedtest(void)
 static void tick_speedtest(void)
 {
 	if (!ni.testing) return;
-	double dt = difftime(time(NULL), ni.t_start);
+	double dt = difftime(time(nullptr), ni.t_start);
 	if (dt <= 0) dt = 1;
 	unsigned long long rx_now, tx_now;
 	get_rx_tx(st_iface, &rx_now, &tx_now);
@@ -1007,7 +1009,7 @@ static void kick_band(void)
 {
 	if (band_busy || !ni.has_wifi) return;
 	char cmd[320];
-	band_script_cmd(cmd, sizeof(cmd), NULL);
+	band_script_cmd(cmd, sizeof(cmd), nullptr);
 	if (!cmd[0]) return;
 	job_run(cmd, cb_band);
 }
@@ -1038,7 +1040,7 @@ static void apply_band(int idx) /* 0=auto 1=2.4 2=5 3=6 */
 	if (!cmd[0]) return;
 	band_busy = 1; /* giữ section ổn định qua lần reconnect mà đổi band gây ra */
 	g_need_redraw = 1;
-	/* job_run NULL (fork/pipe fail) thì phải nhả busy — không là section band
+	/* job_run nullptr (fork/pipe fail) thì phải nhả busy — không là section band
 	 * đóng băng vĩnh viễn vì cb_band_apply không bao giờ chạy */
 	if (!job_run(cmd, cb_band_apply))
 		band_busy = 0;
@@ -1176,7 +1178,7 @@ static void draw_button(int id, int x, int y, int w, int h, const char *label, i
 static const char *spinner(void)
 {
 	static const char *sp[] = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-	return sp[(unsigned long)(time(NULL) * 10) % 10];
+	return sp[(unsigned long)(time(nullptr) * 10) % 10];
 }
 
 /* ============ layout ============ */
@@ -1203,7 +1205,7 @@ static int panel_height(void)
 	h += 14 + 34 + 28 + 14;                   /* gap + dns */
 	h += 34;                                  /* speed test (1 hàng) */
 	h += pw_mode ? 46 : 0;                    /* ô nhập mật khẩu inline */
-	h += (conn_status && time(NULL) < conn_msg_until) ? 32 : 0; /* banner kết quả */
+	h += (conn_status && time(nullptr) < conn_msg_until) ? 32 : 0; /* banner kết quả */
 	h += PAD;
 	return h;
 }
@@ -1228,7 +1230,7 @@ static XftColor *grid_quality_color(int is_ping)
  * Trả về 32 nếu đã vẽ, 0 nếu không. */
 static int draw_result_banner_if(int row, int y, int in_known)
 {
-	if (!conn_status || conn_row != row || time(NULL) >= conn_msg_until)
+	if (!conn_status || conn_row != row || time(nullptr) >= conn_msg_until)
 		return 0;
 	if (in_known != (conn_was_known != 0))
 		return 0;
@@ -1271,7 +1273,7 @@ static void draw_panel(void)
 		if (ni.has_wired && ni.has_wifi)
 			draw_text(tx + textw(f_bold, title) + 10, y + 18,
 			          "WIRED", f_small, &label_c);
-		const char *tag = taglines[(unsigned long)(time(NULL) / 3600) %
+		const char *tag = taglines[(unsigned long)(time(nullptr) / 3600) %
 		                           (sizeof(taglines) / sizeof(taglines[0]))];
 		draw_text(tx, y + 33, tag, f_small, &label_c);
 
@@ -1468,7 +1470,7 @@ static void draw_panel(void)
 				draw_text(PAD + textw(f_small, "\xef\x80\xa3 Password:") + 12, y + 27,
 				          masked, f_norm, &value_c);
 				/* con trỏ nhấp nháy theo giây */
-				if (time(NULL) & 1) {
+				if (time(nullptr) & 1) {
 					int mx = PAD + textw(f_small, "\xef\x80\xa3 Password:") + 12 + textw(f_norm, masked);
 					XSetForeground(dpy, gc, value_c.pixel);
 					XFillRectangle(dpy, pm, gc, mx + 2, y + 14, 2, 15);
@@ -1586,7 +1588,7 @@ int main(void)
 	ftruncate(lockfd, 0);
 	dprintf(lockfd, "%d", (int)getpid());
 
-	dpy = XOpenDisplay(NULL);
+	dpy = XOpenDisplay(nullptr);
 	if (!dpy) die("cannot open display");
 	scr = DefaultScreen(dpy);
 	root = RootWindow(dpy, scr);
@@ -1622,7 +1624,7 @@ int main(void)
 	/* dò bar dwm: cửa sổ con của root, rộng ≈ màn hình, cao < 80, y = 0 */
 	int sw = DisplayWidth(dpy, scr);
 	int bar_h = BAR_FALLBACK_Y;
-	Window rr, pr, *ch = NULL;
+	Window rr, pr, *ch = nullptr;
 	unsigned int nc = 0;
 	if (XQueryTree(dpy, root, &rr, &pr, &ch, &nc) && ch) {
 		for (unsigned int i = 0; i < nc; i++) {
@@ -1649,7 +1651,7 @@ int main(void)
 	                    CWOverrideRedirect | CWBackPixel | CWBorderPixel |
 	                    CWColormap | CWEventMask, &wa);
 	pm = XCreatePixmap(dpy, win, PANEL_W, H, depth);
-	gc = XCreateGC(dpy, pm, 0, NULL); /* GC depth-32 khớp pixmap ARGB */
+	gc = XCreateGC(dpy, pm, 0, nullptr); /* GC depth-32 khớp pixmap ARGB */
 	xftdraw = XftDrawCreate(dpy, pm, vis, cmap);
 
 	/* khai báo loại cửa sổ + class cho picom/compositor nhận diện */
@@ -1713,7 +1715,7 @@ int main(void)
 			FD_SET(j->fd, &rf);
 			if (j->fd > maxfd) maxfd = j->fd;
 		}
-		select(maxfd + 1, &rf, NULL, NULL, &tv);
+		select(maxfd + 1, &rf, nullptr, nullptr, &tv);
 
 		if (got_usr2) {
 			got_usr2 = 0;
@@ -1731,14 +1733,14 @@ int main(void)
 		/* toast hết hạn → tự tắt (quy tắc auto-dismiss 3-5s) */
 		/* pending (status 3) không tự hết hạn — chờ nmcli trả kết quả
 		   (sai mật khẩu NetworkManager có thể mất 30-60s mới báo lỗi) */
-		if (conn_status && conn_status != 3 && time(NULL) > conn_msg_until) {
+		if (conn_status && conn_status != 3 && time(nullptr) > conn_msg_until) {
 			conn_status = 0;
 			g_need_redraw = 1;
 		}
 		/* hết hạn chờ toggle wifi → nhận lại status thật từ lần quét sau */
-		if (radio_pending && time(NULL) > radio_pending_until)
+		if (radio_pending && time(nullptr) > radio_pending_until)
 			radio_pending = 0;
-		if (radio_kick_at && time(NULL) >= radio_kick_at) {
+		if (radio_kick_at && time(nullptr) >= radio_kick_at) {
 			radio_kick_at = 0;
 			kick_status();
 		}
@@ -1785,7 +1787,7 @@ int main(void)
 						pw_len--; pw_buf[pw_len] = '\0'; g_need_redraw = 1;
 					} else {
 						char c;
-						if (XLookupString(&ev.xkey, &c, 1, NULL, NULL) == 1 &&
+						if (XLookupString(&ev.xkey, &c, 1, nullptr, nullptr) == 1 &&
 						    (unsigned char)c >= 32 && pw_len < 63) {
 							pw_buf[pw_len++] = c; pw_buf[pw_len] = '\0';
 							g_need_redraw = 1;
@@ -1801,7 +1803,7 @@ int main(void)
 			}
 		}
 
-		time_t now = time(NULL);
+		time_t now = time(nullptr);
 		tick_speedtest();
 		/* pending quá deadline (30s > auth-timeout NM) mà không hồi âm →
 		   tự hủy phiên: tăng conn_seq vô hiệu callback đến muộn, hiện

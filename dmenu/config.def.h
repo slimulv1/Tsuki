@@ -10,7 +10,7 @@ static const float menu_height_ratio = 2.0f;  /* This is the ratio used in the o
 static const char *fonts[] = {
 	"Maple Mono NF:size=12"
 };
-static const char *prompt      = NULL;      /* -p  option; prompt to the left of input field */
+static const char *prompt      = nullptr;      /* -p  option; prompt to the left of input field */
 static const char *colors[SchemeLast][2] = {
 	/*     fg         bg       */
 	[SchemeNorm] = { "#bcb8ba", "#30272b" },

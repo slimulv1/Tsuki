@@ -14,7 +14,7 @@
 		uintmax_t temp;
 
 		if (pscanf(file, "%ju", &temp) != 1)
-			return NULL;
+			return nullptr;
 
 		return bprintf("%ju", temp / 1000);
 	}
@@ -39,9 +39,9 @@
 
 		size = sizeof(temp);
 
-		if (sysctl(mib, 5, &temp, &size, NULL, 0) < 0) {
+		if (sysctl(mib, 5, &temp, &size, nullptr, 0) < 0) {
 			warn("sysctl 'SENSOR_TEMP':");
-			return NULL;
+			return nullptr;
 		}
 
 		/* kelvin to celsius */
@@ -63,9 +63,9 @@
 
 		len = sizeof(temp);
 		snprintf(buf, sizeof(buf), ACPI_TEMP, zone);
-		if (sysctlbyname(buf, &temp, &len, NULL, 0) < 0
+		if (sysctlbyname(buf, &temp, &len, nullptr, 0) < 0
 				|| !len)
-			return NULL;
+			return nullptr;
 
 		/* kelvin to decimal celcius */
 		return bprintf("%d.%d", (temp - 2731) / 10, abs((temp - 2731) % 10));

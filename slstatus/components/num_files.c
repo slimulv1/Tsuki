@@ -15,7 +15,7 @@ num_files(const char *path)
 
 	if (!(dir = opendir(path))) {
 		warn("opendir '%s':", path);
-		return NULL;
+		return nullptr;
 	}
 
 	num = 0;

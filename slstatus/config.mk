@@ -12,7 +12,7 @@ X11LIB = /usr/lib
 
 # flags
 CPPFLAGS = -I$(X11INC) -D_DEFAULT_SOURCE -DVERSION=\"${VERSION}\"
-CFLAGS   = -std=c99 -pedantic -Wall -Wextra -Wno-unused-parameter -Os
+CFLAGS   = -std=c23 -Wall -Wextra -Wno-unused-parameter -Os
 LDFLAGS  = -L$(X11LIB) -s
 # OpenBSD: add -lsndio
 # FreeBSD: add -lkvm -lsndio

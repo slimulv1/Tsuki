@@ -24,21 +24,21 @@ ip(const char *interface, unsigned short sa_family)
 
 	if (getifaddrs(&ifaddr) < 0) {
 		warn("getifaddrs:");
-		return NULL;
+		return nullptr;
 	}
 
-	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+	for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
 		if (!ifa->ifa_addr)
 			continue;
 
 		s = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in6),
-		                host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
+		                host, NI_MAXHOST, nullptr, 0, NI_NUMERICHOST);
 		if (!strcmp(ifa->ifa_name, interface) &&
 		    (ifa->ifa_addr->sa_family == sa_family)) {
 			freeifaddrs(ifaddr);
 			if (s != 0) {
 				warn("getnameinfo: %s", gai_strerror(s));
-				return NULL;
+				return nullptr;
 			}
 			return bprintf("%s", host);
 		}
@@ -46,7 +46,7 @@ ip(const char *interface, unsigned short sa_family)
 
 	freeifaddrs(ifaddr);
 
-	return NULL;
+	return nullptr;
 }
 
 const char *
@@ -68,10 +68,10 @@ up(const char *interface)
 
 	if (getifaddrs(&ifaddr) < 0) {
 		warn("getifaddrs:");
-		return NULL;
+		return nullptr;
 	}
 
-	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+	for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
 		if (!ifa->ifa_addr)
 			continue;
 
@@ -83,5 +83,5 @@ up(const char *interface)
 
 	freeifaddrs(ifaddr);
 
-	return NULL;
+	return nullptr;
 }

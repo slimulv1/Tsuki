@@ -24,9 +24,9 @@ static int anysize_valign = 50;
  * 5: value of shell in config.h
  */
 static char *shell = "/bin/sh";
-char *utmp = NULL;
+char *utmp = nullptr;
 /* scroll program: to enable use a string like "scroll" */
-char *scroll = NULL;
+char *scroll = nullptr;
 char *stty_args = "stty raw pass8 nl -echo -iexten -cstopb 38400";
 
 /* identification sequence returned in DA and DECID */

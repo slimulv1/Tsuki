@@ -12,7 +12,7 @@ kernel_release(const char *unused)
 
 	if (uname(&udata) < 0) {
 		warn("uname:");
-		return NULL;
+		return nullptr;
 	}
 
 	return bprintf("%s", udata.release);

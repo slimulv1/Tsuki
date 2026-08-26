@@ -14,7 +14,7 @@
 		uintmax_t num;
 
 		if (pscanf(ENTROPY_AVAIL, "%ju", &num) != 1)
-			return NULL;
+			return nullptr;
 
 		return bprintf("%ju", num);
 	}

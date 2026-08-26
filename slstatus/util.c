@@ -17,7 +17,7 @@ verr(const char *fmt, va_list ap)
 
 	if (fmt[0] && fmt[strlen(fmt) - 1] == ':') {
 		fputc(' ', stderr);
-		perror(NULL);
+		perror(nullptr);
 	} else {
 		fputc('\n', stderr);
 	}
@@ -33,7 +33,7 @@ warn(const char *fmt, ...)
 	va_end(ap);
 }
 
-void
+[[noreturn]] void
 die(const char *fmt, ...)
 {
 	va_list ap;
@@ -86,7 +86,7 @@ bprintf(const char *fmt, ...)
 	ret = evsnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 
-	return (ret < 0) ? NULL : buf;
+	return (ret < 0) ? nullptr : buf;
 }
 
 const char *
@@ -111,7 +111,7 @@ fmt_human(uintmax_t num, int base)
 		break;
 	default:
 		warn("fmt_human: Invalid base");
-		return NULL;
+		return nullptr;
 	}
 
 	scaled = num;

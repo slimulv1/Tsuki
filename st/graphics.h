@@ -63,7 +63,7 @@ void gr_for_each_image_cell(int (*callback)(void *data, Glyph *gp),
 void gr_schedule_image_redraw_by_id(uint32_t image_id);
 
 /// Returns a pointer to the glyph under the classic placement with `image_id`
-/// and `placement_id` at `col` and `row` (1-based). May return NULL if the
+/// and `placement_id` at `col` and `row` (1-based). May return nullptr if the
 /// underneath text is unknown.
 Glyph *gr_get_glyph_underneath_image(uint32_t image_id, uint32_t placement_id,
 				     int col, int row);

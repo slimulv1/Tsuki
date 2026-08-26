@@ -33,15 +33,15 @@ updates(const char *arg)
                 f = fgets(buf, sizeof(buf) - 1, fp);
                 if (fclose(fp) < 0) {
                         warn("fclose '%s':", path);
-                        return NULL;
+                        return nullptr;
                 }
                 if (!f)
-                        return NULL;
+                        return nullptr;
 
                 if ((f = strrchr(buf, '\n')))
                         f[0] = '\0';
 
-                n = strtol(buf, NULL, 10);
+                n = strtol(buf, nullptr, 10);
         }
 
 /* parse "ONHEX OFFHEX" tu args (config.h); fallback mau mac dinh

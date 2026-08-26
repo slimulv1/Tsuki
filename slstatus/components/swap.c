@@ -22,7 +22,7 @@
 			{ "SwapCached", sizeof("SwapCached") - 1, s_cached },
 		};
 		size_t line_len = 0, i, left;
-		char *line = NULL;
+		char *line = nullptr;
 
 		/* get number of fields we want to extract */
 		for (i = 0, left = 0; i < LEN(ent); i++)
@@ -61,8 +61,8 @@
 	{
 		long free;
 
-		if (get_swap_info(NULL, &free, NULL))
-			return NULL;
+		if (get_swap_info(nullptr, &free, nullptr))
+			return nullptr;
 
 		return fmt_human(free * 1024, 1024);
 	}
@@ -73,7 +73,7 @@
 		long total, free, cached;
 
 		if (get_swap_info(&total, &free, &cached) || total == 0)
-			return NULL;
+			return nullptr;
 
 		return bprintf("%d", 100 * (total - free - cached) / total);
 	}
@@ -83,8 +83,8 @@
 	{
 		long total;
 
-		if (get_swap_info(&total, NULL, NULL))
-			return NULL;
+		if (get_swap_info(&total, nullptr, nullptr))
+			return nullptr;
 
 		return fmt_human(total * 1024, 1024);
 	}
@@ -95,7 +95,7 @@
 		long total, free, cached;
 
 		if (get_swap_info(&total, &free, &cached))
-			return NULL;
+			return nullptr;
 
 		return fmt_human((total - free - cached) * 1024, 1024);
 	}
@@ -147,7 +147,7 @@
 		int total, used;
 
 		if (getstats(&total, &used))
-			return NULL;
+			return nullptr;
 
 		return fmt_human((total - used) * 1024, 1024);
 	}
@@ -158,10 +158,10 @@
 		int total, used;
 
 		if (getstats(&total, &used))
-			return NULL;
+			return nullptr;
 
 		if (total == 0)
-			return NULL;
+			return nullptr;
 
 		return bprintf("%d", 100 * used / total);
 	}
@@ -172,7 +172,7 @@
 		int total, used;
 
 		if (getstats(&total, &used))
-			return NULL;
+			return nullptr;
 
 		return fmt_human(total * 1024, 1024);
 	}
@@ -183,7 +183,7 @@
 		int total, used;
 
 		if (getstats(&total, &used))
-			return NULL;
+			return nullptr;
 
 		return fmt_human(used * 1024, 1024);
 	}
@@ -198,8 +198,8 @@
 	{
 		kvm_t *kd;
 
-		kd = kvm_openfiles(NULL, "/dev/null", NULL, 0, NULL);
-		if (kd == NULL) {
+		kd = kvm_openfiles(nullptr, "/dev/null", nullptr, 0, nullptr);
+		if (kd == nullptr) {
 			warn("kvm_openfiles '/dev/null':");
 			return 0;
 		}
@@ -221,7 +221,7 @@
 		long used, total;
 
 		if (!getswapinfo(swap_info, 1))
-			return NULL;
+			return nullptr;
 
 		total = swap_info[0].ksw_total;
 		used = swap_info[0].ksw_used;
@@ -236,7 +236,7 @@
 		long used, total;
 
 		if (!getswapinfo(swap_info, 1))
-			return NULL;
+			return nullptr;
 
 		total = swap_info[0].ksw_total;
 		used = swap_info[0].ksw_used;
@@ -251,7 +251,7 @@
 		long total;
 
 		if (!getswapinfo(swap_info, 1))
-			return NULL;
+			return nullptr;
 
 		total = swap_info[0].ksw_total;
 
@@ -265,7 +265,7 @@
 		long used;
 
 		if (!getswapinfo(swap_info, 1))
-			return NULL;
+			return nullptr;
 
 		used = swap_info[0].ksw_used;
 

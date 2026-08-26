@@ -24,7 +24,7 @@ uptime(const char *unused)
 	if (clock_gettime(UPTIME_FLAG, &uptime) < 0) {
 		snprintf(warn_buf, sizeof(warn_buf), "clock_gettime %d", UPTIME_FLAG);
 		warn(warn_buf);
-		return NULL;
+		return nullptr;
 	}
 
 	h = uptime.tv_sec / 3600;

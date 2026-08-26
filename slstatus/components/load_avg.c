@@ -12,7 +12,7 @@ load_avg(const char *unused)
 
 	if (getloadavg(avgs, 3) < 0) {
 		warn("getloadavg: Failed to obtain load average");
-		return NULL;
+		return nullptr;
 	}
 
 	return bprintf("%.2f %.2f %.2f", avgs[0], avgs[1], avgs[2]);

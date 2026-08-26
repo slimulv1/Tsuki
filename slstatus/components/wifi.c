@@ -37,7 +37,7 @@
 			}
 			p += NLA_ALIGN(nla.nla_len);
 		}
-		return NULL;
+		return nullptr;
 	}
 
 	static uint16_t
@@ -128,11 +128,11 @@
 		int idx = ifindex(interface);
 		if (!fam) {
 			fprintf(stderr, "nl80211 family not found\n");
-			return NULL;
+			return nullptr;
 		}
 		if (idx < 0) {
 			fprintf(stderr, "interface %s not found\n", interface);
-			return NULL;
+			return nullptr;
 		}
 
 		memcpy(p, &(struct nlmsghdr){
@@ -157,16 +157,16 @@
 
 		if (send(nlsock, req, sizeof(req), 0) != sizeof(req)) {
 			warn("send 'AF_NETLINK':");
-			return NULL;
+			return nullptr;
 		}
 		r = recv(nlsock, resp, sizeof(resp), 0);
 		if (r < 0) {
 			warn("recv 'AF_NETLINK':");
-			return NULL;
+			return nullptr;
 		}
 
 		if ((size_t)r <= NLMSG_HDRLEN + GENL_HDRLEN)
-			return NULL;
+			return nullptr;
 		p = findattr(NL80211_ATTR_SSID, resp + NLMSG_HDRLEN + GENL_HDRLEN, resp + r, &len);
 		if (p)
 			p[len] = 0;
@@ -187,7 +187,7 @@
 
 		if (idx < 0) {
 			fprintf(stderr, "interface %s not found\n", interface);
-			return NULL;
+			return nullptr;
 		}
 
 		memcpy(p, &(struct nlmsghdr){
@@ -212,7 +212,7 @@
 
 		if (send(nlsock, req, sizeof(req), 0) != sizeof(req)) {
 			warn("send 'AF_NETLINK':");
-			return NULL;
+			return nullptr;
 		}
 
 		*strength = 0;
@@ -220,10 +220,10 @@
 			r = recv(nlsock, resp, sizeof(resp), 0);
 			if (r < 0) {
 				warn("recv 'AF_NETLINK':");
-				return NULL;
+				return nullptr;
 			}
 			if ((size_t)r < sizeof(hdr))
-				return NULL;
+				return nullptr;
 
 			for (p = resp; p != resp + r && (size_t)(resp + r-p) >= sizeof(hdr); p = e) {
 				memcpy(&hdr, p, sizeof(hdr));
@@ -238,7 +238,7 @@
 						snprintf(strength, sizeof(strength), "%d", RSSI_TO_PERC(*p));
 				}
 				if (hdr.nlmsg_type == NLMSG_DONE)
-					return *strength ? strength : NULL;
+					return *strength ? strength : nullptr;
 			}
 		}
 	}
@@ -302,7 +302,7 @@
 			return bprintf("%d", q);
 		}
 
-		return NULL;
+		return nullptr;
 	}
 
 	const char *
@@ -313,7 +313,7 @@
 		if (load_ieee80211_nodereq(interface, &nr))
 			return bprintf("%s", nr.nr_nwid);
 
-		return NULL;
+		return nullptr;
 	}
 #elif defined(__FreeBSD__)
 	#include <net/if.h>
@@ -356,12 +356,12 @@
 
 		if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
 			warn("socket 'AF_INET':");
-			return NULL;
+			return nullptr;
 		}
 
 		/* Retreive MAC address of interface */
 		len = IEEE80211_ADDR_LEN;
-		fmt = NULL;
+		fmt = nullptr;
 		if (load_ieee80211req(sockfd, interface, &bssid, IEEE80211_IOC_BSSID, &len))
 		{
 			/* Retrieve info on station with above BSSID */
@@ -391,10 +391,10 @@
 
 		if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
 			warn("socket 'AF_INET':");
-			return NULL;
+			return nullptr;
 		}
 
-		fmt = NULL;
+		fmt = nullptr;
 		len = sizeof(ssid);
 		memset(&ssid, 0, len);
 		if (load_ieee80211req(sockfd, interface, &ssid, IEEE80211_IOC_SSID, &len)) {

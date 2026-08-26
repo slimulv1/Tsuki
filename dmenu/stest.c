@@ -60,7 +60,7 @@ int
 main(int argc, char *argv[])
 {
 	struct dirent *d;
-	char path[PATH_MAX], *line = NULL, *file;
+	char path[PATH_MAX], *line = nullptr, *file;
 	size_t linesiz = 0;
 	ssize_t n;
 	DIR *dir;

@@ -12,13 +12,13 @@ void
 shiftview(const Arg *arg) {
   Arg shifted;
 
-  if(arg->i > 0 && arg->i < LENGTH(tags)) // left circular shift
+  if(arg->i > 0 && arg->i < (int)LENGTH(tags)) // left circular shift
     shifted.ui = (selmon->tagset[selmon->seltags] << arg->i)
-      | (selmon->tagset[selmon->seltags] >> (LENGTH(tags) - arg->i));
+      | (selmon->tagset[selmon->seltags] >> ((int)LENGTH(tags) - arg->i));
 
-  else if(arg->i < 0 && -arg->i < LENGTH(tags)) // right circular shift
+  else if(arg->i < 0 && -arg->i < (int)LENGTH(tags)) // right circular shift
     shifted.ui = selmon->tagset[selmon->seltags] >> (- arg->i)
-      | selmon->tagset[selmon->seltags] << (LENGTH(tags) + arg->i);
+      | selmon->tagset[selmon->seltags] << ((int)LENGTH(tags) + arg->i);
 
   else /* out-of-range shift: skip to avoid undefined behavior / garbage tags */
     return;

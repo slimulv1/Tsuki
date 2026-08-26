@@ -1,6 +1,6 @@
 void
 movestack(const Arg *arg) {
-	Client *c = NULL, *p = NULL, *pc = NULL, *i;
+	Client *c = nullptr, *p = nullptr, *pc = nullptr, *i;
 
 	if (!selmon->sel)
 		return;

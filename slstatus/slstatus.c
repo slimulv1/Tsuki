@@ -61,7 +61,7 @@ main(int argc, char *argv[])
 		break;
 	case '1':
 		done = 1;
-		/* FALLTHROUGH */
+		[[fallthrough]];
 	case 's':
 		sflag = 1;
 		break;
@@ -74,12 +74,12 @@ main(int argc, char *argv[])
 
 	memset(&act, 0, sizeof(act));
 	act.sa_handler = terminate;
-	sigaction(SIGINT,  &act, NULL);
-	sigaction(SIGTERM, &act, NULL);
+	sigaction(SIGINT,  &act, nullptr);
+	sigaction(SIGTERM, &act, nullptr);
 	act.sa_flags |= SA_RESTART;
-	sigaction(SIGUSR1, &act, NULL);
+	sigaction(SIGUSR1, &act, nullptr);
 
-	if (!sflag && !(dpy = XOpenDisplay(NULL)))
+	if (!sflag && !(dpy = XOpenDisplay(nullptr)))
 		die("XOpenDisplay: Failed to open display");
 
 	do {
@@ -120,14 +120,14 @@ main(int argc, char *argv[])
 			difftimespec(&wait, &intspec, &diff);
 
 			if (wait.tv_sec >= 0 &&
-			    nanosleep(&wait, NULL) < 0 &&
+			    nanosleep(&wait, nullptr) < 0 &&
 			    errno != EINTR)
 					die("nanosleep:");
 		}
 	} while (!done);
 
 	if (!sflag) {
-		XStoreName(dpy, DefaultRootWindow(dpy), NULL);
+		XStoreName(dpy, DefaultRootWindow(dpy), nullptr);
 		if (XCloseDisplay(dpy) < 0)
 			die("XCloseDisplay: Failed to close display");
 	}

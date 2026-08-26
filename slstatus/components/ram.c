@@ -8,17 +8,17 @@
 	#include <stdint.h>
 
 	const char *
-	ram_free(const char *unused)
+	ram_free(const char *unused[[maybe_unused]])
 	{
 		uintmax_t free;
 		FILE *fp;
 
 		if (!(fp = fopen("/proc/meminfo", "r")))
-			return NULL;
+			return nullptr;
 
 		if (lscanf(fp, "MemFree:", "%ju kB", &free) != 1) {
 			fclose(fp);
-			return NULL;
+			return nullptr;
 		}
 
 		fclose(fp);
@@ -59,40 +59,40 @@
 	}
 
 	const char *
-	ram_perc(const char *unused)
+	ram_perc(const char *unused[[maybe_unused]])
 	{
 		struct meminfo m;
 		int percent;
 		if (read_meminfo(&m) < 0)
-			return NULL;
+			return nullptr;
 
 		if (m.total == 0)
-			return NULL;
+			return nullptr;
 
 		percent = 100 * (m.total - m.free - m.buffers - m.cached - m.sreclaimable + m.shmem) / m.total;
 		return bprintf("%d", percent);
 	}
 
 	const char *
-	ram_total(const char *unused)
+	ram_total(const char *unused[[maybe_unused]])
 	{
 		uintmax_t total;
 
 		if (pscanf("/proc/meminfo", "MemTotal: %ju kB\n", &total)
 		    != 1)
-			return NULL;
+			return nullptr;
 
 		return fmt_human(total * 1024, 1024);
 	}
 
 	const char *
-	ram_used(const char *unused)
+	ram_used(const char *unused[[maybe_unused]])
 	{
 		struct meminfo m;
 		uintmax_t used;
 
 		if (read_meminfo(&m) < 0)
-			return NULL;
+			return nullptr;
 
 		used = m.total - m.free - m.buffers - m.cached - m.sreclaimable + m.shmem;
 		return fmt_human(used * 1024, 1024);
@@ -114,20 +114,20 @@
 
 		size = sizeof(*uvmexp);
 
-		if (sysctl(uvmexp_mib, 2, uvmexp, &size, NULL, 0) >= 0)
+		if (sysctl(uvmexp_mib, 2, uvmexp, &size, nullptr, 0) >= 0)
 			return 1;
 
 		return 0;
 	}
 
 	const char *
-	ram_free(const char *unused)
+	ram_free(const char *unused[[maybe_unused]])
 	{
 		struct uvmexp uvmexp;
 		int free_pages;
 
 		if (!load_uvmexp(&uvmexp))
-			return NULL;
+			return nullptr;
 
 		free_pages = uvmexp.npages - uvmexp.active;
 		return fmt_human(pagetok(free_pages, uvmexp.pageshift) *
@@ -135,37 +135,37 @@
 	}
 
 	const char *
-	ram_perc(const char *unused)
+	ram_perc(const char *unused[[maybe_unused]])
 	{
 		struct uvmexp uvmexp;
 		int percent;
 
 		if (!load_uvmexp(&uvmexp))
-			return NULL;
+			return nullptr;
 
 		percent = uvmexp.active * 100 / uvmexp.npages;
 		return bprintf("%d", percent);
 	}
 
 	const char *
-	ram_total(const char *unused)
+	ram_total(const char *unused[[maybe_unused]])
 	{
 		struct uvmexp uvmexp;
 
 		if (!load_uvmexp(&uvmexp))
-			return NULL;
+			return nullptr;
 
 		return fmt_human(pagetok(uvmexp.npages,
 					 uvmexp.pageshift) * 1024, 1024);
 	}
 
 	const char *
-	ram_used(const char *unused)
+	ram_used(const char *unused[[maybe_unused]])
 	{
 		struct uvmexp uvmexp;
 
 		if (!load_uvmexp(&uvmexp))
-			return NULL;
+			return nullptr;
 
 		return fmt_human(pagetok(uvmexp.active,
 					 uvmexp.pageshift) * 1024, 1024);
@@ -183,9 +183,9 @@
 		size_t len;
 
 		len = sizeof(struct vmtotal);
-		if (sysctl(mib, 2, &vm_stats, &len, NULL, 0) < 0
+		if (sysctl(mib, 2, &vm_stats, &len, nullptr, 0) < 0
 		    || !len)
-			return NULL;
+			return nullptr;
 
 		return fmt_human(vm_stats.t_free * getpagesize(), 1024);
 	}
@@ -197,8 +197,8 @@
 
 		len = sizeof(npages);
 		if (sysctlbyname("vm.stats.vm.v_page_count",
-		                 &npages, &len, NULL, 0) < 0 || !len)
-			return NULL;
+		                 &npages, &len, nullptr, 0) < 0 || !len)
+			return nullptr;
 
 		return fmt_human(npages * getpagesize(), 1024);
 	}
@@ -211,12 +211,12 @@
 
 		len = sizeof(npages);
 		if (sysctlbyname("vm.stats.vm.v_page_count",
-		                 &npages, &len, NULL, 0) < 0 || !len)
-			return NULL;
+		                 &npages, &len, nullptr, 0) < 0 || !len)
+			return nullptr;
 
 		if (sysctlbyname("vm.stats.vm.v_active_count",
-		                 &active, &len, NULL, 0) < 0 || !len)
-			return NULL;
+		                 &active, &len, nullptr, 0) < 0 || !len)
+			return nullptr;
 
 		return bprintf("%d", active * 100 / npages);
 	}
@@ -228,8 +228,8 @@
 
 		len = sizeof(active);
 		if (sysctlbyname("vm.stats.vm.v_active_count",
-		                 &active, &len, NULL, 0) < 0 || !len)
-			return NULL;
+		                 &active, &len, nullptr, 0) < 0 || !len)
+			return nullptr;
 
 		return fmt_human(active * getpagesize(), 1024);
 	}

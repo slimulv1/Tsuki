@@ -39,7 +39,7 @@
 		struct control *c, *ctmp;
 		unsigned int type = CTRL_NONE;
 
-		if (desc == NULL)
+		if (desc == nullptr)
 			return;
 
 		/* Delete existing audio control with the same address. */
@@ -65,7 +65,7 @@
 			return;
 
 		c = malloc(sizeof(struct control));
-		if (c == NULL) {
+		if (c == nullptr) {
 			warn("sndio: failed to allocate audio control\n");
 			return;
 		}
@@ -99,11 +99,11 @@
 
 		if (hdl) {
 			sioctl_close(hdl);
-			hdl = NULL;
+			hdl = nullptr;
 		}
 
 		free(pfds);
-		pfds = NULL;
+		pfds = nullptr;
 
 		while (!LIST_EMPTY(&controls)) {
 			c = LIST_FIRST(&controls);
@@ -116,23 +116,23 @@
 	init(void)
 	{
 		hdl = sioctl_open(SIO_DEVANY, SIOCTL_READ, 0);
-		if (hdl == NULL) {
+		if (hdl == nullptr) {
 			warn("sndio: cannot open device");
 			goto failed;
 		}
 
-		if (!sioctl_ondesc(hdl, ondesc, NULL)) {
+		if (!sioctl_ondesc(hdl, ondesc, nullptr)) {
 			warn("sndio: cannot set control description call-back");
 			goto failed;
 		}
 
-		if (!sioctl_onval(hdl, onval, NULL)) {
+		if (!sioctl_onval(hdl, onval, nullptr)) {
 			warn("sndio: cannot set control values call-back");
 			goto failed;
 		}
 
 		pfds = calloc(sioctl_nfds(hdl), sizeof(struct pollfd));
-		if (pfds == NULL) {
+		if (pfds == nullptr) {
 			warn("sndio: cannot allocate pollfd structures");
 			goto failed;
 		}
@@ -152,8 +152,8 @@
 		if (!initialized)
 			initialized = init();
 
-		if (hdl == NULL)
-			return NULL;
+		if (hdl == nullptr)
+			return nullptr;
 
 		n = sioctl_pollfd(hdl, pfds, POLLIN);
 		if (n > 0) {
@@ -163,7 +163,7 @@
 					warn("sndio: disconnected");
 					cleanup();
 					initialized = 0;
-					return NULL;
+					return nullptr;
 				}
 			}
 		}
@@ -194,20 +194,20 @@
 
 		if ((afd = open(card, O_RDONLY | O_NONBLOCK)) < 0) {
 			warn("open '%s':", card);
-			return NULL;
+			return nullptr;
 		}
 
 		if (ioctl(afd, (int)SOUND_MIXER_READ_DEVMASK, &devmask) < 0) {
 			warn("ioctl 'SOUND_MIXER_READ_DEVMASK':");
 			close(afd);
-			return NULL;
+			return nullptr;
 		}
 		for (i = 0; i < LEN(vnames); i++) {
 			if (devmask & (1 << i) && !strcmp("vol", vnames[i])) {
 				if (ioctl(afd, MIXER_READ(i), &v) < 0) {
 					warn("ioctl 'MIXER_READ(%ld)':", i);
 					close(afd);
-					return NULL;
+					return nullptr;
 				}
 			}
 		}

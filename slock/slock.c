@@ -47,7 +47,7 @@ struct xrandr {
 
 #include "config.h"
 
-static void
+[[noreturn]] static void
 die(const char *errstr, ...)
 {
 	va_list ap;
@@ -131,8 +131,8 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 {
 	XRRScreenChangeNotifyEvent *rre;
 	char buf[32], passwd[256], *inputhash;
-	int num, screen, running, failure, oldc;
-	unsigned int len, color;
+	int num, screen, running, failure;
+	unsigned int len, color, oldc;
 	KeySym ksym;
 	XEvent ev;
 
@@ -233,8 +233,8 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen)
 	XSetWindowAttributes wa;
 	Cursor invisible;
 
-	if (dpy == NULL || screen < 0 || !(lock = malloc(sizeof(struct lock))))
-		return NULL;
+	if (dpy == nullptr || screen < 0 || !(lock = malloc(sizeof(struct lock))))
+		return nullptr;
 
 	lock->screen = screen;
 	lock->root = RootWindow(dpy, lock->screen);
@@ -298,7 +298,7 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen)
 	if (kbgrab != GrabSuccess)
 		fprintf(stderr, "slock: unable to grab keyboard for screen %d\n",
 		        screen);
-	return NULL;
+	return nullptr;
 }
 
 static void
@@ -348,11 +348,11 @@ main(int argc, char **argv) {
 	if (!crypt("", hash))
 		die("slock: crypt: %s\n", strerror(errno));
 
-	if (!(dpy = XOpenDisplay(NULL)))
+	if (!(dpy = XOpenDisplay(nullptr)))
 		die("slock: cannot open display\n");
 
 	/* drop privileges */
-	if (setgroups(0, NULL) < 0)
+	if (setgroups(0, nullptr) < 0)
 		die("slock: setgroups: %s\n", strerror(errno));
 	if (setgid(dgid) < 0)
 		die("slock: setgid: %s\n", strerror(errno));
@@ -367,7 +367,7 @@ main(int argc, char **argv) {
 	if (!(locks = calloc(nscreens, sizeof(struct lock *))))
 		die("slock: out of memory\n");
 	for (nlocks = 0, s = 0; s < nscreens; s++) {
-		if ((locks[s] = lockscreen(dpy, &rr, s)) != NULL)
+		if ((locks[s] = lockscreen(dpy, &rr, s)) != nullptr)
 			nlocks++;
 		else
 			break;
@@ -382,7 +382,7 @@ main(int argc, char **argv) {
 	if (argc > 0) {
 		pid_t pid;
 		extern char **environ;
-		int err = posix_spawnp(&pid, argv[0], NULL, NULL, argv, environ);
+		int err = posix_spawnp(&pid, argv[0], nullptr, nullptr, argv, environ);
 		if (err) {
 			die("slock: failed to execute post-lock command: %s: %s\n",
 			    argv[0], strerror(err));

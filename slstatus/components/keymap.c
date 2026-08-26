@@ -28,9 +28,9 @@ get_layout(char *syms, int grp_num)
 	char *tok, *layout;
 	int grp;
 
-	layout = NULL;
+	layout = nullptr;
 	tok = strtok(syms, "+:_");
-	for (grp = 0; tok && grp <= grp_num; tok = strtok(NULL, "+:_")) {
+	for (grp = 0; tok && grp <= grp_num; tok = strtok(nullptr, "+:_")) {
 		if (!valid_layout_or_variant(tok)) {
 			continue;
 		} else if (strlen(tok) == 1 && isdigit(tok[0])) {
@@ -53,11 +53,11 @@ keymap(const char *unused)
 	char *symbols;
 	const char *layout;
 
-	layout = NULL;
+	layout = nullptr;
 
-	if (!(dpy = XOpenDisplay(NULL))) {
+	if (!(dpy = XOpenDisplay(nullptr))) {
 		warn("XOpenDisplay: Failed to open display");
-		return NULL;
+		return nullptr;
 	}
 	if (!(desc = XkbAllocKeyboard())) {
 		warn("XkbAllocKeyboard: Failed to allocate keyboard");

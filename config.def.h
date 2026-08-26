@@ -30,8 +30,8 @@ static const int horizpadtabo       = 15;
 static const int scalepreview       = 4;
 static const int tag_preview        = 0;        /* 1 means enable, 0 is off */
 static const int colorfultag        = 1;        /* 0 means use SchemeSel for selected non vacant tag */
-static const char *light_up[] = {"/usr/bin/light", "-A", "5", NULL};
-static const char *light_down[] = {"/usr/bin/light", "-U", "5", NULL};
+static const char *light_up[] = {"/usr/bin/light", "-A", "5", nullptr};
+static const char *light_down[] = {"/usr/bin/light", "-U", "5", nullptr};
 static const int new_window_attach_on_end = 0; /*  1 means the new window will attach on the end; 0 means the new window will attach on the front,default is front */
 #define ICONSIZE 19   /* icon size */
 #define ICONSPACING 8 /* space between icon and title */
@@ -66,7 +66,7 @@ static const char *colors[][3]      = {
 static char *tags[] = {"I", "II", "III", "IV", "V"}; /* icon left bar */
 
 /* bar launchers disabled (rofi icon button removed; guarded in dwm.c by name[0]) */
-static const Launcher launchers[] = { { NULL, "" } };
+static const Launcher launchers[] = { { nullptr, "" } };
 
 static const int tagschemes[] = {
     SchemeTag1, SchemeTag2, SchemeTag3, SchemeTag4, SchemeTag5
@@ -83,23 +83,23 @@ static const Rule rules[] = {
      *	WM_NAME(STRING) = title
      */
     /* class      instance    title       tags mask     iscentered   isfloating   monitor */
-    { "Gimp",     NULL,       NULL,       0,            0,           1,           -1 },
+    { "Gimp",     nullptr,       nullptr,       0,            0,           1,           -1 },
     /* tag I: terminals + Steam/gamescope */
-    { "st-256color",   NULL,       NULL,       1 << 0,       0,           0,           -1 },
-    { "kitty",         NULL,       NULL,       1 << 0,       0,           0,           -1 },
-    { "Steam",         NULL,       NULL,       1 << 0,       0,           0,           -1 },
+    { "st-256color",   nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
+    { "kitty",         nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
+    { "Steam",         nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
     /* strstr matching: "Steam" also covers "Steamwebhelper"; "amescope"
      * matches both gamescope and Gamescope */
-    { "amescope",      NULL,       NULL,       1 << 0,       0,           0,           -1 },
-    { "steam_app_",    NULL,       NULL,       1 << 0,       0,           0,           -1 },
+    { "amescope",      nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
+    { "steam_app_",    nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
     /* tag II: browsers */
-    { "Firefox",       NULL,       NULL,       1 << 1,       0,           0,           -1 },
-    { "Brave-origin",  NULL,       NULL,       1 << 1,       0,           0,           -1 },
-    { "Brave",         NULL,       NULL,       1 << 1,       0,           0,           -1 },
+    { "Firefox",       nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
+    { "Brave-origin",  nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
+    { "Brave",         nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
     /* tag III: chat */
-    { "discord",       NULL,       NULL,       1 << 2,       0,           0,           -1 },
-    { "Discord",       NULL,       NULL,       1 << 2,       0,           0,           -1 },
-    { "eww",           NULL,       NULL,       0,            0,           1,           -1 },
+    { "discord",       nullptr,       nullptr,       1 << 2,       0,           0,           -1 },
+    { "Discord",       nullptr,       nullptr,       1 << 2,       0,           0,           -1 },
+    { "eww",           nullptr,       nullptr,       0,            0,           1,           -1 },
 };
 
 /* layout(s) */
@@ -127,8 +127,8 @@ static const Layout layouts[] = {
     { ":::",      gaplessgrid },
     { "|M|",      centeredmaster },
     { ">M>",      centeredfloatingmaster },
-    { "><>",      NULL },    /* no layout function means floating behavior */
-    { NULL,       NULL },
+    { "><>",      nullptr },    /* no layout function means floating behavior */
+    { nullptr,       nullptr },
 };
 
 /* key definitions */
@@ -140,7 +140,7 @@ static const Layout layouts[] = {
     { MODKEY|ControlMask|ShiftMask, KEY,      toggletag,      {.ui = 1 << TAG} },
 
 /* helper for spawning shell commands in the pre dwm-5.0 fashion */
-#define SHCMD(cmd) { .v = (const char*[]){ "/bin/sh", "-c", cmd, NULL } }
+#define SHCMD(cmd) { .v = (const char*[]){ "/bin/sh", "-c", cmd, nullptr } }
 
 /* commands */
 

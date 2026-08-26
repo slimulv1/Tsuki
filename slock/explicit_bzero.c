@@ -7,7 +7,7 @@
 #include <string.h>
 
 __attribute__((weak)) void
-__explicit_bzero_hook(void *buf, size_t len)
+__explicit_bzero_hook([[maybe_unused]] void *buf, [[maybe_unused]] size_t len)
 {
 }
 

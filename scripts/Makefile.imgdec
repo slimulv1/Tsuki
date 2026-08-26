@@ -10,7 +10,7 @@
 
 CC      ?= cc
 CFLAGS  ?= -O3 -march=native
-CFLAGS  += -std=c99 -Wall -Wextra
+CFLAGS  += -std=c23 -Wall -Wextra -Werror
 
 # anchor everything to this makefile's directory so `-f` works from anywhere
 MKDIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))

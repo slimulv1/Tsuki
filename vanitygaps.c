@@ -19,18 +19,18 @@ setgaps(int oh, int ov, int ih, int iv)
 }
 
 void
-togglegaps(const Arg *arg)
+togglegaps(const Arg *arg[[maybe_unused]])
 {
 	#if PERTAG_PATCH
 	selmon->pertag->enablegaps[selmon->pertag->curtag] = !selmon->pertag->enablegaps[selmon->pertag->curtag];
 	#else
 	enablegaps = !enablegaps;
 	#endif // PERTAG_PATCH
-	arrange(NULL);
+	arrange(nullptr);
 }
 
 void
-defaultgaps(const Arg *arg)
+defaultgaps(const Arg *arg[[maybe_unused]])
 {
 	setgaps(gappoh, gappov, gappih, gappiv);
 }
@@ -113,7 +113,7 @@ incrivgaps(const Arg *arg)
 }
 
 void
-getgaps(Monitor *m, int *oh, int *ov, int *ih, int *iv, unsigned int *nc)
+getgaps(Monitor *m, int *oh, int *ov, int *ih, int *iv, int *nc)
 {
 	unsigned int n, oe, ie;
 	#if PERTAG_PATCH
@@ -138,7 +138,7 @@ getgaps(Monitor *m, int *oh, int *ov, int *ih, int *iv, unsigned int *nc)
 void
 getfacts(Monitor *m, int msize, int ssize, float *mf, float *sf, int *mr, int *sr)
 {
-	unsigned int n;
+	int n;
 	float mfacts = 0, sfacts = 0;
 	int mtotal = 0, stotal = 0;
 	Client *c;
@@ -172,7 +172,7 @@ getfacts(Monitor *m, int msize, int ssize, float *mf, float *sf, int *mr, int *s
 static void
 bstack(Monitor *m)
 {
-	unsigned int i, n;
+	int i, n;
 	int oh, ov, ih, iv;
 	int mx = 0, my = 0, mh = 0, mw = 0;
 	int sx = 0, sy = 0, sh = 0, sw = 0;
@@ -213,7 +213,7 @@ bstack(Monitor *m)
 static void
 bstackhoriz(Monitor *m)
 {
-	unsigned int i, n;
+	int i, n;
 	int oh, ov, ih, iv;
 	int mx = 0, my = 0, mh = 0, mw = 0;
 	int sx = 0, sy = 0, sh = 0, sw = 0;
@@ -259,7 +259,7 @@ bstackhoriz(Monitor *m)
 void
 centeredmaster(Monitor *m)
 {
-	unsigned int i, n;
+	int i, n;
 	int oh, ov, ih, iv;
 	int mx = 0, my = 0, mh = 0, mw = 0;
 	int lx = 0, ly = 0, lw = 0, lh = 0;
@@ -344,7 +344,7 @@ centeredmaster(Monitor *m)
 void
 centeredfloatingmaster(Monitor *m)
 {
-	unsigned int i, n;
+	int i, n;
 	float mfacts, sfacts;
 	float mivf = 1.0; // master inner vertical gap factor
 	int oh, ov, ih, iv, mrest, srest;
@@ -401,7 +401,7 @@ centeredfloatingmaster(Monitor *m)
 void
 deck(Monitor *m)
 {
-	unsigned int i, n;
+	int i, n;
 	int oh, ov, ih, iv;
 	int mx = 0, my = 0, mh = 0, mw = 0;
 	int sx = 0, sy = 0, sh = 0, sw = 0;
@@ -446,7 +446,7 @@ deck(Monitor *m)
 void
 fibonacci(Monitor *m, int s)
 {
-	unsigned int i, n;
+	int i, n;
 	int nx, ny, nw, nh;
 	int oh, ov, ih, iv;
 	int nv, hrest = 0, wrest = 0, r = 1;
@@ -549,7 +549,7 @@ spiral(Monitor *m)
 void
 gaplessgrid(Monitor *m)
 {
-	unsigned int i, n;
+	int i, n;
 	int x, y, cols, rows, ch, cw, cn, rn, rrest, crest; // counters
 	int oh, ov, ih, iv;
 	Client *c;
@@ -602,7 +602,7 @@ gaplessgrid(Monitor *m)
 void
 grid(Monitor *m)
 {
-	unsigned int i, n;
+	int i, n;
 	int cx, cy, cw, ch, cc, cr, chrest, cwrest, cols, rows;
 	int oh, ov, ih, iv;
 	Client *c;
@@ -636,7 +636,7 @@ grid(Monitor *m)
 void
 horizgrid(Monitor *m) {
 	Client *c;
-	unsigned int n, i;
+	int n, i;
 	int oh, ov, ih, iv;
 	int mx = 0, my = 0, mh = 0, mw = 0;
 	int sx = 0, sy = 0, sh = 0, sw = 0;
@@ -701,12 +701,12 @@ horizgrid(Monitor *m) {
 void
 nrowgrid(Monitor *m)
 {
-	unsigned int n;
+	int n;
 	int ri = 0, ci = 0;  /* counters */
 	int oh, ov, ih, iv;                         /* vanitygap settings */
 	unsigned int cx, cy, cw, ch;                /* client geometry */
 	unsigned int uw = 0, uh = 0, uc = 0;        /* utilization trackers */
-	unsigned int cols, rows = m->nmaster + 1;
+	int cols, rows = m->nmaster + 1;
 	Client *c;
 
 	/* count clients */
@@ -758,7 +758,7 @@ nrowgrid(Monitor *m)
 static void
 tile(Monitor *m)
 {
-	unsigned int i, n;
+	int i, n;
 	int oh, ov, ih, iv;
 	int mx = 0, my = 0, mh = 0, mw = 0;
 	int sx = 0, sy = 0, sh = 0, sw = 0;

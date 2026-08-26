@@ -8,6 +8,7 @@ slstatus/slstatus
 dmenu/dmenu
 dmenu/stest
 scripts/imgdec
+netpanel/netpanel
 
 # runtime state
 scripts/.wallpaper

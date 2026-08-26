@@ -23,9 +23,9 @@ keyboard_indicators(const char *fmt)
 	int togglecase, isset;
 	char key;
 
-	if (!(dpy = XOpenDisplay(NULL))) {
+	if (!(dpy = XOpenDisplay(nullptr))) {
 		warn("XOpenDisplay: Failed to open display");
-		return NULL;
+		return nullptr;
 	}
 	XGetKeyboardControl(dpy, &state);
 	XCloseDisplay(dpy);

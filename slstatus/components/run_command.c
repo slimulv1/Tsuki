@@ -13,19 +13,19 @@ run_command(const char *cmd)
 
 	if (!(fp = popen(cmd, "r"))) {
 		warn("popen '%s':", cmd);
-		return NULL;
+		return nullptr;
 	}
 
 	p = fgets(buf, sizeof(buf) - 1, fp);
 	if (pclose(fp) < 0) {
 		warn("pclose '%s':", cmd);
-		return NULL;
+		return nullptr;
 	}
 	if (!p)
-		return NULL;
+		return nullptr;
 
 	if ((p = strrchr(buf, '\n')))
 		p[0] = '\0';
 
-	return buf[0] ? buf : NULL;
+	return buf[0] ? buf : nullptr;
 }

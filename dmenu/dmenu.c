@@ -45,7 +45,7 @@ static int bh, mw, mh;
 static int inputw = 0, promptw;
 static int lrpad; /* sum of left and right padding */
 static size_t cursor;
-static struct item *items = NULL;
+static struct item *items = nullptr;
 static struct item *matches, *matchend;
 static struct item *prev, *curr, *next, *sel;
 static int mon = -1, screen;
@@ -89,7 +89,7 @@ appenditem(struct item *item, struct item **list, struct item **last)
 		*list = item;
 
 	item->left = *last;
-	item->right = NULL;
+	item->right = nullptr;
 	*last = item;
 }
 
@@ -104,10 +104,10 @@ calcoffsets(void)
 		n = mw - (promptw + inputw + TEXTW("<") + TEXTW(">"));
 	/* calculate which items will begin the next page and previous page */
 	for (i = 0, next = curr; next; next = next->right)
-		if ((i += (lines > 0) ? bh : textw_clamp(next->text, n)) > n)
+		if ((i += (lines > 0) ? bh : (int)textw_clamp(next->text, n)) > n)
 			break;
 	for (i = 0, prev = curr; prev && prev->left; prev = prev->left)
-		if ((i += (lines > 0) ? bh : textw_clamp(prev->left->text, n)) > n)
+		if ((i += (lines > 0) ? bh : (int)textw_clamp(prev->left->text, n)) > n)
 			break;
 }
 
@@ -116,7 +116,7 @@ max_textw(void)
 {
 	int len = 0;
 	for (struct item *item = items; item && item->text; item++)
-		len = MAX(item->width, len);
+		len = MAX((int)item->width, len);
 	return len;
 }
 
@@ -151,7 +151,7 @@ cistrstr(const char *h, const char *n)
 		if (n[i] == '\0')
 			return (char *)h;
 	}
-	return NULL;
+	return nullptr;
 }
 
 static int
@@ -187,7 +187,7 @@ drawmenu(void)
 	drw_text(drw, x, 0, w, bh, lrpad / 2, text, 0);
 
 	curpos = TEXTW(text) - TEXTW(&text[cursor]);
-	if ((curpos += lrpad / 2 - 1) < w) {
+	if ((curpos += lrpad / 2 - 1) < (unsigned int)w) {
 		drw_setscheme(drw, scheme[SchemeNorm]);
 		drw_rect(drw, x + curpos, 2, 2, bh - 4, 1, 0);
 	}
@@ -228,7 +228,7 @@ grabfocus(void)
 		if (focuswin == win)
 			return;
 		XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
-		nanosleep(&ts, NULL);
+		nanosleep(&ts, nullptr);
 	}
 	die("cannot grab focus");
 }
@@ -246,7 +246,7 @@ grabkeyboard(void)
 		if (XGrabKeyboard(dpy, DefaultRootWindow(dpy), True, GrabModeAsync,
 		                  GrabModeAsync, CurrentTime) == GrabSuccess)
 			return;
-		nanosleep(&ts, NULL);
+		nanosleep(&ts, nullptr);
 	}
 	die("cannot grab keyboard");
 }
@@ -254,7 +254,7 @@ grabkeyboard(void)
 static void
 match(void)
 {
-	static char **tokv = NULL;
+	static char **tokv = nullptr;
 	static int tokn = 0;
 
 	char buf[sizeof text], *s;
@@ -264,12 +264,12 @@ match(void)
 
 	strcpy(buf, text);
 	/* separate input text into tokens to be matched individually */
-	for (s = strtok(buf, " "); s; tokv[tokc - 1] = s, s = strtok(NULL, " "))
+	for (s = strtok(buf, " "); s; tokv[tokc - 1] = s, s = strtok(nullptr, " "))
 		if (++tokc > tokn && !(tokv = realloc(tokv, ++tokn * sizeof *tokv)))
 			die("cannot realloc %zu bytes:", tokn * sizeof *tokv);
 	len = tokc ? strlen(tokv[0]) : 0;
 
-	matches = lprefix = lsubstr = matchend = prefixend = substrend = NULL;
+	matches = lprefix = lsubstr = matchend = prefixend = substrend = nullptr;
 	textsize = strlen(text) + 1;
 	for (item = items; item && item->text; item++) {
 		for (i = 0; i < tokc; i++)
@@ -387,13 +387,13 @@ keypress(XKeyEvent *ev)
 			match();
 			break;
 		case XK_u: /* delete left */
-			insert(NULL, 0 - cursor);
+			insert(nullptr, 0 - cursor);
 			break;
 		case XK_w: /* delete word */
 			while (cursor > 0 && strchr(worddelimiters, text[nextrune(-1)]))
-				insert(NULL, nextrune(-1) - cursor);
+				insert(nullptr, nextrune(-1) - cursor);
 			while (cursor > 0 && !strchr(worddelimiters, text[nextrune(-1)]))
-				insert(NULL, nextrune(-1) - cursor);
+				insert(nullptr, nextrune(-1) - cursor);
 			break;
 		case XK_y: /* paste selection */
 		case XK_Y:
@@ -451,7 +451,7 @@ insert:
 	case XK_BackSpace:
 		if (cursor == 0)
 			return;
-		insert(NULL, nextrune(-1) - cursor);
+		insert(nullptr, nextrune(-1) - cursor);
 		break;
 	case XK_End:
 	case XK_KP_End:
@@ -577,9 +577,9 @@ buttonpress(XEvent *e)
 	 *       add that to the input width */
 	if (ev->button == Button1 &&
 	   ((lines <= 0 && ev->x >= 0 && ev->x <= x + w +
-	   ((!prev || !curr->left) ? TEXTW("<") : 0)) ||
+	   ((!prev || !curr->left) ? (int)TEXTW("<") : 0)) ||
 	   (lines > 0 && ev->y >= y && ev->y <= y + h))) {
-		insert(NULL, -cursor);
+		insert(nullptr, -cursor);
 		drawmenu();
 		return;
 	}
@@ -686,7 +686,7 @@ paste(void)
 static void
 readstdin(void)
 {
-	char *line = NULL;
+	char *line = nullptr;
 	size_t i, itemsiz = 0, linesiz = 0;
 	ssize_t len;
 
@@ -707,7 +707,7 @@ readstdin(void)
 	}
 	free(line);
 	if (items)
-		items[i].text = NULL;
+		items[i].text = nullptr;
 	lines = MIN(lines, i);
 }
 
@@ -773,7 +773,7 @@ setup(void)
 	}
 	for (j = 0; j < SchemeOut; ++j) {
 		for (i = 0; i < 2; ++i)
-			free(colors[j][i]);
+			free((void *)colors[j][i]);
 	}
 
 	clip = XInternAtom(dpy, "CLIPBOARD",   False);
@@ -856,18 +856,18 @@ setup(void)
 	XSetClassHint(dpy, win, &ch);
 
 	/* input methods */
-	if ((xim = XOpenIM(dpy, NULL, NULL, NULL)) == NULL)
+	if ((xim = XOpenIM(dpy, nullptr, nullptr, nullptr)) == nullptr)
 		die("XOpenIM failed: could not open input device");
 
 	xic = XCreateIC(xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing,
-	                XNClientWindow, win, XNFocusWindow, win, NULL);
+	                XNClientWindow, win, XNFocusWindow, win, nullptr);
 
 	XMapRaised(dpy, win);
 	if (embed) {
 		XReparentWindow(dpy, win, parentwin, x, y);
 		XSelectInput(dpy, parentwin, FocusChangeMask | SubstructureNotifyMask);
 		if (XQueryTree(dpy, parentwin, &dw, &w, &dws, &du) && dws) {
-			for (i = 0; i < du && dws[i] != win; ++i)
+			for (i = 0; (unsigned int)i < du && dws[i] != win; ++i)
 				XSelectInput(dpy, dws[i], FocusChangeMask);
 			XFree(dws);
 		}
@@ -965,11 +965,11 @@ main(int argc, char *argv[])
 
 	if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
 		fputs("warning: no locale support\n", stderr);
-	if (!(dpy = XOpenDisplay(NULL)))
+	if (!(dpy = XOpenDisplay(nullptr)))
 		die("cannot open display");
 	screen = DefaultScreen(dpy);
 	root = RootWindow(dpy, screen);
-	if (!embed || !(parentwin = strtol(embed, NULL, 0)))
+	if (!embed || !(parentwin = strtol(embed, nullptr, 0)))
 		parentwin = root;
 	if (!XGetWindowAttributes(dpy, parentwin, &wa))
 		die("could not get embedding window attributes: 0x%lx",
@@ -992,11 +992,11 @@ main(int argc, char *argv[])
 	if (!drw_fontset_create(drw, (const char**)fonts, LENGTH(fonts)))
 		die("no fonts could be loaded.");
 
-	free(fonts[0]);
+	free((void *)fonts[0]);
 	lrpad = drw->fonts->h;
 
 #ifdef __OpenBSD__
-	if (pledge("stdio rpath", NULL) == -1)
+	if (pledge("stdio rpath", nullptr) == -1)
 		die("pledge");
 #endif
 
@@ -1029,7 +1029,7 @@ xinitvisual(void)
 	long masks = VisualScreenMask | VisualDepthMask | VisualClassMask;
 
 	infos = XGetVisualInfo(dpy, masks, &tpl, &nitems);
-	visual = NULL;
+	visual = nullptr;
 	for(i = 0; i < nitems; i ++) {
 		fmt = XRenderFindVisualFormat(dpy, infos[i].visual);
 		if (fmt->type == PictTypeDirect && fmt->direct.alphaMask) {

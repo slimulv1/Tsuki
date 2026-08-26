@@ -35,15 +35,21 @@
 #pragma GCC diagnostic pop
 
 #define STB_IMAGE_RESIZE2_IMPLEMENTATION
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #include "stb/stb_image_resize2.h"
+#pragma GCC diagnostic pop
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 #include "stb/stb_image_write.h"
+#pragma GCC diagnostic pop
 
 /* who owns the pixel buffer - decides the correct release call */
 enum buf_origin { ORIG_TJ, ORIG_WEBP, ORIG_STB };
 
-static void
+[[noreturn]] static void
 die(const char *msg)
 {
 	fprintf(stderr, "imgdec: %s\n", msg);
@@ -131,7 +137,7 @@ decode_jpeg(const unsigned char *buf, size_t len, int target, int *w, int *h)
 	                        &subsamp, &cs) < 0)
 		die(tjGetErrorStr());
 	sf = tjGetScalingFactors(&n);
-	best = NULL;
+	best = nullptr;
 	for (i = 0; i < n; ++i) {
 		long scaled;
 		/* only the 1/{2,4,8} downscale set is worth decoding into */
@@ -199,7 +205,7 @@ fit_width(unsigned char *src, int *w, int *h, int dst_w)
 	dst_h = (int)lround((double)*h * dst_w / *w);
 	if (dst_h < 1)
 		dst_h = 1;
-	dst = stbir_resize_uint8_linear(src, *w, *h, *w * 4, NULL,
+	dst = stbir_resize_uint8_linear(src, *w, *h, *w * 4, nullptr,
 	                                dst_w, dst_h, dst_w * 4, STBIR_RGBA);
 	if (!dst)
 		die("resize failed");
@@ -253,7 +259,7 @@ main(int argc, char **argv)
 	stbi_write_png_compression_level = 1; /* thumbs: speed over size */
 	/* fixed cheapest filter - skips stb's 5-filter/row entropy search */
 	stbi_write_force_png_filter = 0;
-	outfile = argc == 4 ? argv[3] : NULL;
+	outfile = argc == 4 ? argv[3] : nullptr;
 	if (outfile) {
 		ok = stbi_write_png(outfile, w, h, 4, out, w * 4);
 	} else {

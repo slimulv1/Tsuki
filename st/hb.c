@@ -24,14 +24,14 @@ typedef struct {
 	HbFontMatch *fonts;
 } HbFontCache;
 
-static HbFontCache hbfontcache = { 0, NULL };
+static HbFontCache hbfontcache = { 0, nullptr };
 
 typedef struct {
 	size_t capacity;
 	Rune *runes;
 } RuneBuffer;
 
-static RuneBuffer hbrunebuffer = { 0, NULL };
+static RuneBuffer hbrunebuffer = { 0, nullptr };
 
 /*
  * Poplulate the array with a list of font features, wrapped in FEATURE macro,
@@ -43,14 +43,14 @@ hb_feature_t features[] = { };
 void
 hbunloadfonts()
 {
-	for (int i = 0; i < hbfontcache.capacity; i++) {
+	for (size_t i = 0; i < hbfontcache.capacity; i++) {
 		hb_font_destroy(hbfontcache.fonts[i].font);
 		XftUnlockFace(hbfontcache.fonts[i].match);
 	}
 
-	if (hbfontcache.fonts != NULL) {
+	if (hbfontcache.fonts != nullptr) {
 		free(hbfontcache.fonts);
-		hbfontcache.fonts = NULL;
+		hbfontcache.fonts = nullptr;
 	}
 	hbfontcache.capacity = 0;
 }
@@ -58,7 +58,7 @@ hbunloadfonts()
 hb_font_t *
 hbfindfont(XftFont *match)
 {
-	for (int i = 0; i < hbfontcache.capacity; i++) {
+	for (size_t i = 0; i < hbfontcache.capacity; i++) {
 		if (hbfontcache.fonts[i].match == match)
 			return hbfontcache.fonts[i].font;
 	}
@@ -66,8 +66,8 @@ hbfindfont(XftFont *match)
 	/* Font not found in cache, caching it now. */
 	hbfontcache.fonts = realloc(hbfontcache.fonts, sizeof(HbFontMatch) * (hbfontcache.capacity + 1));
 	FT_Face face = XftLockFace(match);
-	hb_font_t *font = hb_ft_font_create(face, NULL);
-	if (font == NULL)
+	hb_font_t *font = hb_ft_font_create(face, nullptr);
+	if (font == nullptr)
 		die("Failed to load Harfbuzz font.");
 
 	hbfontcache.fonts[hbfontcache.capacity].match = match;
@@ -83,7 +83,7 @@ void hbtransform(HbTransformData *data, XftFont *xfont, const Glyph *glyphs, int
 	int rune_idx, glyph_idx, end = start + length;
 
 	hb_font_t *font = hbfindfont(xfont);
-	if (font == NULL)
+	if (font == nullptr)
 		return;
 
 	hb_buffer_t *buffer = hb_buffer_create();
@@ -91,7 +91,7 @@ void hbtransform(HbTransformData *data, XftFont *xfont, const Glyph *glyphs, int
 	hb_buffer_set_cluster_level(buffer, HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS);
 
 	/* Resize the buffer if required length is larger. */
-	if (hbrunebuffer.capacity < length) {
+	if (hbrunebuffer.capacity < (size_t)length) {
 		hbrunebuffer.capacity = (length / BUFFER_STEP + 1) * BUFFER_STEP;
 		hbrunebuffer.runes = realloc(hbrunebuffer.runes, hbrunebuffer.capacity * sizeof(Rune));
 	}

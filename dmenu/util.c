@@ -7,7 +7,7 @@
 
 #include "util.h"
 
-void
+[[noreturn]] void
 die(const char *fmt, ...)
 {
 	va_list ap;

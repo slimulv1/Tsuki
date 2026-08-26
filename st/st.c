@@ -315,7 +315,7 @@ xmalloc(size_t len)
 void *
 xrealloc(void *p, size_t len)
 {
-	if ((p = realloc(p, len)) == NULL)
+	if ((p = realloc(p, len)) == nullptr)
 		die("realloc: %s\n", strerror(errno));
 
 	return p;
@@ -326,7 +326,7 @@ xstrdup(const char *s)
 {
 	char *p;
 
-	if ((p = strdup(s)) == NULL)
+	if ((p = strdup(s)) == nullptr)
 		die("strdup: %s\n", strerror(errno));
 
 	return p;
@@ -642,7 +642,7 @@ getsel(void)
 	const Glyph *gp, *last;
 
 	if (sel.ob.x == -1)
-		return NULL;
+		return nullptr;
 
 	bufsize = (term.col+1) * (sel.ne.y-sel.nb.y+1) * UTF_SIZ;
 	ptr = str = xmalloc(bufsize);
@@ -705,7 +705,7 @@ selclear(void)
 	tsetdirt(sel.nb.y, sel.ne.y);
 }
 
-void
+[[noreturn]] void
 die(const char *errstr, ...)
 {
 	va_list ap;
@@ -723,30 +723,30 @@ execsh(char *cmd, char **args)
 	const struct passwd *pw;
 
 	errno = 0;
-	if ((pw = getpwuid(getuid())) == NULL) {
+	if ((pw = getpwuid(getuid())) == nullptr) {
 		if (errno)
 			die("getpwuid: %s\n", strerror(errno));
 		else
 			die("who are you?\n");
 	}
 
-	if ((sh = getenv("SHELL")) == NULL)
+	if ((sh = getenv("SHELL")) == nullptr)
 		sh = (pw->pw_shell[0]) ? pw->pw_shell : cmd;
 
 	if (args) {
 		prog = args[0];
-		arg = NULL;
+		arg = nullptr;
 	} else if (scroll) {
 		prog = scroll;
 		arg = utmp ? utmp : sh;
 	} else if (utmp) {
 		prog = utmp;
-		arg = NULL;
+		arg = nullptr;
 	} else {
 		prog = sh;
-		arg = NULL;
+		arg = nullptr;
 	}
-	DEFAULT(args, ((char *[]) {prog, arg, NULL}));
+	DEFAULT(args, ((char *[]) {prog, arg, nullptr}));
 
 	unsetenv("COLUMNS");
 	unsetenv("LINES");
@@ -769,7 +769,7 @@ execsh(char *cmd, char **args)
 }
 
 void
-sigchld(int a)
+sigchld(int a[[maybe_unused]])
 {
 	int stat;
 	pid_t p;
@@ -839,7 +839,7 @@ ttynew(const char *line, char *cmd, const char *out, char **args)
 	}
 
 	/* seems to work fine on linux, openbsd and freebsd */
-	if (openpty(&m, &s, NULL, NULL, NULL) < 0)
+	if (openpty(&m, &s, nullptr, nullptr, nullptr) < 0)
 		die("openpty failed: %s\n", strerror(errno));
 
 	switch (pid = fork()) {
@@ -853,19 +853,19 @@ ttynew(const char *line, char *cmd, const char *out, char **args)
 		dup2(s, 0);
 		dup2(s, 1);
 		dup2(s, 2);
-		if (ioctl(s, TIOCSCTTY, NULL) < 0)
+		if (ioctl(s, TIOCSCTTY, nullptr) < 0)
 			die("ioctl TIOCSCTTY failed: %s\n", strerror(errno));
 		if (s > 2)
 			close(s);
 #ifdef __OpenBSD__
-		if (pledge("stdio getpw proc exec", NULL) == -1)
+		if (pledge("stdio getpw proc exec", nullptr) == -1)
 			die("pledge\n");
 #endif
 		execsh(cmd, args);
 		break;
 	default:
 #ifdef __OpenBSD__
-		if (pledge("stdio rpath tty proc exec", NULL) == -1)
+		if (pledge("stdio rpath tty proc exec", nullptr) == -1)
 			die("pledge\n");
 #endif
 		close(s);
@@ -887,7 +887,7 @@ ttyread(void)
 	static int already_processing = 0;
 	int ret, written = 0;
 
-	if (buflen >= LEN(buf))
+	if ((size_t)buflen >= LEN(buf))
 		return 0;
 
 	/* append read bytes to unprocessed bytes */
@@ -978,7 +978,7 @@ ttywriteraw(const char *s, size_t n)
 		FD_SET(cmdfd, &rfd);
 
 		/* Check if we can write. */
-		if (pselect(cmdfd+1, &rfd, &wfd, NULL, NULL, NULL) < 0) {
+		if (pselect(cmdfd+1, &rfd, &wfd, nullptr, nullptr, nullptr) < 0) {
 			if (errno == EINTR)
 				continue;
 			die("select failed: %s\n", strerror(errno));
@@ -991,7 +991,7 @@ ttywriteraw(const char *s, size_t n)
 			 */
 			if ((r = write(cmdfd, s, (n < lim)? n : lim)) < 0)
 				goto write_error;
-			if (r < n) {
+			if (r < (ssize_t)n) {
 				/*
 				 * We weren't able to write out everything.
 				 * This means the buffer is getting full
@@ -1125,11 +1125,16 @@ treset(void)
 	term.charset = 0;
 
 	for (i = 0; i < 2; i++) {
-		term.screen[i].sc = (TCursor){{
-			.fg = defaultfg,
-			.bg = defaultbg,
-			.decor = DECOR_DEFAULT_COLOR
-		}};
+		term.screen[i].sc = (TCursor){
+			.attr = {
+				.fg = defaultfg,
+				.bg = defaultbg,
+				.decor = DECOR_DEFAULT_COLOR
+			},
+			.x = 0,
+			.y = 0,
+			.state = CURSOR_DEFAULT
+		};
 		term.screen[i].cur = 0;
 		term.screen[i].off = 0;
 		for (j = 0; j < term.row; ++j) {
@@ -1139,7 +1144,7 @@ treset(void)
 		}
 		for (j = term.row; j < term.screen[i].size; ++j) {
 			free(term.screen[i].buffer[j]);
-			term.screen[i].buffer[j] = NULL;
+			term.screen[i].buffer[j] = nullptr;
 		}
 	}
 	tcursor(CURSOR_LOAD);
@@ -1154,8 +1159,8 @@ tnew(int col, int row)
 	term = (Term){};
 	term.screen[0].buffer = xmalloc(HISTSIZE * sizeof(Line));
 	term.screen[0].size = HISTSIZE;
-	term.screen[1].buffer = NULL;
-	for (i = 0; i < HISTSIZE; ++i) term.screen[0].buffer[i] = NULL;
+	term.screen[1].buffer = nullptr;
+	for (i = 0; i < HISTSIZE; ++i) term.screen[0].buffer[i] = nullptr;
 
 	tresize(col, row);
 	treset();
@@ -1322,7 +1327,7 @@ csiparse(void)
 
 	csiescseq.buf[csiescseq.len] = '\0';
 	while (p < csiescseq.buf+csiescseq.len) {
-		np = NULL;
+		np = nullptr;
 		v = strtol(p, &np, 10);
 		if (np == p)
 			v = 0;
@@ -1422,7 +1427,8 @@ tsetchar(Rune u, const Glyph *attr, int x, int y)
 void
 tclearregion(int x1, int y1, int x2, int y2)
 {
-	int x, y, L, S, temp;
+	int x, y, L, temp;
+	[[maybe_unused]] int S;
 	Glyph *gp;
 
 	if (x1 > x2)
@@ -1615,7 +1621,7 @@ tdefcolor(const int *attr, int *npar, int l)
 		g = attr[*npar + 3];
 		b = attr[*npar + 4];
 		*npar += 4;
-		if (!BETWEEN(r, 0, 255) || !BETWEEN(g, 0, 255) || !BETWEEN(b, 0, 255))
+		if (!BETWEEN((int)r, 0, 255) || !BETWEEN((int)g, 0, 255) || !BETWEEN((int)b, 0, 255))
 			fprintf(stderr, "erresc: bad rgb color (%u,%u,%u)\n",
 				r, g, b);
 		else
@@ -2227,7 +2233,7 @@ osc_color_response(int num, int index, int is_osc4)
 
 	n = snprintf(buf, sizeof buf, "\033]%s%d;rgb:%02x%02x/%02x%02x/%02x%02x\007",
 	             is_osc4 ? "4;" : "", num, r, r, g, g, b, b);
-	if (n < 0 || n >= sizeof(buf)) {
+	if (n < 0 || (size_t)n >= sizeof(buf)) {
 		fprintf(stderr, "error: %s while printing %s response\n",
 		        n < 0 ? "snprintf failed" : "truncation occurred",
 		        is_osc4 ? "osc4" : "osc");
@@ -2239,7 +2245,7 @@ osc_color_response(int num, int index, int is_osc4)
 void
 strhandle(void)
 {
-	char *p = NULL, *dec;
+	char *p = nullptr, *dec;
 	int j, narg, par;
 	const struct { int idx; char *str; } osc_table[] = {
 		{ defaultfg, "foreground" },
@@ -2285,7 +2291,7 @@ strhandle(void)
 			if (narg < 2)
 				break;
 			p = strescseq.args[1];
-			if ((j = par - 10) < 0 || j >= LEN(osc_table))
+			if ((j = par - 10) < 0 || (size_t)j >= LEN(osc_table))
 				break; /* shouldn't be possible */
 
 			if (!strcmp(p, "?")) {
@@ -2327,9 +2333,9 @@ strhandle(void)
 		case 112: /* reset dynamic text cursor color */
 			if (narg != 1)
 				break;
-			if ((j = par - 110) < 0 || j >= LEN(osc_table))
+			if ((j = par - 110) < 0 || (size_t)j >= LEN(osc_table))
 				break; /* shouldn't be possible */
-			if (xsetcolorname(osc_table[j].idx, NULL)) {
+			if (xsetcolorname(osc_table[j].idx, nullptr)) {
 				fprintf(stderr, "erresc: %s color not found\n", osc_table[j].str);
 			} else {
 				tfulldirt();
@@ -2487,7 +2493,7 @@ strreset(void)
 }
 
 void
-sendbreak(const Arg *arg)
+sendbreak(const Arg *arg[[maybe_unused]])
 {
 	if (tcsendbreak(cmdfd, 0))
 		perror("Error sending break");
@@ -2504,19 +2510,19 @@ tprinter(char *s, size_t len)
 }
 
 void
-toggleprinter(const Arg *arg)
+toggleprinter(const Arg *arg[[maybe_unused]])
 {
 	term.mode ^= MODE_PRINT;
 }
 
 void
-printscreen(const Arg *arg)
+printscreen(const Arg *arg[[maybe_unused]])
 {
 	tdump();
 }
 
 void
-printsel(const Arg *arg)
+printsel(const Arg *arg[[maybe_unused]])
 {
 	tdumpsel();
 }
@@ -2559,7 +2565,7 @@ tdump(void)
 void
 tputtab(int n)
 {
-	uint x = term.c.x;
+	int x = term.c.x;
 
 	if (n > 0) {
 		while (x < term.col && n--)
@@ -2589,7 +2595,7 @@ tdeftran(char ascii)
 	static int vcs[] = {CS_GRAPHIC0, CS_USA};
 	char *p;
 
-	if ((p = strchr(cs, ascii)) == NULL) {
+	if ((p = strchr(cs, ascii)) == nullptr) {
 		fprintf(stderr, "esc unhandled charset: ESC ( %c\n", ascii);
 	} else {
 		term.trantbl[term.icharset] = vcs[p - cs];
@@ -3070,7 +3076,7 @@ tresize(int col, int row)
 {
 	int i, j;
 	int minrow = MIN(row, term.row);
-	int mincol = MIN(col, term.col);
+	[[maybe_unused]] int mincol = MIN(col, term.col);
 	int linelen = MAX(col, term.linelen);
 	int *bp;
 
@@ -3149,7 +3155,7 @@ tresize(int col, int row)
 void
 resettitle(void)
 {
-	xsettitle(NULL);
+	xsettitle(nullptr);
 }
 
 void

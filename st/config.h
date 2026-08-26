@@ -24,9 +24,9 @@ static int anysize_valign = 50;
  * 5: value of shell in config.h
  */
 static char *shell = "/bin/sh";
-char *utmp = NULL;
+char *utmp = nullptr;
 /* scroll program: to enable use a string like "scroll" */
-char *scroll = NULL;
+char *scroll = nullptr;
 char *stty_args = "stty raw pass8 nl -echo -iexten -cstopb 38400";
 
 /* identification sequence returned in DA and DECID */
@@ -229,9 +229,9 @@ static uint forcemousemod = ShiftMask;
  */
 static MouseShortcut mshortcuts[] = {
 	/* mask                 button   function        argument       release */
-	{ TERMMOD,              Button3, previewimage,   {.s = "feh"} },
-	{ TERMMOD,              Button2, showimageinfo,  {},            1 },
-	{ XK_ANY_MOD,           Button2, selpaste,       {.i = 0},      1 },
+	{ TERMMOD,              Button3, previewimage,   {.s = "feh"}, 0, 0 },
+	{ TERMMOD,              Button2, showimageinfo,  {},            1, 0 },
+	{ XK_ANY_MOD,           Button2, selpaste,       {.i = 0},      1, 0 },
 	{ ShiftMask,            Button4, kscrollup,      {.i = 1},      0, S_PRI },
 	{ ShiftMask,            Button5, kscrolldown,    {.i = 1},      0, S_PRI },
 	{ XK_NO_MOD,            Button4, kscrollup,      {.i = 1},      0, S_PRI },

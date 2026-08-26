@@ -32,7 +32,7 @@
 		    access(path, R_OK) == 0)
 			return f2;
 
-		return NULL;
+		return nullptr;
 	}
 
 	const char *
@@ -42,9 +42,9 @@
 		char path[PATH_MAX];
 
 		if (esnprintf(path, sizeof(path), POWER_SUPPLY_CAPACITY, bat) < 0)
-			return NULL;
+			return nullptr;
 		if (pscanf(path, "%d", &cap_perc) != 1)
-			return NULL;
+			return nullptr;
 
 		return bprintf("%d", cap_perc);
 	}
@@ -65,9 +65,9 @@
 		char path[PATH_MAX], state[13];
 
 		if (esnprintf(path, sizeof(path), POWER_SUPPLY_STATUS, bat) < 0)
-			return NULL;
+			return nullptr;
 		if (pscanf(path, "%12[a-zA-Z ]", state) != 1)
-			return NULL;
+			return nullptr;
 
 		for (i = 0; i < LEN(map); i++)
 			if (!strcmp(map[i].state, state))
@@ -84,23 +84,23 @@
 		char path[PATH_MAX], state[13];
 
 		if (esnprintf(path, sizeof(path), POWER_SUPPLY_STATUS, bat) < 0)
-			return NULL;
+			return nullptr;
 		if (pscanf(path, "%12[a-zA-Z ]", state) != 1)
-			return NULL;
+			return nullptr;
 
 		if (!pick(bat, POWER_SUPPLY_CHARGE, POWER_SUPPLY_ENERGY, path,
 		          sizeof(path)) ||
 		    pscanf(path, "%ju", &charge_now) < 0)
-			return NULL;
+			return nullptr;
 
 		if (!strcmp(state, "Discharging")) {
 			if (!pick(bat, POWER_SUPPLY_CURRENT, POWER_SUPPLY_POWER, path,
 			          sizeof(path)) ||
 			    pscanf(path, "%ju", &current_now) < 0)
-				return NULL;
+				return nullptr;
 
 			if (current_now == 0)
-				return NULL;
+				return nullptr;
 
 			timeleft = (double)charge_now / (double)current_now;
 			h = timeleft;
@@ -145,7 +145,7 @@
 		if (load_apm_power_info(&apm_info))
 			return bprintf("%d", apm_info.battery_life);
 
-		return NULL;
+		return nullptr;
 	}
 
 	const char *
@@ -169,7 +169,7 @@
 			return (i == LEN(map)) ? "?" : map[i].symbol;
 		}
 
-		return NULL;
+		return nullptr;
 	}
 
 	const char *
@@ -188,7 +188,7 @@
 			}
 		}
 
-		return NULL;
+		return nullptr;
 	}
 #elif defined(__FreeBSD__)
 	#include <sys/sysctl.h>
@@ -204,8 +204,8 @@
 		size_t len;
 
 		len = sizeof(cap_perc);
-		if (sysctlbyname(BATTERY_LIFE, &cap_perc, &len, NULL, 0) < 0 || !len)
-			return NULL;
+		if (sysctlbyname(BATTERY_LIFE, &cap_perc, &len, nullptr, 0) < 0 || !len)
+			return nullptr;
 
 		return bprintf("%d", cap_perc);
 	}
@@ -217,11 +217,12 @@
 		size_t len;
 
 		len = sizeof(state);
-		if (sysctlbyname(BATTERY_STATE, &state, &len, NULL, 0) < 0 || !len)
-			return NULL;
+		if (sysctlbyname(BATTERY_STATE, &state, &len, nullptr, 0) < 0 || !len)
+			return nullptr;
 
 		switch (state) {
-		case 0: /* FALLTHROUGH */
+		case 0:
+			[[fallthrough]];
 		case 2:
 			return "+";
 		case 1:
@@ -238,9 +239,9 @@
 		size_t len;
 
 		len = sizeof(rem);
-		if (sysctlbyname(BATTERY_TIME, &rem, &len, NULL, 0) < 0 || !len
+		if (sysctlbyname(BATTERY_TIME, &rem, &len, nullptr, 0) < 0 || !len
 		    || rem < 0)
-			return NULL;
+			return nullptr;
 
 		return bprintf("%uh %02um", rem / 60, rem % 60);
 	}

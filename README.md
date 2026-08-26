@@ -82,13 +82,23 @@ Lần bấm máy tiếp theo `run.sh` sẽ lo từ A-Z: nạp Xresources, trả 
 
 ## Đổi wallpaper (và toàn bộ theme)
 
-Bấm **Super + w**: một picker fullscreen kiểu filmstrip mở lên — ảnh đang dùng phóng to ở giữa, mấy ảnh còn lại xếp thành dải mỏng hai bên, trượt mượt theo lúc bạn duyệt. Chọn xong thì `dwmwal.sh` lo phần còn lại:
+Bấm **Super + w**: một picker fullscreen kiểu filmstrip mở lên — ảnh đang dùng phóng to ở giữa, mấy ảnh còn lại xếp thành dải mỏng hai bên, trượt mượt theo lúc bạn duyệt.
+
+![Wallpaper picker](assets/wallpicker.png)
+
+Chọn xong thì `dwmwal.sh` lo phần còn lại:
 
 1. Lấy palette màu từ chính tấm ảnh (`walgen.py`)
 2. Rebuild dwm + sinh lại màu cho slstatus (CPU/RAM/disk/nhiệt độ luôn dùng biến bản sáng hơn cho dễ đọc trên nền tối)
 3. Đổi theo màu rofi và dunst
 
 Ảnh nền được decode bởi `imgdec` — một chương trình C nhỏ dùng libjpeg-turbo (decode JPEG đúng kích thước cần, không giải mã thừa pixel nào) kèm hỗ trợ WebP. Thumbnail được lưu cache ở `~/.cache/dwmwal/picker/`, nên lần thứ hai mở picker gần như là tức thì.
+
+## Netpanel — quản lý Wi-Fi từ status bar
+
+Bấm icon mạng trên bar: panel Wi-Fi hiện ra bên phải, cho chọn mạng, xem thông số kết nối, chia sẻ mật khẩu bằng QR, đổi DNS, chạy speed test — tất cả viết bằng C + libXft, không cần `nm-connection-editor` hay app nào khác.
+
+![Netpanel](assets/netpanel.png)
 
 ## Chơi game
 

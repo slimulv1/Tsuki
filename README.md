@@ -15,7 +15,7 @@ Bộ rice Linux của tôi: **dwm** (window manager) + **slstatus** (statusbar) 
 | `netpanel` | Panel Wi-Fi (click icon mạng trên bar): đổi mạng, band pinning, chia sẻ QR |
 | `dmenu` | Launcher |
 | `scripts/` | `run.sh` (khởi động session), `dwmwal.sh` (đổi wallpaper + sinh màu), `walgen.py`... |
-| `.config/` | kitty, dunst, rofi, fastfetch, fish, picom |
+| `.config/` | kitty, dunst, rofi, fastfetch, fish + starship, picom |
 
 ## Cài đặt
 
@@ -24,8 +24,15 @@ Bộ rice Linux của tôi: **dwm** (window manager) + **slstatus** (statusbar) 
 ```sh
 sudo pacman -S --needed base-devel libx11 libxft libxinerama fontconfig freetype \
     harfbuzz imlib2 feh picom dunst kitty rofi fastfetch fish dash python \
-    libnotify polkit-gnome fcitx5 nerd-fonts
+    libnotify polkit-gnome fcitx5 nerd-fonts ttc-iosevka \
+    starship networkmanager playerctl libpulse qrencode curl
 ```
+
+> - `starship` — prompt cho fish (config: `.config/starship.toml`)
+> - `networkmanager` — `nmcli`, cần cho icon Wi-Fi trên bar + netpanel
+> - `playerctl` + `libpulse` — media/volume qua mediacard daemon (`pactl`)
+> - `qrencode` — chia sẻ Wi-Fi bằng QR trong netpanel
+> - `ttc-iosevka` + `nerd-fonts` — font bar (Iosevka) và statusbar/st (JetBrainsMono NF, Maple Mono NF)
 
 ### 2. Build & install
 

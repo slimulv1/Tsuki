@@ -37,7 +37,7 @@ static const int new_window_attach_on_end = 0; /*  1 means the new window will a
 #define ICONSPACING 8 /* space between icon and title */
 
 static const char *fonts[]          = {"Iosevka:style:medium:size=12" ,"JetBrainsMono Nerd Font Mono:style:medium:size=19" };
-static unsigned int baralpha        = 0x99;
+static unsigned int baralpha        = 0xd0;
 static unsigned int borderalpha     = OPAQUE;
 
 // theme
@@ -278,7 +278,7 @@ static const Button buttons[] = {
     { ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
     { ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
     { ClkWinTitle,          0,              Button2,        zoom,           {0} },
-    { ClkNetIcon,           0,              Button1,        spawn,          SHCMD("/home/magnus/dwm/scripts/netpanel.sh") }, /* CHỈ click vào icon internet mới mở netpanel (hit-test marker trong dwm.c buttonpress) */
+    { ClkNetIcon,           0,              Button1,        spawn,          SHCMD("/home/magnus/dwm/scripts/netpanel.sh") }, /* CHỈ click icon internet mới mở netpanel (hit-test marker trong dwm.c buttonpress) */
     { ClkStatusText,        0,              Button2,        spawn,          SHCMD("st") },
 
     /* Keep movemouse? */

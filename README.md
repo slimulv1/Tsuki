@@ -2,7 +2,7 @@
 
 ![preview](assets/preview.png)
 
-Đây là bộ rice mình dùng hàng ngày trên Arch/CachyOS: dwm làm WM, slstatus làm statusbar, cùng một đống script tự viết để mọi thứ ăn khớp với nhau. Cái mình thích nhất ở bộ này: muốn đổi không khí thì chỉ cần đổi wallpaper — bar, rofi, dunst tự đổi màu theo tấm ảnh nền luôn, khỏi chỉnh tay.
+Đây là bộ rice mình dùng hàng ngày trên Arch/CachyOS: dwm làm WM, slstatus làm statusbar, cùng một đống script tự viết để mọi thứ ăn khớp với nhau.
 
 ## Trong repo có gì
 

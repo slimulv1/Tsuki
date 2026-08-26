@@ -162,7 +162,7 @@ static const Key keys[] = {
     {MODKEY,                            XK_Print,   spawn,
         SHCMD("scrot -z - | xclip -selection clipboard -t image/png")},
 
-    { MODKEY,                           XK_r,       spawn,          SHCMD("rofi -show drun") },
+    { MODKEY,                           XK_r,       spawn,          SHCMD("dmenu_run") },
     { MODKEY,                           XK_c,       spawn,          SHCMD("code")},
     { MODKEY,                           XK_s,       spawn,          SHCMD("brave-origin")},
     { MODKEY,                           XK_g,       spawn,          SHCMD("steam")},

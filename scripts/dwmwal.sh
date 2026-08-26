@@ -305,6 +305,19 @@ if [ -z "$DWMWAL_NO_REBUILD" ]; then
     # chi can pkill: vong lap tu phuc hoi trong run.sh se restart slstatus
     # voi binary moi (tranh 2 instance khi nohup + wrapper cung chay)
     pkill -x slstatus 2>/dev/null
+
+    # dmenu: tu config.def.h (sentinel DMENU_*) -> config.h voi mau wal moi
+    DMENU_DIR="$HOME/dwm/dmenu"
+    cp "$DMENU_DIR/config.def.h" "$DMENU_DIR/config.h"
+    sed -e "s|DMENU_FG_NORM|${foreground:-#d1d8ca}|" \
+        -e "s|DMENU_BG_NORM|${color0:-#1a1d16}|" \
+        -e "s|DMENU_FG_SEL|${color0:-#1a1d16}|" \
+        -e "s|DMENU_BG_SEL|${accent:-#42d757}|" \
+        -e "s|DMENU_FG_OUT|${color0:-#1a1d16}|" \
+        -e "s|DMENU_BG_OUT|${color5:-#34ab45}|" \
+        "$DMENU_DIR/config.h" > "$DMENU_DIR/config.h.new" \
+        && mv "$DMENU_DIR/config.h.new" "$DMENU_DIR/config.h"
+    make -C "$DMENU_DIR" >/dev/null 2>&1
 fi
 
 notify-send "dwm" "Theme applied: $(basename "$WALL")"

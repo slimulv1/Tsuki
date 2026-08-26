@@ -7,7 +7,7 @@
 | Keybinding    | Action                    |
 |---------------|---------------------------|
 | Super + Enter | st (term)                 |
-| Super + r     | rofi -show drun           |
+| Super + r     | dmenu_run                 |
 | Super + c     | code                      |
 | Super + s     | brave-origin              |
 | Super + g     | steam                     |

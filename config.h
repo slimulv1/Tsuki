@@ -65,7 +65,7 @@ static const char *colors[][3]      = {
 /* tagging */
 static char *tags[] = {"I", "II", "III", "IV", "V"}; /* icon left bar */
 
-/* bar launchers disabled (rofi icon button removed; guarded in dwm.c by name[0]) */
+/* bar launchers disabled (guarded in dwm.c by name[0]) */
 static const Launcher launchers[] = { { nullptr, "" } };
 
 static const int tagschemes[] = {
@@ -162,7 +162,7 @@ static const Key keys[] = {
     {MODKEY,                            XK_Print,   spawn,
         SHCMD("scrot -z - | xclip -selection clipboard -t image/png")},
 
-    { MODKEY,                           XK_r,       spawn,          SHCMD("rofi -show drun") },
+    { MODKEY,                           XK_r,       spawn,          SHCMD("dmenu_run") },
     { MODKEY,                           XK_c,       spawn,          SHCMD("code")},
     { MODKEY,                           XK_s,       spawn,          SHCMD("brave-origin")},
     { MODKEY,                           XK_g,       spawn,          SHCMD("steam")},

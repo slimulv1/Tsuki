@@ -15,7 +15,7 @@
 | `netpanel` | Bấm icon Wi-Fi trên bar là ra panel: chọn mạng, giữ band, chia sẻ mật khẩu bằng QR |
 | `dmenu` | Launcher |
 | `scripts/` | Toàn bộ "phần mềm giữa": khởi động session, đổi wallpaper + sinh màu, picker ảnh nền, decoder ảnh viết bằng C, wrapper chơi game... |
-| `.config/` | Config cho kitty, dunst, rofi, fastfetch, fish + starship, picom |
+| `.config/` | Config cho kitty, dunst, fastfetch, fish + starship, picom |
 
 ## Cài đặt
 
@@ -23,7 +23,7 @@
 
 ```sh
 sudo pacman -S --needed base-devel libx11 libxft libxinerama fontconfig freetype \
-    harfbuzz imlib2 libjpeg-turbo libwebp feh picom dunst kitty rofi fastfetch fish dash python \
+    harfbuzz imlib2 libjpeg-turbo libwebp feh picom dunst kitty fastfetch fish dash python \
     libnotify polkit-gnome fcitx5 nerd-fonts ttc-iosevka \
     starship networkmanager playerctl libpulse qrencode curl
 ```
@@ -90,7 +90,7 @@ Chọn xong thì `dwmwal.sh` lo phần còn lại:
 
 1. Lấy palette màu từ chính tấm ảnh (`walgen.py`)
 2. Rebuild dwm + sinh lại màu cho slstatus (CPU/RAM/disk/nhiệt độ luôn dùng biến bản sáng hơn cho dễ đọc trên nền tối)
-3. Đổi theo màu rofi và dunst
+3. Đổi theo màu dunst
 
 Ảnh nền được decode bởi `imgdec` — một chương trình C nhỏ dùng libjpeg-turbo (decode JPEG đúng kích thước cần, không giải mã thừa pixel nào) kèm hỗ trợ WebP. Thumbnail được lưu cache ở `~/.cache/dwmwal/picker/`, nên lần thứ hai mở picker gần như là tức thì.
 

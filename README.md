@@ -14,7 +14,7 @@ Bộ rice Linux của tôi: **dwm** (window manager) + **slstatus** (statusbar) 
 | `slock` | Lock screen |
 | `netpanel` | Panel Wi-Fi (click icon mạng trên bar): đổi mạng, band pinning, chia sẻ QR |
 | `dmenu` | Launcher |
-| `scripts/` | `run.sh` (khởi động session), `dwmwal.sh` (đổi wallpaper + sinh màu), `walgen.py`... |
+| `scripts/` | `run.sh` (khởi động session), `dwmwal.sh` (đổi wallpaper + sinh màu), `wallpicker.py` (GTK3 wallpaper picker), `walgen.py`, `imgdec.c` (decoder ảnh C), `game.sh` (gaming wrapper)... |
 | `.config/` | kitty, dunst, rofi, fastfetch, fish + starship, picom |
 
 ## Cài đặt
@@ -23,7 +23,7 @@ Bộ rice Linux của tôi: **dwm** (window manager) + **slstatus** (statusbar) 
 
 ```sh
 sudo pacman -S --needed base-devel libx11 libxft libxinerama fontconfig freetype \
-    harfbuzz imlib2 feh picom dunst kitty rofi fastfetch fish dash python \
+    harfbuzz imlib2 libjpeg-turbo libwebp feh picom dunst kitty rofi fastfetch fish dash python \
     libnotify polkit-gnome fcitx5 nerd-fonts ttc-iosevka \
     starship networkmanager playerctl libpulse qrencode curl
 ```
@@ -33,6 +33,9 @@ sudo pacman -S --needed base-devel libx11 libxft libxinerama fontconfig freetype
 > - `playerctl` + `libpulse` — media/volume qua mediacard daemon (`pactl`)
 > - `qrencode` — chia sẻ Wi-Fi bằng QR trong netpanel
 > - `ttc-iosevka` + `nerd-fonts` — font bar (Iosevka) và statusbar/st (JetBrainsMono NF, Maple Mono NF)
+> - `libjpeg-turbo` + `libwebp` — build `imgdec`, decoder ảnh nhanh cho wallpaper picker
+>
+> Tùy chọn cho gaming: `gamemode gamescope mangohud` (dùng cùng `scripts/game.sh`).
 
 ### 2. Build & install
 
@@ -48,9 +51,12 @@ cd slock   && sudo make clean install && cd ..     # lock screen
 cd dmenu   && sudo make clean install && cd ..     # launcher
 cd netpanel && sudo make clean install && cd ..    # wifi panel
 cd slstatus && sudo make install                   # statusbar (cũng build local cho run.sh)
+
+# decoder ảnh cho wallpaper picker (binary local, không cần root)
+make -f scripts/Makefile.imgdec
 ```
 
-> `slstatus` được chạy qua `scripts/run.sh` bằng **binary local** (`~/dwm/slstatus/slstatus`) để `dwmwal.sh` tự rebuild + đổi màu khi đổi wallpaper mà không cần quyền root.
+> `slstatus` được chạy qua `scripts/run.sh` bằng **binary local** (`~/dwm/slstatus/slstatus`) để `dwmwal.sh` tự rebuild + đổi màu khi đổi wallpaper mà không cần quyền root. Tương tự, `imgdec` là binary local của picker — thiếu nó picker vẫn chạy (tự rơi về Pillow/gdk-pixbuf), chỉ chậm hơn.
 
 ### 3. Dotfiles
 
@@ -70,11 +76,24 @@ exec ~/dwm/scripts/run.sh
 
 ## Đổi wallpaper / theme
 
-Nhấn **Super + w** → chọn ảnh trong rofi picker. `dwmwal.sh` tự:
+Nhấn **Super + w** → picker GTK3 fullscreen mở dạng filmstrip: wallpaper đang dùng hiện to giữa (hero), các ảnh còn lại xếp dọc hai bên trượt mượt theo lựa chọn. `dwmwal.sh` tự:
 
 1. Extract palette từ ảnh (`walgen.py`)
 2. Rebuild dwm + sinh lại màu slstatus (CPU/RAM/disk/temp luôn dùng biến thể sáng, dễ đọc trên bar tối)
 3. Cập nhật màu rofi, dunst
+
+Decode ảnh của picker đi qua helper C `imgdec` (libjpeg-turbo scaled-DCT + WebP) — thumbnail được cache tại `~/.cache/dwmwal/picker/` nên lần mở sau gần như tức thì; thiếu imgdec thì fallback về Pillow/gdk-pixbuf.
+
+## Gaming
+
+picom đã tự unredirect cửa sổ fullscreen (`unredir-if-possible`), game chạy full-screen bypass compositor sẵn. Với game biên giới (borderless-window) hoặc cần upscale/ổn định thêm:
+
+```sh
+~/dwm/scripts/game.sh <lệnh game>              # gamemode (CPU/GPU governor, niceness)
+~/dwm/scripts/game.sh -g <lệnh game>           # + gamescope (nested compositor)
+~/dwm/scripts/game.sh -g -W 2560x1440 <lệnh>   # gamescope với virtual resolution
+GAME_MANGO=1 ~/dwm/scripts/game.sh <lệnh>      # + overlay mangohud
+```
 
 ## Keybinds
 

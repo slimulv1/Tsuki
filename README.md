@@ -1,5 +1,7 @@
 # dwm-dotfiles
 
+![preview](assets/preview.png)
+
 Bộ rice Linux của tôi: **dwm** (window manager) + **slstatus** (statusbar) + dotfiles cho Arch/CachyOS. Màu theme tự sinh từ wallpaper — đổi hình nền là toàn bộ bar, rofi, dunst đổi màu theo.
 
 ## Thành phần
@@ -27,29 +29,26 @@ sudo pacman -S --needed base-devel libx11 libxft libxinerama fontconfig freetype
 
 ### 2. Build & install
 
-```sh
-git clone https://github.com/slimulv1/dwm-dotfiles.git
-cd dwm-dotfiles/dwm
+> ⚠️ Clone thẳng repo vào `~/dwm` — toàn bộ script (`run.sh`, `dwmwal.sh`, `netpanel.sh`) và keybinds trong dwm đều trỏ tới `~/dwm/...`.
 
-sudo make clean install              # window manager
-cd st      && sudo make clean install && cd ..   # terminal
-cd slock   && sudo make clean install && cd ..   # lock screen
-cd dmenu   && sudo make clean install && cd ..   # launcher
-cd netpanel && sudo make clean install && cd ..  # wifi panel
-cd slstatus && sudo make install && cd ..        # statusbar (cũng build local cho run.sh)
+```sh
+git clone https://github.com/slimulv1/dwm-dotfiles.git ~/dwm
+cd ~/dwm
+
+sudo make clean install                            # window manager
+cd st      && sudo make clean install && cd ..     # terminal
+cd slock   && sudo make clean install && cd ..     # lock screen
+cd dmenu   && sudo make clean install && cd ..     # launcher
+cd netpanel && sudo make clean install && cd ..    # wifi panel
+cd slstatus && sudo make install                   # statusbar (cũng build local cho run.sh)
 ```
 
 > `slstatus` được chạy qua `scripts/run.sh` bằng **binary local** (`~/dwm/slstatus/slstatus`) để `dwmwal.sh` tự rebuild + đổi màu khi đổi wallpaper mà không cần quyền root.
 
-
-```sh
-mkdir -p ~/dwm && cp -r dwm/* ~/dwm/   # hoặc rsync/symlink
-```
-
 ### 3. Dotfiles
 
 ```sh
-cp -r .config/* ~/.config/           # hoặc symlink từng thư mục
+cp -r ~/dwm/.config/* ~/.config/     # hoặc symlink từng thư mục
 ```
 
 ### 4. Chạy session

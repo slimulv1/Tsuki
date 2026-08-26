@@ -7,6 +7,7 @@ st/st
 slstatus/slstatus
 dmenu/dmenu
 dmenu/stest
+scripts/imgdec
 
 # runtime state
 scripts/.wallpaper

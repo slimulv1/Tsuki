@@ -18,18 +18,21 @@ stdout contract (for dwm keybind pipes such as `wallpicker.py | feh --bg-fill ..
 
 Usage: wallpicker.py [--dir DIR] [--dry-run]
 
-Implementation notes (decode/cache layer): thumbnails are produced by a
-small pool of worker threads using Pillow (JPEG DCT downscale + LANCZOS
-resize), published to a PNG disk cache under ~/.cache/dwmwal/picker/
-(md5(path)-width.png, invalidated by source mtime) and handed to GTK as
-GdkPixbufs on the worker thread. Without Pillow the picker falls back to
-plain gdk-pixbuf scaling.
+Implementation notes (decode/cache layer): thumbnails come from the
+sibling C helper `imgdec` (libjpeg-turbo DCT-scaled decode + stb resize)
+when built, else a small pool of worker threads using Pillow (JPEG DCT
+downscale + LANCZOS resize); results are published to a PNG disk cache
+under ~/.cache/dwmwal/picker/ (md5(path)-width.png, invalidated by source
+mtime) and handed to GTK as GdkPixbufs on the worker thread. Without both,
+the picker falls back to plain gdk-pixbuf scaling.
 """
 
 import argparse
 import hashlib
+import io
 import math
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -86,6 +89,15 @@ PREFETCH_RADIUS = 4           # strips preloaded either side of the hero
 LOAD_QUEUE_MAX = 64           # decode backlog cap; overflow is re-requested
 MAX_CACHE = 384               # scaled-pixbuf cache entries before eviction
 DISK_CACHE_DIR = os.path.expanduser("~/.cache/dwmwal/picker")  # PNG thumbs
+IMGDEC_TIMEOUT_S = 5.0        # hard cap on one imgdec subprocess decode
+
+
+def _imgdec_bin():
+    """Path of the sibling imgdec C helper when built+executable, else None."""
+    exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imgdec")
+    if os.path.isfile(exe) and os.access(exe, os.X_OK):
+        return exe
+    return None
 
 
 def _pil_thumb(path, width):
@@ -446,25 +458,19 @@ class Picker(Gtk.Window):
         except Exception:
             return None
 
-    def _disk_cache_put(self, path, width, img):
-        """Publish `img` to the disk cache atomically; best-effort only.
+    @staticmethod
+    def _atomic_write(cachefile, data):
+        """Atomically publish `data` bytes to `cachefile`; best-effort only.
 
-        Saves go to a temp file in the same directory followed by
+        Writes go to a temp file in the same directory followed by
         os.replace(), so concurrent readers never see partial files.
-        Broken images (img None) are deliberately not written to disk -
-        they stay as in-memory Nones so a repaired source retries later.
         """
-        if img is None:
-            return
-        cachefile = self._cachefile_for(path, width)
-        if cachefile is None:
-            return
         try:
             os.makedirs(DISK_CACHE_DIR, exist_ok=True)
             fd, tmpname = tempfile.mkstemp(dir=DISK_CACHE_DIR, suffix=".png")
             try:
                 with os.fdopen(fd, "wb") as fh:
-                    img.save(fh, format="PNG")
+                    fh.write(data)
                 os.replace(tmpname, cachefile)
             except Exception:
                 try:
@@ -474,17 +480,77 @@ class Picker(Gtk.Window):
         except Exception:
             pass  # disk cache must never break the picker
 
+    def _disk_cache_put(self, path, width, img):
+        """Publish `img` to the disk cache atomically; best-effort only.
+
+        Broken images (img None) are deliberately not written to disk -
+        they stay as in-memory Nones so a repaired source retries later.
+        """
+        if img is None:
+            return
+        cachefile = self._cachefile_for(path, width)
+        if cachefile is None:
+            return
+        try:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            self._atomic_write(cachefile, buf.getvalue())
+        except Exception:
+            pass
+
+    def _imgdec_decode(self, path, width):
+        """Fast decode via the C imgdec helper (libjpeg-turbo scaled DCT).
+
+        Runs the sibling binary (JPEG/WebP/PNG -> width-fitted PNG),
+        validates its output, hands the bytes to gdk-pixbuf and republishes
+        them to the disk cache through the same atomic writer so mtime
+        validation stays uniform. Any failure/timeout returns None and the
+        caller falls back to Pillow/gdk silently.
+        """
+        exe = _imgdec_bin()
+        if exe is None:
+            return None
+        cachefile = self._cachefile_for(path, width)
+        if cachefile is not None and os.path.exists(cachefile) and \
+                os.path.getmtime(cachefile) >= os.path.getmtime(path):
+            return None  # disk cache will have handled it upstream
+        try:
+            proc = subprocess.run(
+                [exe, path, str(int(width))],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=IMGDEC_TIMEOUT_S)
+        except Exception:
+            return None
+        png = proc.stdout
+        if proc.returncode != 0 or png[:8] != b"\x89PNG\r\n\x1a\n":
+            return None
+        try:
+            loader = GdkPixbuf.PixbufLoader.new()
+            loader.write(png)
+            loader.close()
+            pixbuf = loader.get_pixbuf()
+        except Exception:
+            return None
+        if cachefile is not None:
+            self._atomic_write(cachefile, png)
+        return pixbuf
+
     def _decode_pixbuf(self, path, width):
         """Produce a GdkPixbuf for `path` at `width` px (worker thread).
 
-        Preference order: valid disk-cached PNG (~ms), Pillow DCT-scaled +
-        LANCZOS decode (published to disk cache), legacy gdk-pixbuf decode
-        when Pillow is unavailable. Any failure yields None, which the main
-        thread caches as 'broken' and paints a placeholder for.
+        Preference order: valid disk-cached PNG (~ms), C imgdec helper
+        (libjpeg-turbo DCT-scaled decode + stb resize, published to disk
+        cache), Pillow DCT-scaled + LANCZOS decode (published to disk
+        cache), legacy gdk-pixbuf decode when both are unavailable. Any
+        failure yields None, which the main thread caches as 'broken' and
+        paints a placeholder for.
         """
         if Image is not None:
             img = self._disk_cache_get(path, width)
             if img is None:
+                pixbuf = self._imgdec_decode(path, width)
+                if pixbuf is not None:
+                    return pixbuf
                 img = _pil_thumb(path, width)
                 self._disk_cache_put(path, width, img)
             if img is not None:

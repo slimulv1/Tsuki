@@ -1,0 +1,45 @@
+# Makefile.imgdec - build scripts/imgdec, the fast thumbnail decoder used
+# by wallpicker.py.
+#
+#   make -f Makefile.imgdec        # produce ./imgdec
+#   make -f Makefile.imgdec clean  # remove the binary only
+#
+# Needs the libturbojpeg + libwebp development files. Missing dependencies
+# are reported as errors here instead of being installed system-wide.
+
+CC      ?= cc
+CFLAGS  ?= -O3 -march=native
+CFLAGS  += -std=c99 -Wall -Wextra
+
+TJ_CFLAGS := $(shell pkg-config --cflags libturbojpeg 2>/dev/null)
+TJ_LIBS   := $(shell pkg-config --libs libturbojpeg 2>/dev/null)
+WP_CFLAGS := $(shell pkg-config --cflags libwebp 2>/dev/null)
+WP_LIBS   := $(shell pkg-config --libs libwebp 2>/dev/null)
+
+# no .pc file but the classic header layout exists -> plain -lturbojpeg
+ifeq ($(strip $(TJ_LIBS)),)
+  ifneq ($(wildcard /usr/include/turbojpeg.h),)
+    TJ_LIBS := -lturbojpeg
+    TJ_CFLAGS :=
+  endif
+endif
+
+ifeq ($(strip $(WP_LIBS)),)
+$(error libwebp development files not found (pkg-config 'libwebp'); install the libwebp dev package and retry)
+endif
+ifeq ($(strip $(TJ_LIBS)),)
+$(error libturbojpeg development files not found (header turbojpeg.h); install the libjpeg-turbo dev package and retry)
+endif
+
+STB := stb/stb_image.h stb/stb_image_resize2.h stb/stb_image_write.h
+
+all: imgdec
+
+imgdec: imgdec.c $(STB)
+	$(CC) $(CFLAGS) $(TJ_CFLAGS) $(WP_CFLAGS) -o $@ imgdec.c \
+		$(TJ_LIBS) $(WP_LIBS) -lm
+
+clean:
+	rm -f imgdec
+
+.PHONY: all clean

@@ -67,9 +67,9 @@ HINT_INK = (0x97 / 255, 0x86 / 255, 0x7f / 255)  # hint line + filter UI
 PLACEHOLDER = (0.08, 0.07, 0.07)                # unloaded/broken cells
 
 FONT_STACK = "CaskaydiaCove Nerd Font Mono, monospace"
-CAPTION_PX = 15
-HINT_PX = 11
-FILTER_PX = 12
+CAPTION_PX = 21
+HINT_PX = 17
+FILTER_PX = 18
 
 ANIM_MS = 320                 # OutCubic glide duration
 TICK_MS = 16                  # ~60 fps animation tick

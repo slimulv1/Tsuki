@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """wallpicker.py - fullscreen filmstrip wallpaper picker for dwm (GTK3 / PyGObject).
 
-A rofi replacement: the focused wallpaper opens as a large centred HERO
+A wallpaper picker: the focused wallpaper opens as a large centred HERO
 preview while the rest flank it as thin receding strips (a shelf). Selection
-changes glide on an OutCubic slide - the animation rofi can never do.
+changes glide on an OutCubic slide - smooth filmstrip animation.
 
 Layout mirrors the ryoku quickshell reference (LayoutStrips.qml):
   hero    = 46% of screen height, drawn aspect-fit inside a 16:9 frame,

@@ -76,31 +76,13 @@ else
     mkdir -p "$CACHE"
     [ -f "$CACHE/colors-rofi.rasi" ] || seed_colors_rofi
 
-    # Co giãn thumbnail px theo độ rộng màn hình (rofi 2.0 không render size %)
-    SCREEN_W=$(xdpyinfo 2>/dev/null | awk '/dimensions/{print $2;exit}' | cut -dx -f1)
-    SCREEN_W=${SCREEN_W:-1920}
-    ICON_SIZE=$(( (SCREEN_W - 48 - 98) / 8 - 8 ))
-    [ "$ICON_SIZE" -lt 80 ] && ICON_SIZE=80
-    sed -i "s/size: [0-9]*px;/size: ${ICON_SIZE}px;/" "$HOME/.config/rofi/wallpaper.rasi"
-
-    # Menu thumbnail: mỗi dòng = basename + \0icon\x1f<path> (rofi hiện ảnh, ẩn tên)
-    SELECTED=$(printf '%s\n' "$WALLPAPER_FILES" | while IFS= read -r p; do
-        printf '%s\000icon\037%s\n' "$(basename "$p")" "$p"
-    done | rofi -dmenu -i -p "Wallpaper" -theme "$HOME/.config/rofi/wallpaper.rasi" -markup-rows 2>/dev/null)
+    # Custom GTK3 picker (wallpicker.py) thay rofi: filmstrip carousel với
+    # animation OutCubic + crop-fill đúng tỷ lệ — rofi không làm được (icon
+    # scale kiểu FIT giữ nguyên tỷ lệ + box vuông, không per-item size, không
+    # animation). Picker print đường dẫn tuyệt đối ra stdout khi Enter.
+    SELECTED=$(python3 "$SCRIPTS/wallpicker.py" --dir "$WALL_DIR" 2>/dev/null)
     [ -z "$SELECTED" ] && exit 0
-    # Match chính xác: nếu trùng basename (2 thư mục cùng tên file), ưu tiên
-    # path ngắn nhất (gần $WALL_DIR nhất) thay vì head -1 mù — tránh chọn nhầm ảnh.
-    # Chạy trong shell chính (không pipe subshell) để WALL được set đúng.
-    WALL=""
-    _IFS=$IFS; IFS='
-'
-    for p in $WALLPAPER_FILES; do
-        [ "$(basename "$p")" = "$SELECTED" ] || continue
-        if [ -z "$WALL" ] || [ "${#p}" -lt "${#WALL}" ]; then
-            WALL="$p"
-        fi
-    done
-    IFS=$_IFS
+    WALL="$SELECTED"
 fi
 if [ -z "$WALL" ] || [ ! -f "$WALL" ]; then
     notify-send "dwmwal" "Invalid wallpaper: $WALL"

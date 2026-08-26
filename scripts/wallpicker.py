@@ -346,20 +346,25 @@ class Picker(Gtk.Window):
     def _frame_for(self, rel, m):
         """Geometry + darkness for an item at fractional distance `rel`.
 
-        |rel| < 1 morphs continuously between hero frame and the first strip
-        slot, so incoming/outgoing previews glide instead of popping.
+        Morph zone is |rel| < 0.5 — cells are spaced exactly 1.0 apart, so at
+        most ONE cell can ever sit in the zone. With the old |rel| < 1.0 zone,
+        a fractional pos (inevitable during key-repeat) put TWO half-shrunk
+        previews inside the hero frame at once. Beyond 0.5 the strips glide
+        continuously (dist grows linearly from the first slot), so the belt
+        motion stays seamless and the morph completes in the first half of
+        the approach to the hero.
         """
         ar = abs(rel)
         side = 1.0 if rel >= 0 else -1.0
         hx = m["cx"] - m["hero_w"] / 2.0
         hy = m["cy"] - m["hero_h"] / 2.0
-        if ar < 1.0:
-            t = ar
+        if ar < 0.5:
+            t = ar * 2.0
             sx, sy, sw, sh = self._slot_rect(1, side, m)
             return (_lerp(hx, sx, t), _lerp(hy, sy, t),
                     _lerp(m["hero_w"], sw, t), _lerp(m["hero_h"], sh, t),
                     (RECEDE_BASE + RECEDE_STEP) * t)
-        dist = (ar - 1.0) * (m["strip_w"] + GAP) + GAP
+        dist = (ar - 0.5) * (m["strip_w"] + GAP) + GAP
         w, h = m["strip_w"], m["strip_h"]
         if side >= 0:
             x = m["cx"] + m["hero_w"] / 2.0 + dist
@@ -568,11 +573,19 @@ class Picker(Gtk.Window):
     # ---------------------------------------------------------------- input
 
     def step(self, delta):
-        """Move selection one slot, animating a single-step circular slide."""
+        """Move selection one slot, animating a single-step circular slide.
+
+        Retarget from self.target (not self.pos): with key-repeat the glide
+        is restarted every ~33ms, so anchoring on pos would leave pos stuck
+        on fractional values — two cells then sit in the morph zone (|rel|<1)
+        and BOTH render as half-shrunk previews inside the hero frame.
+        Anchoring on the integer target keeps pos chasing a whole number.
+        """
         n = len(self.visible)
         if n < 2:
             return
-        self.animate_to(self.pos + delta, (self.target + delta) % n)
+        dest = self.target + delta
+        self.animate_to(dest, dest % n)
 
     def select_index(self, idx):
         """Animate to an arbitrary index via the shortest circular path."""
@@ -586,6 +599,13 @@ class Picker(Gtk.Window):
 
     def animate_to(self, dest_pos, target_idx):
         """Start/re-target the OutCubic glide towards dest_pos."""
+        # Fast key-repeat can leave pos several steps behind the target.
+        # Snap to within one step of the destination so at most ONE
+        # hero<->strip morph is ever on screen and pos always catches up
+        # with the caption index.
+        gap = dest_pos - self.pos
+        if abs(gap) > 1.5:
+            self.pos = dest_pos - (1.0 if gap > 0 else -1.0)
         self.anim_from = self.pos
         self.anim_to = float(dest_pos)
         self.anim_t0 = GLib.get_monotonic_time()
@@ -756,7 +776,7 @@ class Picker(Gtk.Window):
             for _, rel, idx in cells:
                 x, y, w, h, alpha = self._frame_for(rel, m)
                 path = self.visible[idx]
-                is_hero_zone = abs(rel) < 1.0
+                is_hero_zone = abs(rel) < 0.5
                 pixbuf = self._pixbuf(path, "hero" if is_hero_zone else "strip",
                                       m, idx)
                 cr.save()

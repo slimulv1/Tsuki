@@ -571,25 +571,20 @@ class Picker(Gtk.Window):
         except Exception:
             pass  # disk cache must never break the picker
 
-    def _imgdec_decode(self, path, size, decode_w=None):
+    def _imgdec_decode(self, path, size):
         """Decode directly into an atomic cache file via the C helper.
 
-        imgdec accepts <input_image> <target_width> [outfile] only - the
-        height follows the source aspect ratio. The box WIDTH (`size`) keys
-        the disk cache, while `decode_w` is the actual target width handed to
-        the helper (defaults to the box width). Passing an aspect-aware
-        `decode_w` lets a portrait strip stay sharp: the helper produces a
-        wide-ish source the cover-crop then slices down to the box with
-        ~1x scale, instead of a width-fit source that Cairo must upscale 3x.
+        imgdec accepts `imgdec <input> <W>x<H> [outfile]`: the C helper
+        decodes, cover-resizes and center-crops to the exact box, so the
+        atomic cache file is already the exact slot size - sharp at 2x with
+        no wasted pixels. `size` is the box (2x on-screen, from _target_width).
         """
         exe = _imgdec_bin()
         if exe is None:
             return None
         width, height = size if isinstance(size, tuple) else (size, 0)
         width = max(2, int(width))
-        if decode_w is None:
-            decode_w = width
-        decode_w = max(2, int(decode_w))
+        height = max(2, int(height))
         cachefile = self._cachefile_for(path, size)
         if cachefile is None:
             return None
@@ -600,7 +595,7 @@ class Picker(Gtk.Window):
             os.close(fd)
             try:
                 command = ["/usr/bin/nice", "-n", "10",
-                           exe, path, str(decode_w), temp_name]
+                           exe, path, f"{width}x{height}", temp_name]
                 result = subprocess.run(
                     command, stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL, timeout=IMGDEC_TIMEOUT_S)
@@ -632,9 +627,11 @@ class Picker(Gtk.Window):
 
         The box is often portrait (tall narrow strip) while sources are
         landscape. A width-only decode leaves the vertical axis under-resolved
-        and Cairo must upscale it ~3x -> blur. So the target width is derived
-        from the *height* x source aspect so the cover-crop lands at ~1x scale
-        and the strip stays as sharp as the hero.
+        and Cairo must upscale it ~3x -> blur. The C helper now decodes,
+        cover-resizes and center-crops to the exact box in one shot (box-mode,
+        `imgdec <in> <W>x<H>`), so the cache is already the sharp slot. Only the
+        Pillow/gdk fallback uses an aspect-aware width derived from
+        *height* x source aspect so the cover-crop still lands at ~1x scale.
         """
         width, height = size if isinstance(size, tuple) else (size, 0)
         width = max(2, int(width))
@@ -659,7 +656,7 @@ class Picker(Gtk.Window):
         except (OSError, GLib.Error):
             pass
 
-        pixbuf = self._imgdec_decode(path, size, decode_w)
+        pixbuf = self._imgdec_decode(path, size)
         if pixbuf is not None:
             return pixbuf
 

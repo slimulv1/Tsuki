@@ -206,6 +206,7 @@ class Picker(Gtk.Window):
         self._last_retarget_us = 0        # monotonic ns of the last step/hold
         self._surface_cache = {}          # id(pixbuf) -> (pixbuf, cairo surface)
         self.pf_queued = set()      # (path, kind) keys awaiting decode
+        self._inflight = set()      # keys being decoded by a worker right now
         self.load_cond = threading.Condition()
         self.load_q = deque()       # decode jobs; heroes jump the queue
         # Small decode pool: Pillow drops the GIL inside decode/resize, so
@@ -629,25 +630,14 @@ class Picker(Gtk.Window):
         landscape. A width-only decode leaves the vertical axis under-resolved
         and Cairo must upscale it ~3x -> blur. The C helper now decodes,
         cover-resizes and center-crops to the exact box in one shot (box-mode,
-        `imgdec <in> <W>x<H>`), so the cache is already the sharp slot. Only the
-        Pillow/gdk fallback uses an aspect-aware width derived from
-        *height* x source aspect so the cover-crop still lands at ~1x scale.
+        `imgdec <in> <W>x<H>`), so the cache is already the sharp slot. The
+        Pillow/gdk fallback decodes at an aspect-aware width then centre-crops
+        to the exact box, so the cached PNG is always the exact WxH slot no
+        matter which decoder produced it (keeps the cache contract uniform).
         """
         width, height = size if isinstance(size, tuple) else (size, 0)
         width = max(2, int(width))
         height = max(2, int(height))
-        # Probe source aspect once per path (cheap header read), memoized.
-        dims = self._aspect_cache.get(path)
-        if dims is None:
-            dims = _probe_size(path)
-            if dims is not None:
-                self._aspect_cache[path] = dims
-        decode_w = width
-        if dims is not None and dims[0] > 0 and dims[1] > 0:
-            sw, sh = dims
-            if height:
-                decode_w = max(width, int(math.ceil(height * (sw / sh))))
-
         cachefile = self._cachefile_for(path, size)
         try:
             if cachefile and os.path.isfile(cachefile) and \
@@ -660,12 +650,33 @@ class Picker(Gtk.Window):
         if pixbuf is not None:
             return pixbuf
 
-        # Safe fallbacks when the helper is unavailable. imgdec/Pillow both
-        # scale to the box width (aspect preserved), so publishing Pillow's
-        # output under the box key keeps the disk cache uniformly keyed.
+        # Safe fallbacks when the helper is unavailable. Both fallbacks decode
+        # an aspect-aware width (enough to cover the box on the tight axis)
+        # then centre-crop to the exact WxH box - the same cover-crop imgdec
+        # does - so the PNG cached under `{md5}-{W}x{H}.png` is always the
+        # exact slot size, whichever decoder published it. Only computed here
+        # (not on the imgdec/cache-hit path) to keep the hot path free of the
+        # header probe.
+        dims = self._aspect_cache.get(path)
+        if dims is None:
+            dims = _probe_size(path)
+            if dims is not None:
+                self._aspect_cache[path] = dims
+        decode_w = width
+        if dims is not None and dims[0] > 0 and dims[1] > 0:
+            sw, sh = dims
+            if height:
+                decode_w = max(width, int(math.ceil(height * (sw / sh))))
         if Image is not None:
             img = _pil_thumb(path, decode_w)
             if img is not None:
+                # Cover crop to the exact box so the cache + pixbuf match the
+                # WxH slot exactly (same as imgdec box-mode).
+                pw, ph = img.size
+                if pw >= width and ph >= height:
+                    l = (pw - width) // 2
+                    t = (ph - height) // 2
+                    img = img.crop((l, t, l + width, t + height))
                 if cachefile is not None:
                     try:
                         buf = io.BytesIO()
@@ -697,8 +708,16 @@ class Picker(Gtk.Window):
                 idx, path, key, size = self.load_q.popleft()
             if key in self.cache:
                 continue  # decoded by another job while this one sat queued
-            GLib.idle_add(self._on_pixbuf_ready, idx, key,
-                          self._decode_pixbuf(path, size))
+            with self.load_cond:
+                if key in self._inflight:
+                    continue  # a sibling worker is already decoding this key
+                self._inflight.add(key)
+            try:
+                pixbuf = self._decode_pixbuf(path, size)
+            finally:
+                with self.load_cond:
+                    self._inflight.discard(key)
+            GLib.idle_add(self._on_pixbuf_ready, idx, key, pixbuf)
 
     def _on_pixbuf_ready(self, index, key, pixbuf):
         """Main-thread landing pad for worker results: cache, repaint, and

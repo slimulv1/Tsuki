@@ -3,14 +3,20 @@
 
 A wallpaper picker: the focused wallpaper opens as a large centred HERO
 preview while the rest flank it as thin receding strips (a shelf). Selection
-changes glide on an OutCubic slide - smooth filmstrip animation.
+changes glide on an OutCubic slide - smooth filmstrip animation, clocked by
+the display's frame clock (not a fixed-tick timer).
 
-Layout mirrors the ryoku quickshell reference (LayoutStrips.qml):
-  hero    = 46% of screen height, drawn aspect-fit inside a 16:9 frame,
-            3px salmon (#e08a80) border, 2px corner radius
-  strips  = width 5% of screen height, height 80% of hero height, gap 10px,
-            crop-fill (object-fit: cover), black overlay
+Layout (values are per-active-monitor fractions):
+  hero    = 46% of screen height, drawn aspect-fit inside a frame matched to
+            the monitor's real aspect ratio, 3px salmon (#e08a80) border
+  strips  = dynamically sized so the first side strip lands exactly GAP px
+            from the hero AND the last strip keeps GAP breathing room at the
+            screen edge; height 80% of hero height, crop-fill, black overlay
             alpha = min(0.40, 0.14 + |dist-to-hero| * 0.05)
+
+Thumbnails are decoded to EXACT boxes (width x height) the cells actually
+paint, cache-differentiated per box, so strips stay sharp without retaining
+invisible wide-image pixels.
 
 stdout contract (for dwm keybind pipes such as `wallpicker.py | feh --bg-fill ...`):
   Enter -> prints the absolute wallpaper path, exit 0
@@ -18,13 +24,13 @@ stdout contract (for dwm keybind pipes such as `wallpicker.py | feh --bg-fill ..
 
 Usage: wallpicker.py [--dir DIR] [--dry-run]
 
-Implementation notes (decode/cache layer): thumbnails come from the
-sibling C helper `imgdec` (libjpeg-turbo DCT-scaled decode + stb resize)
-when built, else a small pool of worker threads using Pillow (JPEG DCT
-downscale + LANCZOS resize); results are published to a PNG disk cache
-under ~/.cache/dwmwal/picker/ (md5(path)-width.png, invalidated by source
-mtime) and handed to GTK as GdkPixbufs on the worker thread. Without both,
-the picker falls back to plain gdk-pixbuf scaling.
+Implementation notes (decode/cache layer): thumbnails come from the sibling C
+helper `imgdec` (libjpeg-turbo DCT-scaled decode + stb resize) writing straight
+into an atomic temp cache file, else a small pool of worker threads using
+Pillow (JPEG DCT downscale + LANCZOS resize); results are published to a PNG
+disk cache under ~/.cache/dwmwal/picker/ (md5(path)-WxH.png, invalidated by
+source mtime) and handed to GTK as GdkPixbufs on the worker thread. Without
+both, the picker falls back to plain gdk-pixbuf scaling.
 """
 
 import argparse
@@ -71,13 +77,12 @@ CAPTION_PX = 21
 HINT_PX = 17
 FILTER_PX = 18
 
-ANIM_MS = 320                 # OutCubic glide duration
-TICK_MS = 16                  # ~60 fps animation tick
+ANIM_MS = 320                 # OutCubic glide duration (frame-clock based)
 FOCUS_RETRY_MS = 50           # keyboard-focus retry cadence after map
 FOCUS_RETRY_MAX = 40          # attempts before giving up (~2 s total)
 GAP = 10                      # gap between neighbouring strips
 HERO_H_FRAC = 0.46            # hero height / screen height
-STRIP_W_FRAC = 0.05           # strip width / screen height
+STRIP_W_FRAC = 0.05           # provisional strip width / screen height
 STRIP_H_FRAC = 0.80           # strip height / hero height
 HERO_MAX_W_FRAC = 0.62        # safety clamp on narrow screens
 CY_FRAC = 0.44                # hero centre height / screen height (room for caption)
@@ -90,6 +95,9 @@ LOAD_QUEUE_MAX = 64           # decode backlog cap; overflow is re-requested
 MAX_CACHE = 384               # scaled-pixbuf cache entries before eviction
 DISK_CACHE_DIR = os.path.expanduser("~/.cache/dwmwal/picker")  # PNG thumbs
 IMGDEC_TIMEOUT_S = 5.0        # hard cap on one imgdec subprocess decode
+
+HERO_DEBOUNCE_MS = 75         # defer a full-size hero decode during key-repeat
+RAPID_RETARGET_US = 120_000   # key-repeat window (monotonic ns) for debounce
 
 
 def _imgdec_bin():
@@ -137,14 +145,14 @@ def _lerp(a, b, t):
 
 
 def find_wallpapers(root):
-    """Recursively collect jpg/jpeg/png under root, sorted by absolute path.
+    """Recursively collect jpg/jpeg/png/webp under root, sorted by path.
 
     Validation is extension-only on purpose: probing every candidate with
     gdk-pixbuf dominated startup (seconds on 100+ files). Broken images are
     instead tolerated lazily - decode failures cache as None and the picker
     paints placeholders / hops past broken heroes.
     """
-    wanted_exts = (".jpg", ".jpeg", ".png")
+    wanted_exts = (".jpg", ".jpeg", ".png", ".webp")
     found = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames.sort()
@@ -177,6 +185,10 @@ class Picker(Gtk.Window):
         self.focus_dead = False      # True once quitting; halts retries
         self.pf_pending = False
         self.scroll_acc = 0.0
+        self._last_hero_pixbuf = None     # last sharp hero (morph fallback)
+        self._hero_timer_id = None        # pending hero-decode debounce timer
+        self._last_retarget_us = 0        # monotonic ns of the last step/hold
+        self._surface_cache = {}          # id(pixbuf) -> (pixbuf, cairo surface)
         self.pf_queued = set()      # (path, kind) keys awaiting decode
         self.load_cond = threading.Condition()
         self.load_q = deque()       # decode jobs; heroes jump the queue
@@ -189,6 +201,7 @@ class Picker(Gtk.Window):
                                       name="loader-%d" % i, daemon=True)
             loader.start()
             self.loaders.append(loader)
+        self._logical_target = float(self.target)
 
         self.set_title("wallpicker")
         self.set_decorated(False)
@@ -211,7 +224,6 @@ class Picker(Gtk.Window):
         if visual is not None and screen.is_composited():
             self.set_visual(visual)
             self.rgba_ok = True
-        self.set_default_size(screen.get_width(), screen.get_height())
 
         self.connect("draw", self.on_draw)
         self.connect("key-press-event", self.on_key_press)
@@ -227,10 +239,26 @@ class Picker(Gtk.Window):
                         | Gdk.EventMask.SMOOTH_SCROLL_MASK)
         self.fullscreen()
 
+        # Active-monitor placement: match the monitor under the pointer, not
+        # just the primary screen, so the picker opens where the user is.
+        try:
+            display = Gdk.Display.get_default()
+            pointer = display.get_default_seat().get_pointer()
+            _screen, pointer_x, pointer_y = pointer.get_position()
+            monitor = display.get_monitor_at_point(pointer_x, pointer_y)
+            geometry = monitor.get_geometry()
+            self.move(geometry.x, geometry.y)
+            self.set_default_size(geometry.width, geometry.height)
+            self.fullscreen()
+        except Exception as exc:
+            sys.stderr.write("wallpicker: active-monitor placement failed: %s\n" % exc)
+
     # ------------------------------------------------------------ lifecycle
 
     def quit(self):
         """Leave without printing anything (cancel path)."""
+        self._cancel_hero_timer()
+        self._stop_animation()
         self.stop_focus_retry()
         try:
             # Release a server-side grab so the keyboard is not left stuck
@@ -281,24 +309,34 @@ class Picker(Gtk.Window):
             self.focus_timer_id = None
 
     def _focus_retry_tick(self):
-        """One focus/grab attempt; True keeps the retry source alive."""
+        """One focus/grab attempt; True keeps the retry source alive.
+
+        Clears self.focus_timer_id whenever the source detaches itself
+        (including a successful grab), so a later start_focus_retry()
+        re-arms cleanly instead of leaving a stale id behind.
+        """
         if self.focus_dead:
             self.focus_timer_id = None
-            return GLib.SOURCE_REMOVE
-        try:
-            gdk_win = self.get_window()
-            if gdk_win is None:
-                return self._retry_failed("no gdk window yet")
-            gdk_win.focus(Gdk.CURRENT_TIME)   # XSetInputFocus, WM-independent
-            if self.focus_attempts == 0:
-                self.present()                # WM-level activate, once enough
-            self.grab_focus()
-            status = Gdk.keyboard_grab(gdk_win, True, Gdk.CURRENT_TIME)
-        except Exception as exc:
-            return self._retry_failed(exc)
-        if status == Gdk.GrabStatus.SUCCESS:
-            return GLib.SOURCE_REMOVE         # keyboard ours - done retrying
-        return self._retry_failed(status)
+            keep = GLib.SOURCE_REMOVE
+        else:
+            try:
+                gdk_win = self.get_window()
+                if gdk_win is None:
+                    keep = self._retry_failed("no gdk window yet")
+                else:
+                    gdk_win.focus(Gdk.CURRENT_TIME)   # XSetInputFocus
+                    if self.focus_attempts == 0:
+                        self.present()                # WM-level activate
+                    self.grab_focus()
+                    status = Gdk.keyboard_grab(gdk_win, True, Gdk.CURRENT_TIME)
+                    keep = (GLib.SOURCE_REMOVE
+                            if status == Gdk.GrabStatus.SUCCESS
+                            else self._retry_failed(status))
+            except Exception as exc:
+                keep = self._retry_failed(exc)
+        if not keep:
+            self.focus_timer_id = None
+        return keep
 
     def _retry_failed(self, status):
         """Log a non-success result; stop after FOCUS_RETRY_MAX attempts."""
@@ -328,100 +366,145 @@ class Picker(Gtk.Window):
     # ------------------------------------------------------------- geometry
 
     def _metrics(self, width, height):
-        """All layout constants derived per-frame from the screen size."""
+        """Layout constants derived per-frame; hero crop matches the monitor.
+
+        Strips are sized dynamically so the first side strip sits exactly
+        GAP px from the hero AND the last strip keeps GAP breathing room at
+        the physical screen edge (superior to a fixed STRIP_W_FRAC width).
+        """
+        monitor_ratio = width / max(1.0, float(height))
         hero_h = height * HERO_H_FRAC
-        hero_w = min(hero_h * 16.0 / 9.0, width * HERO_MAX_W_FRAC)
-        hero_h = hero_w * 9.0 / 16.0  # keep exact 16:9 after the width clamp
-        strip_w = max(2.0, height * STRIP_W_FRAC)
+        hero_w = min(hero_h * monitor_ratio, width * HERO_MAX_W_FRAC)
+        hero_h = hero_w / monitor_ratio  # keep the exact ratio after clamping
         strip_h = hero_h * STRIP_H_FRAC
         cx = width / 2.0
         cy = height * CY_FRAC
-        max_side = int((width / 2.0) / (strip_w + GAP)) + 1
-        return {
+        m = {
             "w": width, "h": height,
             "hero_w": hero_w, "hero_h": hero_h,
-            "strip_w": strip_w, "strip_h": strip_h,
+            "strip_h": strip_h,
             "cx": cx, "cy": cy,
-            "max_side": min(max_side, 18),
         }
-
-    def _slot_rect(self, i, side, m):
-        """Rectangle of the i-th (integer, i >= 1) strip on `side` of the hero."""
-        dist = (i - 1) * (m["strip_w"] + GAP) + GAP
-        w, h = m["strip_w"], m["strip_h"]
-        if side >= 0:
-            x = m["cx"] + m["hero_w"] / 2.0 + dist
+        count = len(self.visible)
+        side_count = min(10, count // 2)
+        if side_count > 0:
+            side_space = cx - hero_w / 2.0
+            total_gaps = GAP * (side_count + 1)
+            m["strip_w"] = max(2.0, (side_space - total_gaps) / side_count)
+            m["max_side"] = side_count
         else:
-            x = m["cx"] - m["hero_w"] / 2.0 - dist - w
-        return x, m["cy"] - h / 2.0, w, h
+            m["strip_w"] = 2.0
+            m["max_side"] = 0
+        return m
 
     def _frame_for(self, rel, m):
         """Geometry + darkness for an item at fractional distance `rel`.
 
-        Morph zone is |rel| < 0.5 — cells are spaced exactly 1.0 apart, so at
-        most ONE cell can ever sit in the zone. With the old |rel| < 1.0 zone,
-        a fractional pos (inevitable during key-repeat) put TWO half-shrunk
-        previews inside the hero frame at once. Beyond 0.5 the strips glide
-        continuously (dist grows linearly from the first slot), so the belt
-        motion stays seamless and the morph completes in the first half of
-        the approach to the hero.
+        Morph zone is |rel| < 1.0: the outgoing and incoming heroes interpolate
+        towards the first strip slot with their edges kept exactly GAP px apart,
+        so the whole row slides as one continuous filmstrip (no empty first
+        column at the instant the old hero leaves the frame).
         """
-        ar = abs(rel)
+        distance = abs(rel)
         side = 1.0 if rel >= 0 else -1.0
-        hx = m["cx"] - m["hero_w"] / 2.0
-        hy = m["cy"] - m["hero_h"] / 2.0
-        if ar < 0.5:
-            t = ar * 2.0
-            sx, sy, sw, sh = self._slot_rect(1, side, m)
-            return (_lerp(hx, sx, t), _lerp(hy, sy, t),
-                    _lerp(m["hero_w"], sw, t), _lerp(m["hero_h"], sh, t),
-                    (RECEDE_BASE + RECEDE_STEP) * t)
-        dist = (ar - 0.5) * (m["strip_w"] + GAP) + GAP
-        w, h = m["strip_w"], m["strip_h"]
+        hero_x = m["cx"] - m["hero_w"] / 2.0
+        hero_y = m["cy"] - m["hero_h"] / 2.0
+        strip_width = m["strip_w"]
+        strip_height = m["strip_h"]
         if side >= 0:
-            x = m["cx"] + m["hero_w"] / 2.0 + dist
+            first_x = m["cx"] + m["hero_w"] / 2.0 + GAP
         else:
-            x = m["cx"] - m["hero_w"] / 2.0 - dist - w
-        return x, m["cy"] - h / 2.0, w, h, min(RECEDE_CAP,
-                                               RECEDE_BASE + RECEDE_STEP * ar)
+            first_x = m["cx"] - m["hero_w"] / 2.0 - GAP - strip_width
+        first_y = m["cy"] - strip_height / 2.0
+        if distance < 1.0:
+            return (_lerp(hero_x, first_x, distance),
+                    _lerp(hero_y, first_y, distance),
+                    _lerp(m["hero_w"], strip_width, distance),
+                    _lerp(m["hero_h"], strip_height, distance),
+                    RECEDE_BASE * distance)
+        extra = (distance - 1.0) * (strip_width + GAP)
+        x = first_x + extra if side >= 0 else first_x - extra
+        darkness = min(RECEDE_CAP,
+                       RECEDE_BASE + RECEDE_STEP * (distance - 1.0))
+        return x, first_y, strip_width, strip_height, darkness
 
     # ------------------------------------------------------------- pixbufs
 
-    @staticmethod
-    def _target_width(kind, m):
-        """Pixel width a slot's thumbnail decodes to (height follows ratio).
+    def _target_width(self, kind, m):
+        """Exact box (width, height) a slot's thumbnail decodes to.
 
-        Strips draw at ~half their on-screen size, so they decode at twice
-        the strip width to stay crisp under cover-crop rescaling; heroes
-        decode at exactly their frame width.
+        The C helper centre-crops/writes into this box before caching, so a
+        narrow side cell keeps full on-screen sharpness without retaining the
+        invisible left/right pixels of a wide wallpaper.
         """
         if kind == "hero":
-            return max(2, int(m["hero_w"] * SS))
-        return max(2, int(m["strip_w"] * SS) * 2)
+            return (max(2, int(round(m["hero_w"] * SS))),
+                    max(2, int(round(m["hero_h"] * SS))))
+        return (max(2, int(round(m["strip_w"] * SS))),
+                max(2, int(round(m["strip_h"] * SS))))
 
     def _pixbuf(self, path, kind, m, idx):
         """Cache lookup only - decoding happens on the background workers.
 
-        Returns the pixbuf once ready, else None so the caller paints the
-        placeholder backing plate while the load is in flight. Never blocks
-        the main thread, so slides stay smooth while large JPEGs decode.
+        Never exposes an empty hero slot while a sharp decode is pending:
+        falls back to that wallpaper's strip thumbnail or the last sharp hero
+        so the morph never flashes a bare placeholder plate.
         """
         key = (path, kind)
         if key in self.cache:
-            return self.cache[key]
+            pixbuf = self.cache[key]
+            if pixbuf is not None and kind == "hero":
+                self._last_hero_pixbuf = pixbuf
+            return pixbuf
+
+        # A retargeted animation may briefly keep the outgoing cell in hero
+        # geometry. Full-size decode there is obsolete work before the result
+        # lands, especially under fast key repeat.
+        focused_path = (self.visible[self.target] if self.visible else None)
+        if kind == "hero" and path != focused_path:
+            return (self.cache.get((path, "strip")) or
+                    self._last_hero_pixbuf)
+        if kind == "hero" and self._hero_timer_id is not None:
+            return (self.cache.get((path, "strip")) or
+                    self._last_hero_pixbuf)
+
+        # Not cached: submit a decode, then show the best available fallback.
         self._enqueue(key, path, self._target_width(kind, m), idx)
+        if kind == "hero":
+            strip_pixbuf = self.cache.get((path, "strip"))
+            if strip_pixbuf is not None:
+                return strip_pixbuf
+            return self._last_hero_pixbuf
+        # The old hero becomes the first side strip at the end of the first
+        # move; reuse its already-sharp hero pixbuf while the strip decode is
+        # in flight instead of flashing the placeholder.
+        hero_pixbuf = self.cache.get((path, "hero"))
+        if hero_pixbuf is not None:
+            return hero_pixbuf
         return None
 
-    def _enqueue(self, key, path, width, idx):
+    def _enqueue(self, key, path, size, idx):
         """Queue one decode job; heroes jump ahead of queued strips.
 
-        Deduped against cached/in-flight keys and capped as a backstop -
-        work dropped here is simply re-requested by the next draw or
-        prefetch pass, so losing a job is always safe.
+        While animating, any queued hero icdecode superseded by a newer
+        selection is dropped so budget goes to the current hero. Deduped
+        against cached/in-flight keys and capped as a backstop - work dropped
+        here is simply re-requested by the next draw or prefetch pass.
         """
+        if key[1] == "hero" and self.anim_id is not None:
+            with self.load_cond:
+                kept = deque()
+                for job in self.load_q:
+                    old_key = job[2]
+                    if old_key[1] == "hero" and old_key != key:
+                        self.pf_queued.discard(old_key)
+                    else:
+                        kept.append(job)
+                self.load_q.clear()
+                self.load_q.extend(kept)
         if key in self.cache or key in self.pf_queued:
             return
-        job = (idx, path, key, width)
+        job = (idx, path, key, size)
         with self.load_cond:
             if len(self.load_q) >= LOAD_QUEUE_MAX:
                 return
@@ -432,29 +515,16 @@ class Picker(Gtk.Window):
                 self.load_q.append(job)
             self.load_cond.notify()
 
-    @staticmethod
-    def _cachefile_for(path, width):
-        """PNG cache path for (path, width); None when unusable."""
-        try:
-            digest = hashlib.md5(os.path.abspath(path).encode()).hexdigest()
-            return os.path.join(DISK_CACHE_DIR, "%s-%d.png" % (digest, width))
-        except Exception:
-            return None
+    def _cachefile_for(self, path, size):
+        """PNG cache path for (path, box-size); None when unusable.
 
-    def _disk_cache_get(self, path, width):
-        """Return an RGB image from the disk cache, or None on miss.
-
-        Hit condition: cached PNG exists AND its mtime is not older than
-        the source wallpaper's (an edited source invalidates its thumb).
+        `size` is a (w, h) box; a bare int degrades to (int, 0).
         """
-        cachefile = self._cachefile_for(path, width)
-        if cachefile is None or not os.path.exists(cachefile):
-            return None
         try:
-            if os.path.getmtime(cachefile) < os.path.getmtime(path):
-                return None  # stale: source is newer than cached thumb
-            with Image.open(cachefile) as hit:
-                return hit.convert("RGB")
+            width, height = size if isinstance(size, tuple) else (size, 0)
+            digest = hashlib.md5(os.path.abspath(path).encode()).hexdigest()
+            return os.path.join(DISK_CACHE_DIR,
+                                "%s-%dx%d.png" % (digest, int(width), int(height)))
         except Exception:
             return None
 
@@ -480,87 +550,92 @@ class Picker(Gtk.Window):
         except Exception:
             pass  # disk cache must never break the picker
 
-    def _disk_cache_put(self, path, width, img):
-        """Publish `img` to the disk cache atomically; best-effort only.
+    def _imgdec_decode(self, path, size):
+        """Decode directly into an atomic cache file via the C helper.
 
-        Broken images (img None) are deliberately not written to disk -
-        they stay as in-memory Nones so a repaired source retries later.
-        """
-        if img is None:
-            return
-        cachefile = self._cachefile_for(path, width)
-        if cachefile is None:
-            return
-        try:
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            self._atomic_write(cachefile, buf.getvalue())
-        except Exception:
-            pass
-
-    def _imgdec_decode(self, path, width):
-        """Fast decode via the C imgdec helper (libjpeg-turbo scaled DCT).
-
-        Runs the sibling binary (JPEG/WebP/PNG -> width-fitted PNG),
-        validates its output, hands the bytes to gdk-pixbuf and republishes
-        them to the disk cache through the same atomic writer so mtime
-        validation stays uniform. Any failure/timeout returns None and the
-        caller falls back to Pillow/gdk silently.
+        imgdec accepts <input_image> <target_width> [outfile] only - the
+        height follows the source aspect ratio, so only the box WIDTH drives
+        the decode; the resulting PNG is written straight to a temp cache
+        file and moved into place, avoiding a subprocess pipe + double buffer.
         """
         exe = _imgdec_bin()
         if exe is None:
             return None
-        cachefile = self._cachefile_for(path, width)
-        if cachefile is not None and os.path.exists(cachefile) and \
-                os.path.getmtime(cachefile) >= os.path.getmtime(path):
-            return None  # disk cache will have handled it upstream
-        try:
-            proc = subprocess.run(
-                [exe, path, str(int(width))],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                timeout=IMGDEC_TIMEOUT_S)
-        except Exception:
-            return None
-        png = proc.stdout
-        if proc.returncode != 0 or png[:8] != b"\x89PNG\r\n\x1a\n":
+        width, height = size if isinstance(size, tuple) else (size, 0)
+        cachefile = self._cachefile_for(path, size)
+        if cachefile is None:
             return None
         try:
-            loader = GdkPixbuf.PixbufLoader.new()
-            loader.write(png)
-            loader.close()
-            pixbuf = loader.get_pixbuf()
+            os.makedirs(DISK_CACHE_DIR, exist_ok=True)
+            fd, temp_name = tempfile.mkstemp(dir=DISK_CACHE_DIR,
+                                             prefix=".wallpicker-", suffix=".tmp")
+            os.close(fd)
+            try:
+                command = ["/usr/bin/nice", "-n", "10",
+                           exe, path, str(int(width)), temp_name]
+                result = subprocess.run(
+                    command, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=IMGDEC_TIMEOUT_S)
+                if result.returncode != 0:
+                    return None
+                with open(temp_name, "rb") as handle:
+                    if handle.read(8) != b"\x89PNG\r\n\x1a\n":
+                        return None
+                os.replace(temp_name, cachefile)
+                temp_name = ""
+                return GdkPixbuf.Pixbuf.new_from_file(cachefile)
+            finally:
+                if temp_name:
+                    try:
+                        os.unlink(temp_name)
+                    except OSError:
+                        pass
         except Exception:
             return None
-        if cachefile is not None:
-            self._atomic_write(cachefile, png)
-        return pixbuf
 
-    def _decode_pixbuf(self, path, width):
-        """Produce a GdkPixbuf for `path` at `width` px (worker thread).
+    def _decode_pixbuf(self, path, size):
+        """Produce a GdkPixbuf for `path` at the exact box (worker thread).
 
-        Preference order: valid disk-cached PNG (~ms), C imgdec helper
-        (libjpeg-turbo DCT-scaled decode + stb resize, published to disk
-        cache), Pillow DCT-scaled + LANCZOS decode (published to disk
-        cache), legacy gdk-pixbuf decode when both are unavailable. Any
-        failure yields None, which the main thread caches as 'broken' and
-        paints a placeholder for.
+        Preference order: exact-box disk cache (mtime-validated), C imgdec
+        helper (fast src->box PNG written atomically to the cache), Pillow
+        DCT-scaled + LANCZOS decode, legacy gdk-pixbuf decode. Any failure
+        yields None, which the main thread caches as 'broken' and paints a
+        placeholder for.
         """
+        width, height = size if isinstance(size, tuple) else (size, 0)
+        width = max(2, int(width))
+        cachefile = self._cachefile_for(path, size)
+        try:
+            if cachefile and os.path.isfile(cachefile) and \
+                    os.path.getmtime(cachefile) >= os.path.getmtime(path):
+                return GdkPixbuf.Pixbuf.new_from_file(cachefile)
+        except (OSError, GLib.Error):
+            pass
+
+        pixbuf = self._imgdec_decode(path, size)
+        if pixbuf is not None:
+            return pixbuf
+
+        # Safe fallbacks when the helper is unavailable. imgdec/Pillow both
+        # scale to the box width (aspect preserved), so publishing Pillow's
+        # output under the box key keeps the disk cache uniformly keyed.
         if Image is not None:
-            img = self._disk_cache_get(path, width)
-            if img is None:
-                pixbuf = self._imgdec_decode(path, width)
-                if pixbuf is not None:
-                    return pixbuf
-                img = _pil_thumb(path, width)
-                self._disk_cache_put(path, width, img)
+            img = _pil_thumb(path, width)
             if img is not None:
+                if cachefile is not None:
+                    try:
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        self._atomic_write(cachefile, buf.getvalue())
+                    except Exception:
+                        pass
                 try:
                     # pure C conversion, thread-safe off the GTK main loop
                     return GdkPixbuf.Pixbuf.new_from_data(
                         img.tobytes(), GdkPixbuf.Colorspace.RGB, False, 8,
                         img.width, img.height, img.width * 3, None, None)
                 except Exception:
-                    return None
+                    pass
         return _gdk_decode(path, width)
 
     def _load_worker(self):
@@ -575,26 +650,51 @@ class Picker(Gtk.Window):
             with self.load_cond:
                 while not self.load_q:
                     self.load_cond.wait()
-                idx, path, key, width = self.load_q.popleft()
+                idx, path, key, size = self.load_q.popleft()
             if key in self.cache:
                 continue  # decoded by another job while this one sat queued
             GLib.idle_add(self._on_pixbuf_ready, idx, key,
-                          self._decode_pixbuf(path, width))
+                          self._decode_pixbuf(path, size))
 
-    def _on_pixbuf_ready(self, idx, key, pixbuf):
+    def _on_pixbuf_ready(self, index, key, pixbuf):
         """Main-thread landing pad for worker results: cache, repaint, and
-        hop past the focused item when its hero failed to decode."""
+        hop past the focused item when its hero failed to decode.
+
+        Keeps nearby strips but caps expensive full-size hero pixbufs and
+        purges Cairo-surface cache entries no longer referenced.
+        """
         self.pf_queued.discard(key)
         self.cache[key] = pixbuf
         if len(self.cache) > MAX_CACHE:
-            # drop oldest entries; dict preserves insertion order
-            for stale in list(self.cache.keys())[: len(self.cache) - MAX_CACHE]:
-                del self.cache[stale]
+            stale_count = len(self.cache) - MAX_CACHE
+            for stale_key in list(self.cache.keys())[:stale_count]:
+                self.cache.pop(stale_key, None)
         if pixbuf is None and self.visible and \
                 key == (self.visible[self.target], "hero"):
             self._advance_past_broken()
-        self.queue_draw()
-        return False
+        else:
+            self._queue_carousel_draw()
+        # Keep at most 3 hero keys + the current hero; drop the rest so the
+        # memory-hungry full-size decodes don't pile up on navigation.
+        hero_keys = [cached_key for cached_key in self.cache
+                     if cached_key[1] == "hero"]
+        current_key = ((self.visible[self.target], "hero")
+                       if self.visible else None)
+        for stale_key in hero_keys:
+            if len(hero_keys) <= 3:
+                break
+            if stale_key == current_key:
+                continue
+            self.cache.pop(stale_key, None)
+            hero_keys.remove(stale_key)
+        live_pixbuf_ids = {id(cached) for cached in self.cache.values()
+                           if cached is not None}
+        if self._last_hero_pixbuf is not None:
+            live_pixbuf_ids.add(id(self._last_hero_pixbuf))
+        for cache_key in list(self._surface_cache):
+            if cache_key not in live_pixbuf_ids:
+                self._surface_cache.pop(cache_key, None)
+        return GLib.SOURCE_REMOVE
 
     def _advance_past_broken(self):
         """If the focused item failed to decode, hop to the next good one."""
@@ -607,6 +707,7 @@ class Picker(Gtk.Window):
                 break
             self.target = (self.target + 1) % n
         self.pos = float(self.target)
+        self._logical_target = float(self.target)
         self.queue_draw()
         return False
 
@@ -618,40 +719,48 @@ class Picker(Gtk.Window):
         GLib.idle_add(self._prefetch, priority=GLib.PRIORITY_LOW)
 
     def _prefetch(self):
-        """Queue nearby loads in priority order: focused hero first, then
-        strips radiating outward. Decoding itself runs on the worker."""
+        """Prefetch strips immediately, but debounce the costly hero decode."""
         self.pf_pending = False
-        n = len(self.visible)
-        if not n:
-            return False
-        alloc = self.get_allocation()
-        m = self._metrics(alloc.width, alloc.height)
-        self._enqueue((self.visible[self.target], "hero"),
-                      self.visible[self.target],
-                      self._target_width("hero", m), self.target)
-        sw = self._target_width("strip", m)
-        for off in range(1, PREFETCH_RADIUS + 1):
-            for sidx in ((self.target + off) % n, (self.target - off) % n):
-                self._enqueue((self.visible[sidx], "strip"),
-                              self.visible[sidx], sw, sidx)
-        return False
+        count = len(self.visible)
+        if not count:
+            return GLib.SOURCE_REMOVE
+        allocation = self.get_allocation()
+        metrics = self._metrics(allocation.width, allocation.height)
+        if self._hero_timer_id is None:
+            hero_size = self._target_width("hero", metrics)
+            index = self.target % count
+            path = self.visible[index]
+            self._enqueue((path, "hero"), path, hero_size, index)
+            if self.anim_id is None and count > 2:
+                with self.load_cond:
+                    for neighbor in ((self.target - 1) % count,
+                                     (self.target + 1) % count):
+                        neighbor_path = self.visible[neighbor]
+                        key = (neighbor_path, "hero")
+                        if key in self.cache or key in self.pf_queued or \
+                                len(self.load_q) >= LOAD_QUEUE_MAX:
+                            continue
+                        self.pf_queued.add(key)
+                        self.load_q.append(
+                            (neighbor, neighbor_path, key, hero_size))
+                    self.load_cond.notify_all()
+        strip_size = self._target_width("strip", metrics)
+        for offset in range(1, PREFETCH_RADIUS + 1):
+            for index in ((self.target + offset) % count,
+                          (self.target - offset) % count):
+                path = self.visible[index]
+                self._enqueue((path, "strip"), path, strip_size, index)
+        return GLib.SOURCE_REMOVE
 
     # ---------------------------------------------------------------- input
 
     def step(self, delta):
-        """Move selection one slot, animating a single-step circular slide.
-
-        Retarget from self.target (not self.pos): with key-repeat the glide
-        is restarted every ~33ms, so anchoring on pos would leave pos stuck
-        on fractional values — two cells then sit in the morph zone (|rel|<1)
-        and BOTH render as half-shrunk previews inside the hero frame.
-        Anchoring on the integer target keeps pos chasing a whole number.
-        """
-        n = len(self.visible)
-        if n < 2:
+        """Advance on an unwrapped axis so crossing n-1 -> 0 stays forward."""
+        count = len(self.visible)
+        if count < 2:
             return
-        dest = self.target + delta
-        self.animate_to(dest, dest % n)
+        destination = self._logical_target + delta
+        self.animate_to(destination, int(round(destination)) % count)
 
     def select_index(self, idx):
         """Animate to an arbitrary index via the shortest circular path."""
@@ -664,8 +773,13 @@ class Picker(Gtk.Window):
         self.animate_to(self.pos + diff, idx % n)
 
     def animate_to(self, dest_pos, target_idx):
-        """Start/re-target the OutCubic glide towards dest_pos."""
-        # Fast key-repeat can leave pos several steps behind the target.
+        """Start/re-target the OutCubic glide, clocked by the frame clock.
+
+        Under fast key-repeat the hero decode is debounced with a short
+        timer (HERO_DEBOUNCE_MS) so a full-size decode is only requested once
+        the rapid retargeting has settled.
+        """
+        self._logical_target = float(dest_pos)
         # Snap to within one step of the destination so at most ONE
         # hero<->strip morph is ever on screen and pos always catches up
         # with the caption index.
@@ -674,34 +788,102 @@ class Picker(Gtk.Window):
             self.pos = dest_pos - (1.0 if gap > 0 else -1.0)
         self.anim_from = self.pos
         self.anim_to = float(dest_pos)
-        self.anim_t0 = GLib.get_monotonic_time()
+        frame_clock = self.get_frame_clock()
+        self.anim_t0 = (frame_clock.get_frame_time() if frame_clock
+                        else GLib.get_monotonic_time())
         self.target = target_idx % max(1, len(self.visible))
+        now = GLib.get_monotonic_time()
+        rapid_repeat = (self._last_retarget_us > 0 and
+                        now - self._last_retarget_us < RAPID_RETARGET_US)
+        self._last_retarget_us = now
+        self._cancel_hero_timer()
+        if rapid_repeat:
+            self._hero_timer_id = GLib.timeout_add(
+                HERO_DEBOUNCE_MS, self._request_settled_hero)
+        else:
+            self._request_settled_hero()
         if self.anim_id is None:
-            self.anim_id = GLib.timeout_add(TICK_MS, self.tick)
+            self.anim_id = self.add_tick_callback(self._animation_frame)
         self.prefetch_soon()
-        self.queue_draw()
+        self._queue_carousel_draw()
 
-    def tick(self):
-        """Animation timer: interpolate position, repaint, stop when settled."""
-        progress = (GLib.get_monotonic_time() - self.anim_t0) / (ANIM_MS * 1000.0)
+    def _animation_frame(self, _widget, frame_clock, *_data):
+        """Advance exactly once per compositor frame (OutCubic easing)."""
+        elapsed = frame_clock.get_frame_time() - self.anim_t0
+        progress = elapsed / (ANIM_MS * 1000.0)
         if progress >= 1.0:
-            self.pos = self.anim_to % max(1, len(self.visible))
+            self.pos = self.anim_to
             self.anim_id = None
-            self.queue_draw()
-            return False  # remove timer source
-        eased = _out_cubic(min(progress, 1.0))
+            self.prefetch_soon()
+            self._queue_carousel_draw()
+            return GLib.SOURCE_REMOVE
+        eased = _out_cubic(max(0.0, min(progress, 1.0)))
         self.pos = self.anim_from + (self.anim_to - self.anim_from) * eased
-        self.queue_draw()
-        return True
+        self._queue_carousel_draw()
+        return GLib.SOURCE_CONTINUE
+
+    def _stop_animation(self):
+        """Detach the frame-clock callback, if one is active."""
+        if self.anim_id is None:
+            return
+        try:
+            self.remove_tick_callback(self.anim_id)
+        except (ValueError, GLib.Error):
+            pass
+        self.anim_id = None
+
+    def _cancel_hero_timer(self):
+        """Cancel a deferred full-size hero decode."""
+        if self._hero_timer_id is None:
+            return
+        try:
+            GLib.source_remove(self._hero_timer_id)
+        except GLib.Error:
+            pass
+        self._hero_timer_id = None
+
+    def _request_settled_hero(self):
+        """Decode the hero only after key-repeat has settled briefly."""
+        self._hero_timer_id = None
+        if not self.visible:
+            return GLib.SOURCE_REMOVE
+        allocation = self.get_allocation()
+        metrics = self._metrics(allocation.width, allocation.height)
+        index = self.target % len(self.visible)
+        path = self.visible[index]
+        self._enqueue((path, "hero"), path,
+                      self._target_width("hero", metrics), index)
+        return GLib.SOURCE_REMOVE
+
+    def _queue_carousel_draw(self):
+        """Invalidate only the moving shelf, not the full-screen dimmer."""
+        allocation = self.get_allocation()
+        metrics = self._metrics(allocation.width, allocation.height)
+        top = max(0, int(metrics["cy"] - metrics["hero_h"] / 2.0) - 3)
+        bottom = min(allocation.height,
+                     int(metrics["cy"] + metrics["hero_h"] / 2.0 +
+                         CAPTION_PX + 24.0))
+        self.queue_draw_area(0, top, allocation.width, max(1, bottom - top))
 
     def rebuild_filter(self):
-        """Apply self.filter_text over basenames (case-insensitive substring)."""
+        """Apply self.filter_text over basenames (case-insensitive substring).
+
+        Cancels obsolete animation/decode work before filtering so a rebuild
+        never resurrects a stale glide or its hero decode.
+        """
+        self._cancel_hero_timer()
+        self._stop_animation()
+        with self.load_cond:
+            for job in self.load_q:
+                self.pf_queued.discard(job[2])
+            self.load_q.clear()
         needle = self.filter_text.lower()
         self.visible = [p for p in self.files
                         if needle in os.path.splitext(os.path.basename(p))[0].lower()]
         self.pos = 0.0
         self.target = 0
         self.anim_id = None  # any in-flight glide is moot after a rebuild
+        self._logical_target = float(self.target)
         self.prefetch_soon()
         self.queue_draw()
 
@@ -777,8 +959,45 @@ class Picker(Gtk.Window):
         cr.close_path()
 
     def _paint_pixbuf(self, cr, pixbuf, x, y, w, h, mode):
-        """Draw pixbuf into rect: 'cover' crops (CSS object-fit: cover),
-        'contain' letterboxes (aspect preserved, centred)."""
+        """Draw pixbuf into rect, reusing a cached Cairo surface per pixbuf.
+
+        'cover' crops (CSS object-fit: cover), 'contain' letterboxes (aspect
+        preserved, centred). Falls back to a per-frame gdk conversion if a
+        Cairo surface cannot be built.
+        """
+        cache_key = id(pixbuf)
+        cached = self._surface_cache.get(cache_key)
+        if cached is None or cached[0] is not pixbuf:
+            try:
+                surface = Gdk.cairo_surface_create_from_pixbuf(
+                    pixbuf, 1, self.get_window())
+            except Exception:
+                self._paint_pixbuf_legacy(cr, pixbuf, x, y, w, h, mode)
+                return
+            cached = (pixbuf, surface)
+            self._surface_cache[cache_key] = cached
+        surface = cached[1]
+        source_width = pixbuf.get_width()
+        source_height = pixbuf.get_height()
+        if source_width <= 0 or source_height <= 0:
+            return
+        if mode == "contain":
+            scale = min(w / source_width, h / source_height)
+        else:
+            scale = max(w / source_width, h / source_height)
+        destination_x = x + (w - source_width * scale) / 2.0
+        destination_y = y + (h - source_height * scale) / 2.0
+        cr.save()
+        cr.rectangle(x, y, w, h)
+        cr.clip()
+        cr.translate(destination_x, destination_y)
+        cr.scale(scale, scale)
+        cr.set_source_surface(surface, 0, 0)
+        cr.paint()
+        cr.restore()
+
+    def _paint_pixbuf_legacy(self, cr, pixbuf, x, y, w, h, mode):
+        """Fallback when a Cairo surface cannot be built (pure gdk path)."""
         pw, ph = pixbuf.get_width(), pixbuf.get_height()
         if pw <= 0 or ph <= 0:
             return
@@ -830,33 +1049,44 @@ class Picker(Gtk.Window):
 
         if n:
             base = math.floor(self.pos)
-            frac = self.pos - base
+            fraction = self.pos - base
             cells = []
-            for off in range(-m["max_side"], m["max_side"] + 1):
-                rel = off - frac
-                if abs(rel) > m["max_side"] + 1:
+            # With floor(pos), the negative end already acts as the guard
+            # during reverse motion; only one extra positive cell is needed.
+            guard = m["max_side"] + 1
+            for offset in range(-m["max_side"], guard + 1):
+                relative = offset - fraction
+                if abs(relative) > guard + 1:
                     continue
-                idx = (base + off) % n
-                cells.append((abs(rel), rel, idx))
+                index = (base + offset) % n
+                cells.append((abs(relative), relative, index))
             cells.sort(reverse=True)  # farthest first, hero painted last
-            for _, rel, idx in cells:
-                x, y, w, h, alpha = self._frame_for(rel, m)
-                path = self.visible[idx]
-                is_hero_zone = abs(rel) < 0.5
-                pixbuf = self._pixbuf(path, "hero" if is_hero_zone else "strip",
-                                      m, idx)
+
+            for _, relative, index in cells:
+                x, y, w, h, alpha = self._frame_for(relative, m)
+                path = self.visible[index]
+                # Both cells in the hero<->strip morph use the hero lookup for
+                # the whole transition; _pixbuf falls back to that wallpaper's
+                # strip/last-hero thumbnail via a 1.0 cutoff (0.5 would switch
+                # the outgoing hero to an uncached strip mid-first-move).
+                hero_zone = abs(relative) < 1.0
+                pixbuf = self._pixbuf(path, "hero" if hero_zone else "strip",
+                                      m, index)
+                # Skip cells not yet on screen (guard cell crossing in).
+                if x >= m["w"] or x + w <= 0.0:
+                    continue
                 cr.save()
                 self._rounded_path(cr, x, y, w, h, 2.0)
                 cr.clip()
                 cr.set_source_rgb(*PLACEHOLDER)
-                cr.fill()  # backing plate for load gaps / transparent PNGs
+                cr.fill()  # opaque backing plate inside the frame area
                 if pixbuf is not None:
                     self._paint_pixbuf(cr, pixbuf, x, y, w, h, "cover")
                 if alpha > 0.003:
                     cr.set_source_rgba(0.0, 0.0, 0.0, alpha)
                     cr.paint()
                 cr.restore()
-                self.hit_rects.append((idx, x, y, w, h))
+                self.hit_rects.append((index, x, y, w, h))
 
             # fixed salmon frame around the hero slot
             cr.save()
@@ -922,7 +1152,7 @@ def main(argv=None):
             print("last:  %s" % files[-1])
         return 0
     if not files:
-        sys.stderr.write("wallpicker: no jpg/jpeg/png images under %s\n" % root)
+        sys.stderr.write("wallpicker: no jpg/jpeg/png/images under %s\n" % root)
         return 1
 
     picker = Picker(files)

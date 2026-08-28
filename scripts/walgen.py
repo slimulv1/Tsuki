@@ -239,14 +239,19 @@ def _load_pixels(img_path, max_size=224):
     scale = min(1.0, max_size / max(w, h))
     if scale < 1.0:
         pw, ph = max(1, round(w * scale * 2)), max(1, round(h * scale * 2))
+        try:  # draft(): decode only the DCT rows needed (big JPEG save)
+            img.draft(img.mode, (pw, ph))
+        except Exception:
+            pass
         probe = img.resize((pw, ph), Image.NEAREST)
         if probe.mode in ("RGBA", "LA", "PA") or (probe.mode == "P" and "transparency" in probe.info):
             bg = Image.new("RGBA", probe.size, (0, 0, 0, 255))
             probe = Image.alpha_composite(bg, probe.convert("RGBA"))
-        parr = np.asarray(probe.convert("RGB")).reshape(-1, 3).astype(np.float64) / 255.0
-        nuniq = len(np.unique(np.round(parr * 31.0) / 31.0, axis=0))
-        if nuniq <= 8:  # flat / minimal art: exact colors, no blending
-            return parr
+        # integer 32-level quantization for distinct-count (fast, avoids float64)
+        raw = np.asarray(probe.convert("RGB")).reshape(-1, 3)
+        nuniq = len(np.unique(raw >> 3, axis=0))
+        if nuniq <= 14:  # flat / minimal art: exact colors, no blending
+            return raw.astype(np.float64) / 255.0
         img = img.resize(
             (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS
         )
@@ -327,7 +332,7 @@ def dominant_hue(clusters):
     return None
 
 
-def earth_warm_hue(pixels, base_hue):
+def earth_warm_hue(pixels, base_hue, hsl=None):
     """Warm golden hue of a dark earthy wallpaper, or None.
 
     Very dark, muted, greenish wallpapers (gruvbox-style olive landscapes)
@@ -343,7 +348,8 @@ def earth_warm_hue(pixels, base_hue):
         return None
     if pixels is None or len(pixels) == 0:
         return None
-    hsl = rgb_to_hsl(pixels)
+    if hsl is None:
+        hsl = rgb_to_hsl(pixels)
     h, l, s = hsl[:, 0], hsl[:, 1], hsl[:, 2]
     valid = (l > 0.04) & (s > 0.04)
     if int(valid.sum()) < max(16, len(pixels) * 0.001):
@@ -417,32 +423,26 @@ def build_ansi16(bg_rgb, anchors, light=False):
     bs = float(bs)
     if light:
         bg_s = 0.0 if bs < 0.08 else max(bs, 0.10)
-        bg = hsl_to_rgb(np.array([[bh, 0.90, bg_s]], dtype=np.float64))[0]
-        fg = hsl_to_rgb(np.array([[bh, 0.12, min(0.30, bs)]], dtype=np.float64))[0]
-        gray = hsl_to_rgb(np.array([[bh, 0.65, 0.05]], dtype=np.float64))[0]
+        fg_h, fg_l, fg_s = bh, 0.12, min(0.30, bs)
+        gray_h, gray_l, gray_s = bh, 0.65, 0.05
+        bg_h, bg_l = bh, 0.90
     else:
         bg_s = 0.0 if bs < 0.08 else max(bs, 0.15)
-        bg = hsl_to_rgb(np.array([[bh, 0.10, bg_s]], dtype=np.float64))[0]
-        fg = hsl_to_rgb(np.array([[bh, 0.82, min(0.30, bs + 0.05)]], dtype=np.float64))[0]
-        gray = hsl_to_rgb(np.array([[bh, 0.36, 0.08]], dtype=np.float64))[0]
+        fg_h, fg_l, fg_s = bh, 0.82, min(0.30, bs + 0.05)
+        gray_h, gray_l, gray_s = bh, 0.36, 0.08
+        bg_h, bg_l = bh, 0.10
     dark_l = 0.40 if not light else 0.62
     bright_l = 0.72 if not light else 0.30
     # Gentle lightness ladder so duplicated hues (monochrome wallpapers) stay
     # distinguishable; colorful wallpapers are barely affected.
     ladder = np.linspace(-0.06, 0.06, 6)
-    cols = [bg]
-    cols += [
-        hsl_to_rgb(np.array([[h, np.clip(dark_l + ladder[i], 0.08, 0.92), s]],
-                            dtype=np.float64))[0]
-        for i, (h, s) in enumerate(anchors)
-    ]
-    cols += [fg, gray]
-    cols += [
-        hsl_to_rgb(np.array([[h, np.clip(bright_l + ladder[i], 0.08, 0.92),
-                              min(1.0, s + 0.15)]], dtype=np.float64))[0]
-        for i, (h, s) in enumerate(anchors)
-    ]
-    cols += [fg]
+    # Batch every hsl_to_rgb into ONE (16,3) call (avoids 14 tiny numpy calls).
+    rows = [[bg_h, bg_l, bg_s]]
+    rows += [[h, np.clip(dark_l + ladder[i], 0.08, 0.92), s] for i, (h, s) in enumerate(anchors)]
+    rows += [[fg_h, fg_l, fg_s], [gray_h, gray_l, gray_s]]
+    rows += [[h, np.clip(bright_l + ladder[i], 0.08, 0.92), min(1.0, s + 0.15)] for i, (h, s) in enumerate(anchors)]
+    rows += [[fg_h, fg_l, fg_s]]  # trailing fg (same as index 7)
+    cols = [c for c in hsl_to_rgb(np.array(rows, dtype=np.float64))]
     return cols
 
 
@@ -454,7 +454,7 @@ NEUTRAL_HEX = (
 )
 
 
-def neutral_from_pixels(pixels, light=False):
+def neutral_from_pixels(pixels, light=False, hsl=None):
     """Grayscale ramp derived from the image's OWN luminance distribution.
 
     Unlike the fixed NEUTRAL_HEX fallback, the ramp follows the wallpaper's
@@ -462,7 +462,10 @@ def neutral_from_pixels(pixels, light=False):
     Readability is guaranteed by enforcing a minimum span (and the standard
     dark/light bg-fg anchors).
     """
-    l = rgb_to_hsl(pixels)[:, 1]
+    if hsl is not None:
+        l = hsl[:, 1]  # reuse caller's full-pixel HSL (saves a second conversion)
+    else:
+        l = (pixels.max(axis=1) + pixels.min(axis=1)) / 2.0  # fast lightness only
     lo, hi = float(np.percentile(l, 5)), float(np.percentile(l, 95))
     if hi - lo < 0.25:  # flat image: widen around its own tone
         mid = 0.5 * (lo + hi)
@@ -525,24 +528,23 @@ def scheme_from_image(path, light=None):
     pixels = _load_pixels(path)
     if pixels is None or len(pixels) == 0:
         return list(neutral_16()), None, None
+    pixels_hsl = rgb_to_hsl(pixels)  # computed once, shared across helpers
     if light is None:
-        hsl = rgb_to_hsl(pixels)
-        mean_l, mean_s = float(hsl[:, 1].mean()), float(hsl[:, 2].mean())
+        mean_l, mean_s = float(pixels_hsl[:, 1].mean()), float(pixels_hsl[:, 2].mean())
         light = (mean_l >= 0.62) and (mean_s < 0.20)
     clusters = load_clusters(pixels)
     if not clusters:
-        return neutral_from_pixels(pixels, light), None, None
-    max_sat = max(
-        rgb_to_hsl(np.array([rgb], dtype=np.float64) / 255.0)[0][2] for rgb, _ in clusters
-    )
+        return neutral_from_pixels(pixels, light, hsl=pixels_hsl), None, None
+    max_sat = float(rgb_to_hsl(np.array(
+        [rgb for rgb, _ in clusters], dtype=np.float64) / 255.0)[:, 2].max())
     if max_sat < 0.10:
-        return neutral_from_pixels(pixels, light), None, None
+        return neutral_from_pixels(pixels, light, hsl=pixels_hsl), None, None
     accent, accent_dim = None, None
     force_hue = None
     try:  # dominant saturated cluster (never lets an exception break the palette)
         hue = dominant_hue(clusters)
         if hue is not None:
-            warm = earth_warm_hue(pixels, hue)
+            warm = earth_warm_hue(pixels, hue, hsl=pixels_hsl)
             if warm is not None:
                 # steer toward a rich amber-brown (hue ~38) so dark earthy
                 # images read as striking brown instead of washed-out golden

@@ -108,6 +108,22 @@ def _imgdec_bin():
     return None
 
 
+def _probe_size(path):
+    """Read only the image header for (w, h); None if unavailable.
+
+    Cheap: Pillow decodes just the header (SOF) + dimension fields, no pixel
+    data. Used to size the strip decode so a portrait box stays sharp after
+    cover-crop from a landscape source.
+    """
+    if Image is None:
+        return None
+    try:
+        with Image.open(path) as im:
+            return im.width, im.height
+    except Exception:
+        return None
+
+
 def _pil_thumb(path, width):
     """DCT-scaled decode + LANCZOS. Returns RGB PIL Image or None."""
     try:
@@ -202,6 +218,7 @@ class Picker(Gtk.Window):
             loader.start()
             self.loaders.append(loader)
         self._logical_target = float(self.target)
+        self._aspect_cache = {}   # path -> (w, h) probed from headers
 
         self.set_title("wallpicker")
         self.set_decorated(False)
@@ -386,7 +403,7 @@ class Picker(Gtk.Window):
             "cx": cx, "cy": cy,
         }
         count = len(self.visible)
-        side_count = min(10, count // 2)
+        side_count = min(4, count // 2)
         if side_count > 0:
             side_space = cx - hero_w / 2.0
             total_gaps = GAP * (side_count + 1)
@@ -440,8 +457,12 @@ class Picker(Gtk.Window):
         if kind == "hero":
             return (max(2, int(round(m["hero_w"] * SS))),
                     max(2, int(round(m["hero_h"] * SS))))
-        return (max(2, int(round(m["strip_w"] * SS))),
-                max(2, int(round(m["strip_h"] * SS))))
+        # Strips are cover-cropped (heavily on the vertical axis for narrow
+        # portrait boxes), so decode at 2x on-screen size to stay sharp when
+        # Cairo upscales into the box. imgdec never upscales beyond the
+        # source, so small originals just decode at their native resolution.
+        return (max(2, int(round(m["strip_w"] * SS * 2))),
+                max(2, int(round(m["strip_h"] * SS * 2))))
 
     def _pixbuf(self, path, kind, m, idx):
         """Cache lookup only - decoding happens on the background workers.
@@ -550,18 +571,25 @@ class Picker(Gtk.Window):
         except Exception:
             pass  # disk cache must never break the picker
 
-    def _imgdec_decode(self, path, size):
+    def _imgdec_decode(self, path, size, decode_w=None):
         """Decode directly into an atomic cache file via the C helper.
 
         imgdec accepts <input_image> <target_width> [outfile] only - the
-        height follows the source aspect ratio, so only the box WIDTH drives
-        the decode; the resulting PNG is written straight to a temp cache
-        file and moved into place, avoiding a subprocess pipe + double buffer.
+        height follows the source aspect ratio. The box WIDTH (`size`) keys
+        the disk cache, while `decode_w` is the actual target width handed to
+        the helper (defaults to the box width). Passing an aspect-aware
+        `decode_w` lets a portrait strip stay sharp: the helper produces a
+        wide-ish source the cover-crop then slices down to the box with
+        ~1x scale, instead of a width-fit source that Cairo must upscale 3x.
         """
         exe = _imgdec_bin()
         if exe is None:
             return None
         width, height = size if isinstance(size, tuple) else (size, 0)
+        width = max(2, int(width))
+        if decode_w is None:
+            decode_w = width
+        decode_w = max(2, int(decode_w))
         cachefile = self._cachefile_for(path, size)
         if cachefile is None:
             return None
@@ -572,7 +600,7 @@ class Picker(Gtk.Window):
             os.close(fd)
             try:
                 command = ["/usr/bin/nice", "-n", "10",
-                           exe, path, str(int(width)), temp_name]
+                           exe, path, str(decode_w), temp_name]
                 result = subprocess.run(
                     command, stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL, timeout=IMGDEC_TIMEOUT_S)
@@ -601,9 +629,28 @@ class Picker(Gtk.Window):
         DCT-scaled + LANCZOS decode, legacy gdk-pixbuf decode. Any failure
         yields None, which the main thread caches as 'broken' and paints a
         placeholder for.
+
+        The box is often portrait (tall narrow strip) while sources are
+        landscape. A width-only decode leaves the vertical axis under-resolved
+        and Cairo must upscale it ~3x -> blur. So the target width is derived
+        from the *height* x source aspect so the cover-crop lands at ~1x scale
+        and the strip stays as sharp as the hero.
         """
         width, height = size if isinstance(size, tuple) else (size, 0)
         width = max(2, int(width))
+        height = max(2, int(height))
+        # Probe source aspect once per path (cheap header read), memoized.
+        dims = self._aspect_cache.get(path)
+        if dims is None:
+            dims = _probe_size(path)
+            if dims is not None:
+                self._aspect_cache[path] = dims
+        decode_w = width
+        if dims is not None and dims[0] > 0 and dims[1] > 0:
+            sw, sh = dims
+            if height:
+                decode_w = max(width, int(math.ceil(height * (sw / sh))))
+
         cachefile = self._cachefile_for(path, size)
         try:
             if cachefile and os.path.isfile(cachefile) and \
@@ -612,7 +659,7 @@ class Picker(Gtk.Window):
         except (OSError, GLib.Error):
             pass
 
-        pixbuf = self._imgdec_decode(path, size)
+        pixbuf = self._imgdec_decode(path, size, decode_w)
         if pixbuf is not None:
             return pixbuf
 
@@ -620,7 +667,7 @@ class Picker(Gtk.Window):
         # scale to the box width (aspect preserved), so publishing Pillow's
         # output under the box key keeps the disk cache uniformly keyed.
         if Image is not None:
-            img = _pil_thumb(path, width)
+            img = _pil_thumb(path, decode_w)
             if img is not None:
                 if cachefile is not None:
                     try:
@@ -636,7 +683,7 @@ class Picker(Gtk.Window):
                         img.width, img.height, img.width * 3, None, None)
                 except Exception:
                     pass
-        return _gdk_decode(path, width)
+        return _gdk_decode(path, decode_w)
 
     def _load_worker(self):
         """Pop decode jobs and post pixbufs back to the main thread.

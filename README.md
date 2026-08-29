@@ -87,7 +87,30 @@ cp -r ~/dwm/.config/* ~/.config/     # hoặc symlink từng thư mục nếu th
 > ```
 >
 > **Cần bật** `browser.tabs.allowTransparentBrowser=true` — file `user.js` tự đặt khi Firefox
-> khởi động (userPref). Sau đó **restart Firefox**. Màu tab/toolbar sync tự động theo wallpaper
+> khởi động (userPref). Toàn bộ cấu hình cần thiết đều nằm trong `.config/firefox/user.js`
+> (đã copy ở bước 2), gồm:
+>
+> ```js
+> // 1. BẮT BUỘC - bật userChrome.css (nếu tắt, css customize không load)
+> user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+> // 2. Cho phép vẽ nền trong suốt (cho tab trong suốt xuyên wallpaper)
+> user_pref("browser.tabs.allowTransparentBrowser", true);
+> // 3. Tắt theme "Nova" mặc định (nếu để on, nó đè/bao phủ userChrome.css)
+> user_pref("browser.nova.enabled", false);
+> // 4. Hiện tùy chọn mật độ Compact trong menu Customize toolbar
+> user_pref("browser.compactmode.show", true);
+> ```
+>
+> Sau khi copy `user.js` + `userChrome.css` vào profile và **restart Firefox**:
+>
+> 1. **Kiểm tra CSS hoạt động** — mở `about:config`, xác nhận
+>    `toolkit.legacyUserProfileCustomizations.stylesheets` = `true` (nếu vẫn `false`,
+>    set thủ công rồi restart).
+> 2. **Bật Compact density** (nếu muốn giao diện gọn như thiết kế) — vào
+>    **Customize toolbar** (chuột phải thanh tab → Customize), hạ góc phải chọn
+>    **Density → Compact**. (Chỉ khi `browser.compactmode.show=true` tùy chọn này mới hiện.)
+>
+> Sau đó **restart Firefox**. Màu tab/toolbar sync tự động theo wallpaper
 > (dwmwal ghi `~/.cache/dwmwal/colors.css` mỗi lần đổi ảnh). Hiệu quả: **tab trong suốt**
 > (thấy wallpaper), toolbar + url bar + nội dung vẫn nền đục cho dễ đọc.
 

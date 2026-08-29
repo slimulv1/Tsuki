@@ -252,6 +252,31 @@ static void run_bg(const char *cmd)
 	}
 }
 
+/* Chụp toàn màn hình (gồm cả popup này). Vì netpanel grab keyboard nên
+ * scrot qua dwm không kích hoạt khi popup mở — xử lý XK_Print ngay tại
+ * đây: lưu ~/Pictures/shot-*.png + copy vào clipboard (chạy nền qua run_bg,
+ * xclip giữ clipboard như process con sống). */
+static void
+netpanel_screenshot(void)
+{
+	const char *home = getenv("HOME");
+	if (!home) home = ".";
+	time_t t = time(nullptr);
+	struct tm *tm = localtime(&t);
+	char fname[96], full[8192], q[8256], dir[8192], dirq[8256], cmd[26000];
+	snprintf(fname, sizeof fname, "shot-%04d%02d%02d-%02d%02d%02d.png",
+	         tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+	         tm->tm_hour, tm->tm_min, tm->tm_sec);
+	snprintf(dir, sizeof dir, "%s/Pictures", home);
+	snprintf(full, sizeof full, "%s/Pictures/%s", home, fname);
+	sh_quote(dirq, sizeof dirq, dir);
+	sh_quote(q, sizeof q, full);
+	snprintf(cmd, sizeof cmd,
+	         "mkdir -p -- %s && scrot -z %s && xclip -selection clipboard -t image/png -i %s",
+	         dirq, q, q);
+	run_bg(cmd);
+}
+
 /* như job_run nhưng cấp thêm stdin cho child — dùng để truyền SECRET
  * (mật khẩu wifi) vì argv nằm lộ trong /proc/<pid>/cmdline cho mọi user */
 static Job *job_run_ex(const char *cmd, void (*cb)(Job *), const char *input)
@@ -1776,7 +1801,9 @@ int main(void)
 				break;
 			case KeyPress: {
 				KeySym ks = XLookupKeysym(&ev.xkey, 0);
-				if (pw_mode) {
+				if (ks == XK_Print) {
+					netpanel_screenshot();
+				} else if (pw_mode) {
 					if (ks == XK_Escape) {
 						pw_mode = 0; pw_len = 0;
 						pw_ssid[0] = '\0'; /* hủy neo ssid — nmcli pending muộn không mở lại ô nhập */

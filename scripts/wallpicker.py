@@ -41,6 +41,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import threading
 from collections import deque
 
@@ -971,12 +972,30 @@ class Picker(Gtk.Window):
             if self.filter_text:
                 self.filter_text = self.filter_text[:-1]
                 self.rebuild_filter()
+        elif keyval == "Print":
+            self._screenshot()
         elif not mods:
             text = event.string or ""
             if text and all(ch.isprintable() and ch != "\x7f" for ch in text):
                 self.filter_text += text.lower()
                 self.rebuild_filter()
         return True  # modal: swallow everything so dwm never sees it
+
+    def _screenshot(self):
+        """Fullscreen screenshot (captures this overlay too) -> file + clipboard.
+
+        Runs the capture asynchronously so the picker stays responsive while
+        scrot grabs the (already-composited) root window.
+        """
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        d = os.path.expanduser("~/Pictures")
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError:
+            d = tempfile.gettempdir()
+        path = os.path.join(d, f"shot-{ts}.png")
+        cmd = f"scrot -z '{path}' && xclip -selection clipboard -t image/png -i '{path}'"
+        subprocess.Popen(["sh", "-c", cmd])
 
     def on_scroll(self, _win, event):
         direction = event.direction

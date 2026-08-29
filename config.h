@@ -159,7 +159,7 @@ static const Key keys[] = {
         SHCMD("scrot -z - | xclip -selection clipboard -t image/png")},
     {MODKEY,                            XK_u,       spawn,
         SHCMD("scrot -s -z - | xclip -selection clipboard -t image/png")},
-    {MODKEY,                            XK_Print,   spawn,
+    {0,                             XK_Print,   spawn,
         SHCMD("scrot -z - | xclip -selection clipboard -t image/png")},
 
     { MODKEY,                           XK_r,       spawn,          SHCMD("dmenu_run") },

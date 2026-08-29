@@ -84,11 +84,12 @@
 
 ## Screenshots
 
-| Keybinding       | Action                   |
-|------------------|--------------------------|
-| Super + Ctrl + u | Fullscreen -> clipboard  |
-| Super + u        | Area select -> clipboard |
-| Super + Print    | Fullscreen -> clipboard  |
+| Keybinding       | Action                                       |
+|------------------|----------------------------------------------|
+| Super + Ctrl + u | Fullscreen -> clipboard                      |
+| Super + u        | Area select -> clipboard                     |
+| Print            | Fullscreen -> clipboard (raw, không mở GUI)  |
+| Print (trong Super+W picker) | Fullscreen chụp cả picker -> ~/Pictures + clipboard |
 
 ## Media / brightness
 

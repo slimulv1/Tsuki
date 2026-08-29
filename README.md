@@ -70,6 +70,27 @@ Ba thứ được build local, không đụng tới root:
 cp -r ~/dwm/.config/* ~/.config/     # hoặc symlink từng thư mục nếu thích gỡ bỏ dễ
 ```
 
+> **Firefox transparent chrome (userChrome.css)** nằm riêng ở `.config/firefox/` trong repo —
+> copy vào profile Firefox đang dùng, rồi **đổi path @import** cho khớp đường dẫn máy:
+>
+> ```sh
+> # 1. Tìm profile (có chứa chuỗi .default-release, không -back-ovfs)
+> ls ~/.config/mozilla/firefox/*.default-release*/
+> # 2. Copy 2 file vào thư mục chrome/ của profile đó
+> PROFILE=~/.config/mozilla/firefox/<tên-profile>
+> mkdir -p "$PROFILE/chrome"
+> cp .config/firefox/user.js                     "$PROFILE/"
+> cp .config/firefox/chrome/userChrome.css       "$PROFILE/chrome/"
+> # 3. Trong userChrome.css, sửa @import trỏ tới màu dwmwal:
+> #    ../../../../../.cache/dwmwal/colors.css
+> #    (path tính từ chrome/, 5 cấp lên tới ~/ rồi vào .cache/dwmwal/)
+> ```
+>
+> **Cần bật** `browser.tabs.allowTransparentBrowser=true` — file `user.js` tự đặt khi Firefox
+> khởi động (userPref). Sau đó **restart Firefox**. Màu tab/toolbar sync tự động theo wallpaper
+> (dwmwal ghi `~/.cache/dwmwal/colors.css` mỗi lần đổi ảnh). Hiệu quả: **tab trong suốt**
+> (thấy wallpaper), toolbar + url bar + nội dung vẫn nền đục cho dễ đọc.
+
 ### 4. Chạy session
 
 Thêm dòng này vào `~/.xinitrc`:

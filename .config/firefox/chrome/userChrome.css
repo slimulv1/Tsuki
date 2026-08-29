@@ -425,8 +425,8 @@ tab {
 	--toolbar-bgimage: none !important;
 	--tab-active-bg-color: color-mix(in srgb, var(--color4, #057) 55%, transparent) !important;
 	--tab-inactive-bg-color: color-mix(in srgb, var(--color0, #333) 40%, transparent) !important;
-	--urlbar-not-focused-bg-color: color-mix(in srgb, var(--color0, #1c1b22) 50%, transparent) !important;
-	--urlbar-focused-bg-color: color-mix(in srgb, var(--color8, #41404c) 55%, transparent) !important;
+	--urlbar-not-focused-bg-color: var(--color0, #1c1b22) !important;
+	--urlbar-focused-bg-color: var(--color8, #41404c) !important;
 	--tab-text: var(--color15, #fff);
 	--urlbar-fg: var(--color15, #fff);
 	--tab-selected-textcolor: var(--color15, #fff) !important;
@@ -436,16 +436,20 @@ tab {
 	--lwt-tab-text: var(--color15, #fff) !important;
 }
 
+/* Khung + tab strip trong suốt (để tab thấy wallpaper) */
 #navigator-toolbox,
 #titlebar,
 #TabsToolbar,
-#PersonalToolbar,
-#nav-bar,
 .tabbrowser-tab,
-.tab-background,
-#urlbar,
-#urlbar-container {
+.tab-background {
 	background-color: transparent !important;
+	background-image: none !important;
+}
+
+/* Toolbar (địa chỉ) + bookmark bar đục */
+#nav-bar,
+#PersonalToolbar {
+	background-color: var(--color0, #1c1b22) !important;
 	background-image: none !important;
 }
 

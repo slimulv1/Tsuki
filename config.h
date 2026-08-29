@@ -93,7 +93,7 @@ static const Rule rules[] = {
     { "amescope",      nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
     { "steam_app_",    nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
     /* tag II: browsers */
-    { "Firefox",       nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
+    { "firefox",       nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
     { "Brave-origin",  nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
     { "Brave",         nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
     /* tag III: chat */
@@ -164,7 +164,7 @@ static const Key keys[] = {
 
     { MODKEY,                           XK_r,       spawn,          SHCMD("dmenu_run") },
     { MODKEY,                           XK_c,       spawn,          SHCMD("code")},
-    { MODKEY,                           XK_s,       spawn,          SHCMD("brave-origin")},
+    { MODKEY,                           XK_s,       spawn,          SHCMD("firefox")},
     { MODKEY,                           XK_g,       spawn,          SHCMD("steam")},
     { MODKEY,                           XK_Return,  spawn,          SHCMD("st")},
 

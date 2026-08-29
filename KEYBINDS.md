@@ -9,7 +9,7 @@
 | Super + Enter | st (term)                 |
 | Super + r     | dmenu_run                 |
 | Super + c     | code                      |
-| Super + s     | brave-origin              |
+| Super + s     | firefox                   |
 | Super + g     | steam                     |
 | Super + d     | discord-ptb               |
 | Super + e     | thunar                    |

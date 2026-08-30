@@ -8,14 +8,17 @@
   </g>
   <path d="M 205 74 A 168 168 0 1 0 205 402 A 132 132 0 1 1 205 74 Z" fill="#a5b4fc" stroke="#1a1b26" stroke-width="8" stroke-linecap="round"/>
   <path d="M 205 128 A 122 122 0 1 0 205 348 A 88 88 0 1 1 205 128 Z" fill="#8b9cf0" opacity="0.5"/>
-  <g stroke="#ffffff" stroke-width="6">
-    <ellipse cx="252" cy="220" rx="17" ry="20" fill="#1a1b26"/>
-    <ellipse cx="308" cy="216" rx="17" ry="20" fill="#1a1b26"/>
+  <g stroke="#ffffff" stroke-width="4">
+    <ellipse cx="250" cy="228" rx="11" ry="14" fill="#1a1b26"/>
+    <ellipse cx="306" cy="224" rx="11" ry="14" fill="#1a1b26"/>
   </g>
-  <circle cx="258" cy="212" r="5" fill="#ffffff" opacity="0.9"/>
-  <circle cx="314" cy="208" r="5" fill="#ffffff" opacity="0.9"/>
-  <path d="M 258 260 Q 280 282 304 258" stroke="#ffffff" stroke-width="9" fill="none" stroke-linecap="round"/>
-  <path d="M 258 260 Q 280 282 304 258" stroke="#1a1b26" stroke-width="5" fill="none" stroke-linecap="round"/>
-  <path d="M 229 262 a 9 7 0 0 0 18 0" fill="#f0a6c8" opacity="0.8"/>
-  <path d="M 322 258 a 9 7 0 0 0 18 0" fill="#f0a6c8" opacity="0.8"/>
+  <circle cx="253" cy="222" r="5" fill="#ffffff"/>
+  <circle cx="309" cy="218" r="5" fill="#ffffff"/>
+  <path d="M 246 234 a 2.5 2.5 0 0 1 5 0" fill="#ffffff" opacity="0.7"/>
+  <!-- omega mouth (cat smile), white with dark outline -->
+  <path d="M 264 262 Q 272 268 280 262 M 280 262 Q 288 268 296 262" stroke="#1a1b26" stroke-width="7" fill="none" stroke-linecap="round"/>
+  <path d="M 264 262 Q 272 268 280 262 M 280 262 Q 288 268 296 262" stroke="#ffffff" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <!-- round blush -->
+  <ellipse cx="228" cy="266" rx="14" ry="9" fill="#f0a6c8" opacity="0.85"/>
+  <ellipse cx="330" cy="262" rx="14" ry="9" fill="#f0a6c8" opacity="0.85"/>
 </svg>

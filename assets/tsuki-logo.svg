@@ -1,47 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>
-    <radialGradient id="moon" cx="45%" cy="40%" r="60%">
-      <stop offset="0%" stop-color="#e0e7ff"/>
-      <stop offset="55%" stop-color="#cbd5f5"/>
-      <stop offset="100%" stop-color="#a5b4e0"/>
-    </radialGradient>
-    <radialGradient id="cheek" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#f0a6c8" stop-opacity="0.55"/>
-      <stop offset="100%" stop-color="#f0a6c8" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-
-  <!-- No background (transparent for GitHub), just moon + a few floating stars -->
-  <circle cx="104" cy="120" r="4.5" fill="#ffffff" opacity="0.75"/>
-  <circle cx="430" cy="92" r="3.5" fill="#ffffff" opacity="0.6"/>
-  <circle cx="120" cy="356" r="3" fill="#ffffff" opacity="0.5"/>
-  <circle cx="412" cy="380" r="4" fill="#ffffff" opacity="0.55"/>
-  <circle cx="240" cy="84" r="3" fill="#ffffff" opacity="0.55"/>
-  <circle cx="360" cy="150" r="3" fill="#ffffff" opacity="0.6"/>
-
-  <!-- Craters -->
-  <ellipse cx="155" cy="270" rx="34" ry="26" fill="#a9b6d8" opacity="0.5"/>
-  <ellipse cx="350" cy="300" rx="28" ry="22" fill="#a9b6d8" opacity="0.45"/>
-  <ellipse cx="270" cy="360" rx="20" ry="16" fill="#a9b6d8" opacity="0.4"/>
-
-  <!-- Moon face -->
-  <circle cx="256" cy="256" r="170" fill="url(#moon)"/>
-
-  <!-- Eyes -->
-  <ellipse cx="205" cy="240" rx="14" ry="18" fill="#1a1b26"/>
-  <ellipse cx="307" cy="240" rx="14" ry="18" fill="#1a1b26"/>
-  <!-- Eye shine -->
-  <circle cx="211" cy="233" r="5" fill="#ffffff" opacity="0.85"/>
-  <circle cx="313" cy="233" r="5" fill="#ffffff" opacity="0.85"/>
-
-  <!-- Blush -->
-  <ellipse cx="180" cy="285" rx="26" ry="14" fill="url(#cheek)"/>
-  <ellipse cx="332" cy="285" rx="26" ry="14" fill="url(#cheek)"/>
-
-  <!-- Smile -->
-  <path d="M 228 288 Q 256 314 284 288" stroke="#1a1b26" stroke-width="7" fill="none" stroke-linecap="round"/>
-
-  <!-- Small ears/cat-nub on top (kemonomimi vibe) -->
-  <path d="M 236 108 L 222 60 L 258 86 Z" fill="#a5b4e0"/>
-  <path d="M 276 108 L 290 60 L 254 86 Z" fill="#a5b4e0"/>
+  <!-- stars (4-point, scattered) -->
+  <g fill="#fde047" stroke="#1a1b26" stroke-width="1.2">
+    <path d="M 96 84 l 3 8 9-1-6 7 6 7-9-1-3 8-3-8-9 1 6-7-6-7 9 1 z"/>
+    <path d="M 402 66 l 3 8 9-1-6 7 6 7-9-1-3 8-3-8-9 1 6-7-6-7 9 1 z"/>
+    <path d="M 66 296 l 2 6 7-1-5 6 5 6-7-1-2 6-2-6-7 1 5-6-5-6 7 1 z"/>
+    <path d="M 428 340 l 2 6 7-1-5 6 5 6-7-1-2 6-2-6-7 1 5-6-5-6 7 1 z"/>
+    <path d="M 150 396 l 2 5 6-1-4 5 4 5-6-1-2 5-2-5-6 1 4-5-4-5 6 1 z"/>
+  </g>
+  <!-- crescent moon body -->
+  <path d="M 205 74 A 168 168 0 1 0 205 402 A 132 132 0 1 1 205 74 Z" fill="#a5b4fc" stroke="#1a1b26" stroke-width="8" stroke-linecap="round"/>
+  <!-- inner crescent shading -->
+  <path d="M 205 128 A 122 122 0 1 0 205 348 A 88 88 0 1 1 205 128 Z" fill="#8b9cf0" opacity="0.5"/>
+  <!-- face gathered in the fat centre-right of crescent -->
+  <ellipse cx="252" cy="220" rx="11" ry="15" fill="#1a1b26"/>
+  <ellipse cx="306" cy="216" rx="11" ry="15" fill="#1a1b26"/>
+  <circle cx="256" cy="214" r="4" fill="#fff" opacity="0.85"/>
+  <circle cx="310" cy="210" r="4" fill="#fff" opacity="0.85"/>
+  <path d="M 262 262 Q 280 278 300 260" stroke="#1a1b26" stroke-width="7" fill="none" stroke-linecap="round"/>
+  <ellipse cx="228" cy="262" rx="17" ry="9" fill="#f0a6c8" opacity="0.55"/>
+  <ellipse cx="334" cy="258" rx="17" ry="9" fill="#f0a6c8" opacity="0.55"/>
 </svg>

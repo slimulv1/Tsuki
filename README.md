@@ -6,7 +6,7 @@
 </p>
 <p><br/></p>
 
-**A dwm setup that doesn't suck. Or freeze.**
+**Catch a window, moonlit and tidy.**
 
 Personal dwm rice for Arch/CachyOS — built around minimalism, performance, and a cozy night theme. *Tsuki* (月, "moon") is the wallpaper-aware window manager that keeps your desktop in sync with whatever the night (or day) looks like.
 

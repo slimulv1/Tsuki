@@ -117,6 +117,8 @@ cp -r ~/dwm/.config/* ~/.config/     # hoặc symlink từng thư mục nếu th
 > (dwmwal ghi `~/.cache/dwmwal/colors.css` mỗi lần đổi ảnh). Hiệu quả: **tab trong suốt**
 > (thấy wallpaper), toolbar + url bar + nội dung vẫn nền đục cho dễ đọc.
 
+![Firefox transparent chrome](assets/firefox.png)
+
 ### Chạy session
 
 Thêm dòng này vào `~/.xinitrc`:

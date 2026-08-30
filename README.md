@@ -23,7 +23,7 @@
 
 ```sh
 sudo pacman -S --needed base-devel libx11 libxft libxinerama fontconfig freetype \
-    harfbuzz imlib2 libjpeg-turbo libwebp feh picom dunst kitty fastfetch fish dash python \
+    harfbuzz imlib2 libjpeg-turbo libwebp feh picom xsettingsd dunst kitty fastfetch fish dash python \
     libnotify polkit-gnome fcitx5 nerd-fonts ttc-iosevka \
     starship networkmanager playerctl libpulse qrencode curl
 ```
@@ -34,6 +34,7 @@ Vài cái đáng nói:
 - `networkmanager` — cần có để icon Wi-Fi trên bar và netpanel hoạt động
 - `playerctl` + `libpulse` — media/volume qua mediacard daemon
 - `qrencode` — để netpanel hiện mật khẩu Wi-Fi dạng QR
+- `xsettingsd` — daemon XSETTINGS: để app GTK (file dialog, tooltip...) ăn theo theme font/màu tối của hệ thống, không bị "nguyên bản mặc định". Config nằm ở `.config/xsettingsd/`, chạy bằng `xsettingsd -c ~/.config/xsettingsd/xsettingsd.conf`
 - `ttc-iosevka` + `nerd-fonts` — font cho bar và terminal
 - `libjpeg-turbo` + `libwebp` — chỉ cần khi build `imgdec` (decoder ảnh cho picker, giải thích bên dưới)
 

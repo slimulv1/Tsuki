@@ -115,6 +115,43 @@ cp -r ~/dwm/.config/* ~/.config/     # hoặc symlink từng thư mục nếu th
 > (dwmwal ghi `~/.cache/dwmwal/colors.css` mỗi lần đổi ảnh). Hiệu quả: **tab trong suốt**
 > (thấy wallpaper), toolbar + url bar + nội dung vẫn nền đục cho dễ đọc.
 
+## Tridactyl — duyệt web kiểu Vim trên Firefox
+
+[Tridactyl](https://github.com/tridactyl/tridactyl) thay thế cơ chế điều khiển mặc định của Firefox bằng phím tắt kiểu Vim: cuộn, mở link, chuyển tab, tìm kiếm — không cần chạm chuột. Phần này tóm tắt hướng dẫn [từ README gốc](https://github.com/tridactyl/tridactyl#installation).
+
+### Cài đặt (Arch)
+
+```sh
+sudo pacman -S firefox-tridactyl
+```
+
+Rồi **restart Firefox _hai lần_** (bản Arch là bản "stable", thực chất là bản beta đông lạnh).
+
+Muốn bản beta mới nhất (Firefox tự cập nhật mỗi ngày) thì mở link này ngay **trong Firefox**:
+
+<https://tridactyl.cmcaine.co.uk/betas/tridactyl-latest.xpi>
+
+Nếu link không tự cài được — đổi đuôi file từ `.zip` sang `.xpi` rồi mở bằng Firefox, hoặc vào `about:addons` → tab Extensions → icon bánh răng phía trên → **Install Add-on From File...**. Bản cài từ [AMO](https://addons.mozilla.org/en-US/firefox/addon/tridactyl-vim) (stable) lưu config riêng, không dùng chung với bản pacman — cần chuyển giữa hai bản thì xem [wiki migration](https://github.com/tridactyl/tridactyl/wiki/Migration-from-stable-to-beta).
+
+### Native messenger (tính năng nâng cao)
+
+Muốn dùng mấy tính năng như **edit-in-Vim** (bấm phím trong ô text là nhảy ra editor chỉnh file tạm), cài native messenger:
+
+```sh
+# Cách 1: gói AUR
+yay -S firefox-tridactyl-native
+# Cách 2: tự cài ngay trong Tridactyl — gõ :nativeinstall rồi Enter
+```
+
+(Firefox dạng Snap/Flatpak thì native messaging cần Firefox beta `>= 106.0b6` + `flatpak permission-set webextensions tridactyl snap.firefox yes` + reboot.)
+
+### Bắt đầu nhanh
+
+- `:help` hoặc `<F1>` — trợ giúp online; `:tutor` — bài học tương tác
+- Config nằm ở `~/.tridactylrc` (như `.vimrc`), hoặc chỉnh qua lệnh `:config`
+- Mấy phím hay dùng: `j/k/h/l` — cuộn, `f` — chọn link bằng hint, `yy` — copy URL, `/` — Quick Find, `<C-f>/<C-b>` — nhảy trang, `ZZ` — đóng Firefox
+- Tridactyl **không chạy** trên trang `about:*`, `data:*`, `view-source:*` và `file:*`
+
 ### 4. Chạy session
 
 Thêm dòng này vào `~/.xinitrc`:

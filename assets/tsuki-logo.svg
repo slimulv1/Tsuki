@@ -8,17 +8,19 @@
   </g>
   <path d="M 205 74 A 168 168 0 1 0 205 402 A 132 132 0 1 1 205 74 Z" fill="#a5b4fc" stroke="#1a1b26" stroke-width="8" stroke-linecap="round"/>
   <path d="M 205 128 A 122 122 0 1 0 205 348 A 88 88 0 1 1 205 128 Z" fill="#8b9cf0" opacity="0.5"/>
-  <g stroke="#ffffff" stroke-width="4">
-    <ellipse cx="250" cy="228" rx="11" ry="14" fill="#1a1b26"/>
-    <ellipse cx="306" cy="224" rx="11" ry="14" fill="#1a1b26"/>
+  <!-- happy squint eyes: arcs with dark+white stroke (^ ^) -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M 238 236 Q 250 222 262 236" stroke="#ffffff" stroke-width="8"/>
+    <path d="M 296 232 Q 308 218 320 232" stroke="#ffffff" stroke-width="8"/>
+    <path d="M 238 236 Q 250 222 262 236" stroke="#1a1b26" stroke-width="4.5"/>
+    <path d="M 296 232 Q 308 218 320 232" stroke="#1a1b26" stroke-width="4.5"/>
   </g>
-  <circle cx="253" cy="222" r="5" fill="#ffffff"/>
-  <circle cx="309" cy="218" r="5" fill="#ffffff"/>
-  <path d="M 246 234 a 2.5 2.5 0 0 1 5 0" fill="#ffffff" opacity="0.7"/>
-  <!-- omega mouth (cat smile), white with dark outline -->
-  <path d="M 264 262 Q 272 268 280 262 M 280 262 Q 288 268 296 262" stroke="#1a1b26" stroke-width="7" fill="none" stroke-linecap="round"/>
-  <path d="M 264 262 Q 272 268 280 262 M 280 262 Q 288 268 296 262" stroke="#ffffff" stroke-width="4" fill="none" stroke-linecap="round"/>
-  <!-- round blush -->
-  <ellipse cx="228" cy="266" rx="14" ry="9" fill="#f0a6c8" opacity="0.85"/>
-  <ellipse cx="330" cy="262" rx="14" ry="9" fill="#f0a6c8" opacity="0.85"/>
+  <!-- gentle open smile -->
+  <path d="M 264 262 Q 280 274 296 262 Z" fill="#1a1b26" stroke="#ffffff" stroke-width="0"/>
+  <path d="M 264 262 Q 280 276 296 262" fill="#1a1b26"/>
+  <path d="M 264 262 Q 280 276 296 262" fill="#a3192e"/>
+  <path d="M 266 265 Q 280 274 294 265" fill="#f6a5b8" opacity="0.65"/>
+  <!-- blush -->
+  <ellipse cx="226" cy="262" rx="15" ry="10" fill="#f0a6c8" opacity="0.85"/>
+  <ellipse cx="334" cy="258" rx="15" ry="10" fill="#f0a6c8" opacity="0.85"/>
 </svg>

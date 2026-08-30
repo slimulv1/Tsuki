@@ -17,3 +17,6 @@ scripts/.wallpaper
 *.swp
 *~
 .DS_Store
+
+# local tool state (cortexkit / not dotfiles)
+.cortexkit/

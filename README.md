@@ -1,8 +1,20 @@
-# dwm-dotfiles
+# Tsuki
 
-![preview](assets/preview.png)
+<p><br/></p>
+<p align="center">
+  <img src="assets/tsuki-logo.png" alt="Tsuki Logo" style="width: 192px" />
+</p>
+<p><br/></p>
 
-Đây là bộ rice mình dùng hàng ngày trên Arch/CachyOS: dwm làm WM, slstatus làm statusbar, cùng một đống script tự viết để mọi thứ ăn khớp với nhau.
+**A dwm setup that doesn't suck. Or freeze.**
+
+Personal dwm rice for Arch/CachyOS — built around minimalism, performance, and a cozy night theme. *Tsuki* (月, "moon") is the wallpaper-aware window manager that keeps your desktop in sync with whatever the night (or day) looks like.
+
+## Preview
+
+| <img src="assets/preview.png" alt="preview" /> |
+|---|
+| <img src="assets/wallpicker.png" alt="wallpaper picker" /> | <img src="assets/netpanel.png" alt="wifi panel" /> |
 
 ## Trong repo có gì
 
@@ -17,9 +29,24 @@
 | `scripts/` | Toàn bộ "phần mềm giữa": khởi động session, đổi wallpaper + sinh màu, picker ảnh nền, decoder ảnh viết bằng C, wrapper chơi game... |
 | `.config/` | Config cho kitty, dunst, fastfetch, fish + starship, picom |
 
-## Cài đặt
+## Quick Start
 
-### 1. Dependencies (Arch)
+```sh
+git clone https://github.com/slimulv1/Tsuki.git ~/dwm
+cd ~/dwm
+
+sudo make clean install                            # window manager
+cd st      && sudo make clean install && cd ..     # terminal
+cd slock   && sudo make clean install && cd ..     # lock screen
+cd dmenu   && sudo make clean install && cd ..     # launcher
+cd slstatus && sudo make install                   # statusbar
+cd netpanel && make && cd ..                       # wifi panel (chỉ cần build)
+
+# decoder ảnh cho wallpaper picker
+make -f scripts/Makefile.imgdec
+```
+
+### Dependencies (Arch)
 
 ```sh
 sudo pacman -S --needed base-devel libx11 libxft libxinerama fontconfig freetype \
@@ -40,32 +67,7 @@ Vài cái đáng nói:
 
 Định chơi game trên máy này thì cài thêm: `gamemode gamescope mangohud`.
 
-### 2. Build & install
-
-Clone thẳng vào `~/dwm` nhé — các script và keybind đều hard-code đường dẫn đó:
-
-```sh
-git clone https://github.com/slimulv1/dwm-dotfiles.git ~/dwm
-cd ~/dwm
-
-sudo make clean install                            # window manager
-cd st      && sudo make clean install && cd ..     # terminal
-cd slock   && sudo make clean install && cd ..     # lock screen
-cd dmenu   && sudo make clean install && cd ..     # launcher
-cd slstatus && sudo make install                   # statusbar
-cd netpanel && make && cd ..                       # wifi panel (chỉ cần build)
-
-# decoder ảnh cho wallpaper picker
-make -f scripts/Makefile.imgdec
-```
-
-Ba thứ được build local, không đụng tới root:
-
-- **slstatus** chạy bằng binary trong repo (`~/dwm/slstatus/slstatus`) để khi đổi wallpaper, script tự rebuild và đổi màu nó mà không cần sudo.
-- **netpanel** cũng vậy — `netpanel.sh` gọi thẳng binary `~/dwm/netpanel/netpanel`, nên chỉ cần `make` là đủ.
-- **imgdec** là binary nhỏ nằm ngay trong `scripts/`. Thiếu nó thì picker vẫn chạy bình thường (tự chuyển sang Pillow/gdk-pixbuf), chỉ là decode chậm hơn một chút thôi.
-
-### 3. Dotfiles
+### Dotfiles
 
 ```sh
 cp -r ~/dwm/.config/* ~/.config/     # hoặc symlink từng thư mục nếu thích gỡ bỏ dễ
@@ -115,45 +117,7 @@ cp -r ~/dwm/.config/* ~/.config/     # hoặc symlink từng thư mục nếu th
 > (dwmwal ghi `~/.cache/dwmwal/colors.css` mỗi lần đổi ảnh). Hiệu quả: **tab trong suốt**
 > (thấy wallpaper), toolbar + url bar + nội dung vẫn nền đục cho dễ đọc.
 
-## Tridactyl — duyệt web kiểu Vim trên Firefox
-
-[Tridactyl](https://github.com/tridactyl/tridactyl) thay thế cơ chế điều khiển mặc định của Firefox bằng phím tắt kiểu Vim: cuộn, mở link, chuyển tab, tìm kiếm — không cần chạm chuột. Phần này tóm tắt hướng dẫn [từ README gốc](https://github.com/tridactyl/tridactyl#installation).
-
-### Cài đặt (Arch)
-
-```sh
-sudo pacman -S firefox-tridactyl
-```
-
-Rồi **restart Firefox _hai lần_** (bản Arch là bản "stable", thực chất là bản beta đông lạnh).
-
-Muốn bản beta mới nhất (Firefox tự cập nhật mỗi ngày) thì mở link này ngay **trong Firefox**:
-
-<https://tridactyl.cmcaine.co.uk/betas/tridactyl-latest.xpi>
-
-Nếu link không tự cài được — đổi đuôi file từ `.zip` sang `.xpi` rồi mở bằng Firefox, hoặc vào `about:addons` → tab Extensions → icon bánh răng phía trên → **Install Add-on From File...**. Bản cài từ [AMO](https://addons.mozilla.org/en-US/firefox/addon/tridactyl-vim) (stable) lưu config riêng, không dùng chung với bản pacman — cần chuyển giữa hai bản thì xem [wiki migration](https://github.com/tridactyl/tridactyl/wiki/Migration-from-stable-to-beta).
-
-### Native messenger (tính năng nâng cao)
-
-Muốn dùng mấy tính năng như **edit-in-Vim** (bấm phím trong ô text là nhảy ra editor chỉnh file tạm), cài native messenger:
-
-```sh
-# Cách 1: gói AUR
-yay -S firefox-tridactyl-native
-# Cách 2: tự cài ngay trong Tridactyl — gõ :nativeinstall rồi Enter
-```
-
-(Firefox dạng Snap/Flatpak thì native messaging cần Firefox beta `>= 106.0b6` + `flatpak permission-set webextensions tridactyl snap.firefox yes` + reboot.)
-
-### Bắt đầu nhanh
-
-- `:help` hoặc `<F1>` — trợ giúp online; `:tutor` — bài học tương tác
-- Config nằm ở `~/.tridactylrc` (như `.vimrc`), hoặc chỉnh qua lệnh `:config`
-- Mấy phím hay dùng: `j/k/h/l` — cuộn, `f` — chọn link bằng hint, `yy` — copy URL, `/` — Quick Find, `<C-f>/<C-b>` — nhảy trang, `ZZ` — đóng Firefox
-- Tridactyl **không chạy** trên trang `about:*`, `data:*`, `view-source:*` và `file:*`
-- **Cẩm nang đầy đủ (tiếng Việt):** xem [tridactyl-guide.md](tridactyl-guide.md) — mở/đóng & chuyển tab, tìm kiếm thông tin, quickmark & marks, containers, tuỳ biến… soạn từ toàn bộ tutorial chính thức
-
-### 4. Chạy session
+### Chạy session
 
 Thêm dòng này vào `~/.xinitrc`:
 
@@ -163,7 +127,9 @@ exec ~/dwm/scripts/run.sh
 
 Lần bấm máy tiếp theo `run.sh` sẽ lo từ A-Z: nạp Xresources, trả lại wallpaper cũ, chạy picom, polkit, fcitx5, slstatus (chết tự sống lại), updater và mediacard, rồi cuối cùng là dwm.
 
-## Đổi wallpaper (và toàn bộ theme)
+## Tích hợp nổi bật
+
+### 🌙 Đổi wallpaper (và toàn bộ theme) — *trái tim của Tsuki*
 
 Bấm **Super + w**: một picker fullscreen kiểu filmstrip mở lên — ảnh đang dùng phóng to ở giữa, mấy ảnh còn lại xếp thành dải mỏng hai bên, trượt mượt theo lúc bạn duyệt.
 
@@ -177,13 +143,13 @@ Chọn xong thì `dwmwal.sh` lo phần còn lại:
 
 Ảnh nền được decode bởi `imgdec` — một chương trình C nhỏ dùng libjpeg-turbo (decode JPEG đúng kích thước cần, không giải mã thừa pixel nào) kèm hỗ trợ WebP. Thumbnail được lưu cache ở `~/.cache/dwmwal/picker/`, nên lần thứ hai mở picker gần như là tức thì.
 
-## Netpanel — quản lý Wi-Fi từ status bar
+### 📶 Netpanel — quản lý Wi-Fi từ status bar
 
 Bấm icon mạng trên bar: panel Wi-Fi hiện ra bên phải, cho chọn mạng, xem thông số kết nối, chia sẻ mật khẩu bằng QR, đổi DNS, chạy speed test — tất cả viết bằng C + libXft, không cần `nm-connection-editor` hay app nào khác.
 
 ![Netpanel](assets/netpanel.png)
 
-## Chơi game
+### 🎮 Chơi game
 
 picom đã cấu hình sẵn để nhường đường cho game fullscreen (unredirect), nên phần lớn trường hợp cứ chơi thẳng, mượt. Game nào chạy borderless-window hoặc muốn upscale/ổn định thêm thì dùng wrapper:
 
@@ -193,6 +159,44 @@ picom đã cấu hình sẵn để nhường đường cho game fullscreen (unre
 ~/dwm/scripts/game.sh -g -W 2560x1440 <lệnh>   # gamescope + ép độ phân giải ảo
 GAME_MANGO=1 ~/dwm/scripts/game.sh <lệnh>      # hiện overlay FPS của mangohud
 ```
+
+### Tridactyl — duyệt web kiểu Vim trên Firefox
+
+[Tridactyl](https://github.com/tridactyl/tridactyl) thay thế cơ chế điều khiển mặc định của Firefox bằng phím tắt kiểu Vim: cuộn, mở link, chuyển tab, tìm kiếm — không cần chạm chuột. Phần này tóm tắt hướng dẫn [từ README gốc](https://github.com/tridactyl/tridactyl#installation).
+
+#### Cài đặt (Arch)
+
+```sh
+sudo pacman -S firefox-tridactyl
+```
+
+Rồi **restart Firefox _hai lần_** (bản Arch là bản "stable", thực chất là bản beta đông lạnh).
+
+Muốn bản beta mới nhất (Firefox tự cập nhật mỗi ngày) thì mở link này ngay **trong Firefox**:
+
+<https://tridactyl.cmcaine.co.uk/betas/tridactyl-latest.xpi>
+
+Nếu link không tự cài được — đổi đuôi file từ `.zip` sang `.xpi` rồi mở bằng Firefox, hoặc vào `about:addons` → tab Extensions → icon bánh răng phía trên → **Install Add-on From File...**. Bản cài từ [AMO](https://addons.mozilla.org/en-US/firefox/addon/tridactyl-vim) (stable) lưu config riêng, không dùng chung với bản pacman — cần chuyển giữa hai bản thì xem [wiki migration](https://github.com/tridactyl/tridactyl/wiki/Migration-from-stable-to-beta).
+
+#### Native messenger (tính năng nâng cao)
+
+Muốn dùng mấy tính năng như **edit-in-Vim** (bấm phím trong ô text là nhảy ra editor chỉnh file tạm), cài native messenger:
+
+```sh
+# Cách 1: gói AUR
+yay -S firefox-tridactyl-native
+# Cách 2: tự cài ngay trong Tridactyl — gõ :nativeinstall rồi Enter
+```
+
+(Firefox dạng Snap/Flatpak thì native messaging cần Firefox beta `>= 106.0b6` + `flatpak permission-set webextensions tridactyl snap.firefox yes` + reboot.)
+
+#### Bắt đầu nhanh
+
+- `:help` hoặc `<F1>` — trợ giúp online; `:tutor` — bài học tương tác
+- Config nằm ở `~/.tridactylrc` (như `.vimrc`), hoặc chỉnh qua lệnh `:config`
+- Mấy phím hay dùng: `j/k/h/l` — cuộn, `f` — chọn link bằng hint, `yy` — copy URL, `/` — Quick Find, `<C-f>/<C-b>` — nhảy trang, `ZZ` — đóng Firefox
+- Tridactyl **không chạy** trên trang `about:*`, `data:*`, `view-source:*` và `file:*`
+- **Cẩm nang đầy đủ (tiếng Việt):** xem [tridactyl-guide.md](tridactyl-guide.md) — mở/đóng & chuyển tab, tìm kiếm thông tin, quickmark & marks, containers, tuỳ biến… soạn từ toàn bộ tutorial chính thức
 
 ## Keybinds
 
@@ -213,6 +217,41 @@ GAME_MANGO=1 ~/dwm/scripts/game.sh <lệnh>      # hiện overlay FPS của mang
 | `Super + Del` | Khóa máy (slock) |
 | `Super + q` | Đóng cửa sổ |
 
+## Patches
+
+| Patch | Mô tả |
+|---|---|
+| **vanitygaps** | Gaps giữa cửa sổ + `Super+Ctrl+u/t` toggle |
+| **movestack** | `Super+Shift+j/k` đổi chỗ cửa sổ |
+| **shiftview** | Cuộn qua tag dễ dàng |
+| **cfactor** | `Super+Shift+h/l/o` đổi tỉ lệ cửa sổ |
+| **pertag** | Mỗi tag nhớ layout, gaps, và floating riêng |
+| **centered** | Layout centered master |
+| **fakefullscreen** | Fullscreen thật sự cho game |
+| **tabmode** | `Super+Ctrl+w` bật chế độ tab (tabbar) |
+
+### st
+
+| Feature | Mô tả |
+|---|---|
+| **kitty graphics** | Xem ảnh ngay trong terminal |
+| **imlib2** | Decode ảnh nhanh (SHM) |
+| **scrollback** | Cuộn lại lịch sử |
+| **alpha** | Độ mờ nền |
+
+### slstatus
+
+| Feature | Mô tả |
+|---|---|
+| **status2d** | màu `^C#[HEX]^`/`^d^` trong status bar |
+| **dwmwal sync** | Tự đổi màu theo wallpaper |
+
 ## License
 
 MIT — xem [LICENSE](LICENSE). slstatus/st/slock/dmenu là của [suckless.org](https://suckless.org).
+
+---
+
+### Thêm
+
+Muốn mở rộng setup? Xem thêm các repo config khác nếu có.

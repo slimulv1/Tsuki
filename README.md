@@ -151,6 +151,7 @@ yay -S firefox-tridactyl-native
 - Config nằm ở `~/.tridactylrc` (như `.vimrc`), hoặc chỉnh qua lệnh `:config`
 - Mấy phím hay dùng: `j/k/h/l` — cuộn, `f` — chọn link bằng hint, `yy` — copy URL, `/` — Quick Find, `<C-f>/<C-b>` — nhảy trang, `ZZ` — đóng Firefox
 - Tridactyl **không chạy** trên trang `about:*`, `data:*`, `view-source:*` và `file:*`
+- **Cẩm nang đầy đủ (tiếng Việt):** xem [tridactyl-guide.md](tridactyl-guide.md) — mở/đóng & chuyển tab, tìm kiếm thông tin, quickmark & marks, containers, tuỳ biến… soạn từ toàn bộ tutorial chính thức
 
 ### 4. Chạy session
 

@@ -2,7 +2,7 @@
 
 <p><br/></p>
 <p align="center">
-  <img src="assets/tsuki-logo.png" alt="Tsuki Logo" style="width: 192px; height: 192px; object-fit: contain; background: #ffffff; border-radius: 50%; padding: 16px" />
+  <img src="assets/tsuki-logo.png" alt="Tsuki Logo" style="width: 192px; height: 192px; object-fit: contain" />
 </p>
 <p><br/></p>
 

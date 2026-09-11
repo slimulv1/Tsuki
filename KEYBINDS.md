@@ -11,6 +11,7 @@
 | Super + c     | code                      |
 | Super + s     | firefox                   |
 | Super + g     | steam                     |
+| Super + p     | EPOS GSX 300 GUI          |
 | Super + d     | discord-ptb               |
 | Super + e     | thunar                    |
 | Super + z     | zalo                      |

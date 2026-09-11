@@ -3,7 +3,7 @@
 #include <X11/XF86keysym.h>
 
 /* appearance */
-static const unsigned int borderpx  = 1;        /* border pixel of windows */
+static const unsigned int borderpx  = 2;        /* border pixel of windows */
 static const int refreshrate          = 120;     /* refresh rate (per second) for client move/resize */
 static const unsigned int default_border = 3;   /* to switch back to default border after dynamic border resizing via keybinds */
 static const unsigned int snap      = 32;       /* snap pixel */
@@ -167,6 +167,7 @@ static const Key keys[] = {
     { MODKEY,                           XK_s,       spawn,          SHCMD("firefox")},
     { MODKEY,                           XK_g,       spawn,          SHCMD("steam")},
     { MODKEY,                           XK_Return,  spawn,          SHCMD("st")},
+    { MODKEY,                           XK_p,       spawn,          SHCMD("epos-gsx300-gui")},
 
     // toggle stuff
     { MODKEY,                           XK_b,       togglebar,      {0} },

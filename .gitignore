@@ -20,3 +20,6 @@ scripts/.wallpaper
 
 # local tool state (cortexkit / not dotfiles)
 .cortexkit/
+
+# fuzz-status.sh build artifacts
+.fuzz/

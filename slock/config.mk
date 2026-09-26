@@ -16,8 +16,8 @@ LIBS = -L/usr/lib -lc -lcrypt -L${X11LIB} -lX11 -lXext -lXrandr
 
 # flags
 CPPFLAGS = -DVERSION=\"${VERSION}\" -D_DEFAULT_SOURCE -DHAVE_SHADOW_H
-CFLAGS = -std=c23 -Wall -Wextra -Werror -Os ${INCS} ${CPPFLAGS}
-LDFLAGS = -s ${LIBS}
+CFLAGS = -std=c23 -Wall -Wextra -Werror -Os -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE ${INCS} ${CPPFLAGS}
+LDFLAGS = -pie -z relro -z now -s ${LIBS}
 COMPATSRC = explicit_bzero.c
 
 # On OpenBSD and Darwin remove -lcrypt from LIBS

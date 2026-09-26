@@ -12,7 +12,7 @@ netpanel.o: netpanel.c config.h
 	$(CC) -c $(CFLAGS) $(INCS) -o $@ netpanel.c
 
 netpanel: netpanel.o
-	$(CC) -o $@ netpanel.o $(LIBS)
+	$(CC) -o $@ netpanel.o $(LDFLAGS) $(LIBS)
 
 clean:
 	rm -f netpanel netpanel.o config.h

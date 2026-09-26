@@ -43,6 +43,25 @@ static unsigned int borderalpha     = OPAQUE;
 // theme
 #include "themes/wal.h"
 
+/* Tính năng đã được hợp nhất thẳng vào dwm.c (vd pertag dùng
+ * m->pertag->mfacts, vanitygaps dùng selmon->gapp*). Các #if <MACRO> còn
+ * sót lại từ bản vá gốc nên im lặng evaluate thành 0 — khai báo tường minh
+ * ở đây để -Wundef sạch và ý định rõ ràng, thay vì trông như cấu hình. */
+#define PERTAG_PATCH 0
+#define VANITYGAPS_PATCH 0
+#define FAKEFULLSCREEN_PATCH 0
+#define FAKEFULLSCREEN_CLIENT_PATCH 0
+#define FLEXTILE_DELUXE_LAYOUT 0
+#define CENTEREDMASTER_LAYOUT 0
+#define CENTEREDFLOATINGMASTER_LAYOUT 0
+#define BSTACK_LAYOUT 0
+#define BSTACKHORIZ_LAYOUT 0
+#define MONOCLE_LAYOUT 0
+#define GRIDMODE_LAYOUT 0
+#define HORIZGRID_LAYOUT 0
+#define GAPLESSGRID_LAYOUT 0
+#define NROWGRID_LAYOUT 0
+
 static const char *colors[][3]      = {
     /*                     fg       bg      border */
     [SchemeNorm]       = { gray3,   black,  gray2 },

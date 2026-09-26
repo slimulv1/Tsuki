@@ -35,16 +35,23 @@ Personal dwm rice for Arch/CachyOS — built around minimalism, performance, and
 git clone https://github.com/slimulv1/Tsuki.git ~/dwm
 cd ~/dwm
 
-sudo make clean install                            # window manager
-cd st      && sudo make clean install && cd ..     # terminal
-cd slock   && sudo make clean install && cd ..     # lock screen
-cd dmenu   && sudo make clean install && cd ..     # launcher
+sudo make install                               # window manager
+cd st      && sudo make clean install && cd ..  # terminal
+cd slock   && sudo make clean install && cd ..  # lock screen
+cd dmenu   && sudo make clean install && cd ..  # launcher
 cd slstatus && sudo make install                   # statusbar
 cd netpanel && make && cd ..                       # wifi panel (chỉ cần build)
 
 # decoder ảnh cho wallpaper picker
 make -f scripts/Makefile.imgdec
 ```
+
+> **`config.h` là cấu hình thật của máy, đừng để `make clean` xoá nó.**
+> Nó được git track và là nơi duy nhất chứa các tùy chỉnh riêng:
+> `#include "themes/wal.h"` (đồng bộ màu theo wallpaper), tag, keybind, rules,
+> `fonts`, `baralpha`, `cmd[]`. Lệnh `make clean` **không** xoá `config.h` nữa.
+> Nếu cần dựng bản sạch từ đầu (mất cấu hình), dùng `make distclean` — hoặc
+> chép `config.h` ra chỗ khác trước.
 
 ### Dependencies (Arch)
 

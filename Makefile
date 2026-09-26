@@ -19,8 +19,16 @@ config.h:
 dwm: ${OBJ}
 	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
+# KHÔNG xoá config.h ở đây: config.h là cấu hình thật của máy (được git track),
+# nằm cùng các tùy chỉnh chỉ có ở đó — themes/wal.h, tag, keybind, rules.
+# Xoá nó rồi để rule `config.h:` cp lại từ config.def.h sẽ âm thầm thay thế
+# toàn bộ cấu hình bằng bản default. Muốn dựng bản sạch từ đầu thì dùng
+# `make distclean` (xoá cả config.h) — hoặc chép tay config.h ra trước.
 clean:
-	rm -f dwm ${OBJ} dwm-${VERSION}.tar.gz config.h
+	rm -f dwm ${OBJ} dwm-${VERSION}.tar.gz
+
+distclean: clean
+	rm -f config.h
 
 dist: clean
 	mkdir -p dwm-${VERSION}

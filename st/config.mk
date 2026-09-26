@@ -27,8 +27,8 @@ LIBS = -L$(X11LIB) -lm -lrt -lX11 -lutil -lXft -lXrender \
 
 # flags
 STCPPFLAGS = -DVERSION=\"$(VERSION)\" -D_XOPEN_SOURCE=600
-STCFLAGS = -std=c23 $(INCS) $(STCPPFLAGS) $(CPPFLAGS) $(CFLAGS)
-STLDFLAGS = $(LIBS) $(LDFLAGS)
+STCFLAGS = -std=c23 -Wall -Wextra -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE $(INCS) $(STCPPFLAGS) $(CPPFLAGS) $(CFLAGS)
+STLDFLAGS = -pie -z relro -z now $(LIBS) $(LDFLAGS)
 
 # OpenBSD:
 #CPPFLAGS = -DVERSION=\"$(VERSION)\" -D_XOPEN_SOURCE=600 -D_BSD_SOURCE

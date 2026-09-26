@@ -26,9 +26,16 @@ INCS = -I${X11INC} -I${FREETYPEINC}
 LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lXrender -lImlib2
 
 # flags
+# -Wundef: bắt lỗi gõ sai tên macro trong #if (dễ xảy ra với các patch
+#   để lại #if <PATCH>_PATCH trong dwm.c / vanitygaps.c).
+# ARCHFLAGS: -march=native cho hiệu năng tối đa trên máy đang chạy, nhưng
+#   binary cài vào ${PREFIX}/bin sẽ SIGILL nếu mang sang máy CPU khác.
+#   Ghi đè được:  make ARCHFLAGS="-march=x86-64-v3"
+#   (CFLAGS ghi đè bằng dấu `=` nên ARCHFLAGS phải là `?=`)
+ARCHFLAGS ?= -march=native
 CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_XOPEN_SOURCE=700L -DVERSION=\"${VERSION}\" ${XINERAMAFLAGS}
 #CFLAGS   = -g -std=c23 -Wall -Wextra -O0 ${INCS} ${CPPFLAGS}
-CFLAGS   = -std=c23 -Wall -Wextra -Werror -O3 -march=native -flto -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat=2 -Werror=format-security -fPIE ${INCS} ${CPPFLAGS}
+CFLAGS   = -std=c23 -Wall -Wextra -Werror -Wundef -O3 ${ARCHFLAGS} -flto -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat=2 -Werror=format-security -fPIE ${INCS} ${CPPFLAGS}
 LDFLAGS  = -pie -z relro -z now -flto ${LIBS}
 
 # Solaris

@@ -4,5 +4,6 @@ PKG_CONFIG = pkg-config
 INCS = $(shell $(PKG_CONFIG) --cflags x11 xft xrender xext fontconfig)
 LIBS = $(shell $(PKG_CONFIG) --libs   x11 xft xrender xext fontconfig) -lm
 
-CFLAGS = -Os -Wall -Wextra -Werror -std=c23 -D_DEFAULT_SOURCE
+CFLAGS = -Os -Wall -Wextra -Werror -std=c23 -D_DEFAULT_SOURCE -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE
+LDFLAGS = -pie -z relro -z now
 CC ?= cc

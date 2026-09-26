@@ -109,7 +109,14 @@
 			return -1;
 		}
 		if (strcmp(ifr.ifr_name, interface) != 0) {
-			strcpy(ifr.ifr_name, interface);
+			/* ifr.ifr_name chỉ dài IFNAMSIZ (16) — strcpy không giới
+			 * hạn, interface lấy từ argv của slstatus nên tràn stack
+			 * nếu dài hơn 15 ký tự. */
+			if (snprintf(ifr.ifr_name, sizeof ifr.ifr_name, "%s", interface)
+			    >= (int)sizeof ifr.ifr_name) {
+				warn("interface name too long:");
+				return -1;
+			}
 			if (ioctl(ifsock, SIOCGIFINDEX, &ifr) != 0) {
 				warn("ioctl 'SIOCGIFINDEX':");
 				return -1;
@@ -331,9 +338,11 @@
 
 		strlcpy(ireq.i_name, interface, sizeof(ireq.i_name));
 		if (ioctl(sock, SIOCG80211, &ireq) < 0) {
-			snprintf(warn_buf,  sizeof(warn_buf),
-					"ioctl: 'SIOCG80211': %d", type);
-			warn(warn_buf);
+			snprintf(warn_buf, sizeof(warn_buf),
+					"ioctl: 'SIOCG80211': %zu", *len);
+			/* xem giải thích ở uptime.c: không bao giờ truyền
+			 * chuỗi runtime làm format string (CWE-134/FIO34-C) */
+			warn("%s", warn_buf);
 			return 0;
 		}
 

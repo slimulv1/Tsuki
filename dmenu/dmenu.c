@@ -262,7 +262,10 @@ match(void)
 	size_t len, textsize;
 	struct item *item, *lprefix, *lsubstr, *prefixend, *substrend;
 
-	strcpy(buf, text);
+	/* buf và text cùng kích thước và text luôn NUL-terminated trong phạm vi
+	 * (mọi lần ghi đều bound-check ở control()), nên strcpy ở đây là an
+	 * toàn — nhưng memcpy nói rõ ý định hơn và đáp ứng CERT C STR31-C. */
+	memcpy(buf, text, strlen(text) + 1);
 	/* separate input text into tokens to be matched individually */
 	for (s = strtok(buf, " "); s; tokv[tokc - 1] = s, s = strtok(nullptr, " "))
 		if (++tokc > tokn && !(tokv = realloc(tokv, ++tokn * sizeof *tokv)))

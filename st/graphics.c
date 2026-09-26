@@ -380,7 +380,7 @@ static Image *gr_find_image(uint32_t image_id);
 static void gr_get_frame_filename(ImageFrame *frame, char *out, size_t max_len);
 static void gr_delete_image(Image *img);
 static void gr_erase_placement(ImagePlacement *placement);
-static void gr_check_limits();
+static void gr_check_limits(void);
 static void gr_try_restore_imagefile(ImageFrame *frame);
 static char *gr_base64dec(const char *src, size_t *size);
 static void sanitize_str(char *str, size_t max_len);
@@ -462,7 +462,7 @@ static int64_t gr_timediff_ms(const struct timespec *end,
 }
 
 /// Returns the current time in milliseconds since the initialization.
-static Milliseconds gr_now_ms() {
+static Milliseconds gr_now_ms(void) {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	return gr_timediff_ms(&now, &initialization_time);
@@ -845,7 +845,7 @@ static void gr_delete_placement(ImagePlacement *placement) {
 }
 
 /// Deletes all images and clears `images`.
-static void gr_delete_all_images() {
+static void gr_delete_all_images(void) {
 	Image *img = nullptr;
 	kh_foreach_value(images, img, {
 		gr_delete_image_keep_id(img);
@@ -1181,7 +1181,7 @@ typedef kvec_t(ImagePlacement *) ImagePlacementVec;
 typedef kvec_t(ImageFrame *) ImageFrameVec;
 
 /// Returns an array of pointers to all images sorted by atime.
-static ImageVec gr_get_images_sorted_by_atime() {
+static ImageVec gr_get_images_sorted_by_atime(void) {
 	ImageVec vec;
 	kv_init(vec);
 	if (kh_size(images) == 0)
@@ -1194,7 +1194,7 @@ static ImageVec gr_get_images_sorted_by_atime() {
 }
 
 /// Returns an array of pointers to all placements sorted by atime.
-static ImagePlacementVec gr_get_placements_sorted_by_atime() {
+static ImagePlacementVec gr_get_placements_sorted_by_atime(void) {
 	ImagePlacementVec vec;
 	kv_init(vec);
 	if (total_placement_count == 0)
@@ -1213,7 +1213,7 @@ static ImagePlacementVec gr_get_placements_sorted_by_atime() {
 }
 
 /// Returns an array of pointers to all frames sorted by atime.
-static ImageFrameVec gr_get_frames_sorted_by_atime() {
+static ImageFrameVec gr_get_frames_sorted_by_atime(void) {
 	ImageFrameVec frames;
 	kv_init(frames);
 	Image *img = nullptr;
@@ -1357,7 +1357,7 @@ static inline unsigned apply_tolerance(unsigned limit) {
 }
 
 /// Checks RAM and disk cache limits and deletes/unloads some images.
-static void gr_check_limits() {
+static void gr_check_limits(void) {
 	Milliseconds now = gr_now_ms();
 	ImageVec images_sorted = {0};
 	ImagePlacementVec placements_sorted = {0};
@@ -1432,7 +1432,7 @@ static void gr_check_limits() {
 }
 
 /// Unloads all images by user request.
-void gr_unload_images_to_reduce_ram() {
+void gr_unload_images_to_reduce_ram(void) {
 	Image *img = nullptr;
 	ImagePlacement *placement = nullptr;
 	kh_foreach_value(images, img, {
@@ -1590,11 +1590,43 @@ static int gr_load_raw_pixel_data_compressed(DATA32 *data, FILE *file,
 #undef COMPRESSED_CHUNK_SIZE
 #undef DECOMPRESSED_CHUNK_SIZE
 
+/// Kích thước ảnh đến từ escape sequence (`s=`, `v=`) nên KHÔNG tin cậy:
+/// số trong trường hợp này là giá trị `long` thô từ `strtol`, chỉ được kiểm
+/// tra "parse được", rồi cất vào `int` (giá trị vượt INT_MAX bị cắt).
+///
+/// Hệ quả nếu không validate: `data_pix_width * data_pix_height` là phép nhân
+/// `int * int` — tràn signed int là undefined behavior (CERT C INT32-C), tạo
+/// `total_pixels` sai, khiến kiểm tra kích thước bên dưới bị lừa, và
+/// `imlib_create_image()` nhận kích thước âm/huge.
+static int gr_valid_pix_dim(int w, int h) {
+	if (w <= 0 || h <= 0)
+		return 0;
+	/* tổng số pixel phải nằm gọn trong size_t */
+	if ((size_t)w > SIZE_MAX / (size_t)h)
+		return 0;
+	/* chặn sớm: 4 byte/pixel không được vượt ngân sách RAM tối đa */
+	if ((size_t)w * (size_t)h >
+	    (size_t)graphics_max_single_image_ram_size / 4)
+		return 0;
+	return 1;
+}
+
 /// Load the image from a file containing raw pixel data (RGB or RGBA), the data
 /// may be compressed.
 static Imlib_Image gr_load_raw_pixel_data(ImageFrame *frame,
 					  const char *filename) {
-	size_t total_pixels = frame->data_pix_width * frame->data_pix_height;
+	size_t total_pixels;
+
+	if (!gr_valid_pix_dim(frame->data_pix_width, frame->data_pix_height)) {
+		fprintf(stderr,
+			"error: image %u frame %u has invalid dimensions %dx%d\n",
+			frame->image->image_id, frame->index,
+			frame->data_pix_width, frame->data_pix_height);
+		return nullptr;
+	}
+	/* nhân trong size_t, không nhân int (xem gr_valid_pix_dim) */
+	total_pixels = (size_t)frame->data_pix_width *
+		       (size_t)frame->data_pix_height;
 	if (total_pixels * 4 > graphics_max_single_image_ram_size) {
 		fprintf(stderr,
 			"error: image %u frame %u is too big too load: %zu > %u\n",
@@ -2092,7 +2124,7 @@ Pixmap gr_load_pixmap(ImagePlacement *placement, int frameidx, int cw, int ch) {
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Creates a temporary directory.
-static int gr_create_cache_dir() {
+static int gr_create_cache_dir(void) {
 	strncpy(cache_dir, graphics_cache_dir_template, sizeof(cache_dir));
 	if (!mkdtemp(cache_dir)) {
 		fprintf(stderr,
@@ -2106,7 +2138,7 @@ static int gr_create_cache_dir() {
 }
 
 /// Checks whether `tmp_dir` exists and recreates it if it doesn't.
-static void gr_make_sure_tmpdir_exists() {
+static void gr_make_sure_tmpdir_exists(void) {
 	struct stat st;
 	if (stat(cache_dir, &st) == 0 && S_ISDIR(st.st_mode))
 		return;
@@ -2148,7 +2180,7 @@ void gr_init(Display *disp, Visual *vis, Colormap cm) {
 }
 
 /// Deinitialize the graphics module.
-void gr_deinit() {
+void gr_deinit(void) {
 	// Remove the cache dir.
 	remove(cache_dir);
 	kv_destroy(next_redraw_times);
@@ -2317,7 +2349,7 @@ static void gr_dump_placement_pixmaps(FILE *file, ImagePlacement *placement,
 }
 
 /// Dumps the internal state (images and placements) to stderr.
-void gr_dump_state() {
+void gr_dump_state(void) {
 	FILE *file = stderr;
 	int ind = 0;
 	fprintf_ind(file, ind, "======= Graphics module state dump =======\n");
@@ -3182,7 +3214,7 @@ static void gr_schedule_image_redraw(Image *img) {
 
 /// Closes the file currently being uploaded. This doesn't necessarily finish
 /// the upload since the file may be reopened.
-static void gr_close_current_upload_file() {
+static void gr_close_current_upload_file(void) {
 	Image *img = gr_find_image(current_upload_image_id);
 	ImageFrame *frame = gr_get_frame(img, current_upload_frame_index);
 	gr_close_disk_cache_file(frame);
@@ -3329,8 +3361,13 @@ static void gr_append_data(ImageFrame *frame, const char *payload, int more) {
 		return;
 	}
 
-	// Append the data to the file.
+	// Append the data to the file, then free the decoded chunk on EVERY
+	// path. The failure branch used to `return` without freeing, and it is
+	// reachable once per `more` chunk — a client streaming an upload into a
+	// full/unwritable cache dir could grow the terminal's memory without
+	// bound (CWE-401, DoS reachable from untrusted terminal input).
 	if (!gr_append_raw_data_to_file(frame, data, data_size)) {
+		free(data);
 		frame->status = STATUS_UPLOADING_ERROR;
 		frame->uploading_failure = ERROR_CANNOT_OPEN_CACHED_FILE;
 		if (!more)
@@ -3436,6 +3473,18 @@ static ImageFrame *gr_new_image_or_frame_from_command(GraphicsCommand *cmd) {
 	frame->blend = !cmd->replace_instead_of_blending;
 	frame->data_pix_width = cmd->frame_pix_width;
 	frame->data_pix_height = cmd->frame_pix_height;
+	/* Chặn ngay ở nơi gán: mọi phép nhân sau đó (expected_size bên dưới,
+	 * gr_load_raw_pixel_data) đều dựa trên giả định w/h dương và không
+	 * tràn. Trả về nullptr để bỏ frame như các lỗi tham số khác. */
+	if (frame->data_pix_width && frame->data_pix_height &&
+	    !gr_valid_pix_dim(frame->data_pix_width, frame->data_pix_height)) {
+		gr_reporterror_cmd(cmd, "EINVAL: image dimensions %dx%d are "
+					"invalid or too large",
+				   frame->data_pix_width,
+				   frame->data_pix_height);
+		free(frame);
+		return nullptr;
+	}
 	if (cmd->action == 'f') {
 		frame->x = cmd->frame_dst_pix_x;
 		frame->y = cmd->frame_dst_pix_y;
@@ -3444,10 +3493,12 @@ static ImageFrame *gr_new_image_or_frame_from_command(GraphicsCommand *cmd) {
 	// width and height if the format is 24 or 32 and there is no
 	// compression. This is required for the shared memory transmission.
 	if (!frame->expected_size && !frame->compression &&
-	    (frame->format == 24 || frame->format == 32)) {
-		frame->expected_size = frame->data_pix_width *
-				       frame->data_pix_height *
-				       (frame->format / 8);
+	    (frame->format == 24 || frame->format == 32) &&
+	    gr_valid_pix_dim(frame->data_pix_width, frame->data_pix_height)) {
+		/* nhân trong size_t: int * int * int là UB khi ảnh lớn */
+		frame->expected_size = (size_t)frame->data_pix_width *
+				       (size_t)frame->data_pix_height *
+				       (size_t)(frame->format / 8);
 	}
 	// We save the quietness information in the frame because for direct
 	// transmission subsequent transmission command won't contain this info.

@@ -768,6 +768,10 @@ selnotify(XEvent *e)
 			 * Deleting the property is the transfer start signal.
 			 */
 			XDeleteProperty(xw.dpy, xw.win, (int)property);
+			/* `data` là buffer XGetWindowProperty cấp; nhánh này
+			 * `continue` nên không đi tới XFree(data) bên dưới ->
+			 * rò mỗi lần paste dùng giao thức INCR (CWE-401). */
+			XFree(data);
 			continue;
 		}
 
@@ -2132,7 +2136,7 @@ void xstartimagedraw(int *dirty, int rows) {
 }
 
 /* Draw all queued image cells. */
-void xfinishimagedraw() {
+void xfinishimagedraw(void) {
 	gr_finish_drawing(xw.buf);
 }
 
@@ -2462,7 +2466,7 @@ resize(XEvent *e)
 }
 
 int tinsync(uint);
-int ttyread_pending();
+int ttyread_pending(void);
 
 void
 run(void)

@@ -68,6 +68,12 @@ enum buf_origin { ORIG_TJ, ORIG_WEBP, ORIG_STB };
 /* hard bounds for a single decoded box dimension (sane for any wallpaper) */
 static_assert(INT_MAX > 65536);
 
+/* Trần số pixel cho một lần decode. Kích thước ảnh do file quyết định và
+ * có thể đạt 65535x65535 (giới hạn JPEG) = 17 GB ở RGBA — malloc sẽ "thành
+ * công" nhờ overcommit rồi OOM-kill lúc ghi dữ liệu. Thumbnail không cần
+ * quá 64 MPx (8192x8192), nên chặn sớm ở đây. */
+#define MAX_DECODE_PIXELS (64u * 1024u * 1024u)
+
 [[noreturn]] static void
 die(const char *msg)
 {
@@ -157,6 +163,13 @@ decode_jpeg(const unsigned char *buf, size_t len, long want_w, long want_h,
 		die(tjGetErrorStr());
 	sf = tjGetScalingFactors(&n);
 	best = nullptr;
+	/* Hai ràng buộc cùng lúc:
+	 *  (a) kết quả phải >= ngưỡng yêu cầu (không decode nhỏ hơn thumbnail),
+	 *  (b) kết quả phải nằm trong ngân sách bộ nhớ.
+	 * Duyệt TỪ chất lượng CAO xuống thấp (1/2 -> 1/4 -> 1/8) và giữ ứng viên
+	 * đầu tiên thỏa cả hai: đó là scale lớn nhất vẫn an toàn, nên ảnh
+	 * thường giữ nguyên chất lượng như trước, còn ảnh khổng lồ tự động
+	 * rớt xuống 1/4 rồi 1/8 thay vì bị từ chối. */
 	for (i = 0; i < n; ++i) {
 		int sw_i, sh_i;
 		/* only the 1/{2,4,8} downscale set is worth decoding into */
@@ -165,14 +178,33 @@ decode_jpeg(const unsigned char *buf, size_t len, long want_w, long want_h,
 			continue;
 		sw_i = scaled_dim(iw, &sf[i]);
 		sh_i = scaled_dim(ih, &sf[i]);
-		if (sw_i >= want_w && sh_i >= want_h &&
-		    (!best || sf[i].denom < best->denom)) /* largest fraction */
-			best = &sf[i];
+		if (sw_i < want_w || sh_i < want_h)
+			continue;               /* nhỏ hơn thumbnail -> loại */
+		if (sw_i < 1 || sh_i < 1 ||
+		    (size_t)sw_i * (size_t)sh_i > MAX_DECODE_PIXELS)
+			continue;               /* vượt ngân sách -> thử giảm mạnh hơn */
+		best = &sf[i];                 /* denom tăng dần: lần này là tốt nhất */
+		break;
 	}
-	if (!best)
-		best = &TJUNSCALED;
-	sw = scaled_dim(iw, best);
-	sh = scaled_dim(ih, best);
+	if (!best) {
+		/* Không ứng viên nào thỏa. Chọn 1/8 (giảm mạnh nhất) nếu nó vẫn
+		 * vượt ngân sách -> từ chối thay vì cấp phát hàng chục GB. */
+		const tjscalingfactor *smallest = nullptr;
+		for (i = 0; i < n; ++i)
+			if (sf[i].num == 1 && sf[i].denom == 8)
+				smallest = &sf[i];
+		if (!smallest)
+			die("no usable jpeg scale factor");
+		sw = scaled_dim(iw, smallest);
+		sh = scaled_dim(ih, smallest);
+		if (sw < 1 || sh < 1 ||
+		    (size_t)sw * (size_t)sh > MAX_DECODE_PIXELS)
+			die("jpeg dimensions too large");
+		best = smallest;
+	} else {
+		sw = scaled_dim(iw, best);
+		sh = scaled_dim(ih, best);
+	}
 	px = malloc((size_t)sw * (size_t)sh * CH);
 	if (!px)
 		die("out of memory");

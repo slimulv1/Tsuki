@@ -687,9 +687,20 @@ getsel(void)
 		 * st.
 		 * FIXME: Fix the computer world.
 		 */
-		if ((y < sel.ne.y || lastx >= linelen) &&
-		    (!(last->mode & ATTR_WRAP) || sel.type == SEL_RECTANGULAR))
-			*ptr++ = '\n';
+		/* Nếu cả khoảng chọn trên dòng này đều là khoảng trắng, vòng lặp
+		 * trên trượt `last` về gp-1. Đoạn cũ từng đọc last->mode -> đọc
+		 * TRƯỚC khối cấp phát của TLINE(y) (mỗi dòng là một malloc riêng),
+		 * tức heap-buffer-underflow (CWE-125). Chạy được bằng thao tác
+		 * thường: chọn chuột qua 2+ dòng trống rồi Ctrl+Shift+C.
+		 * has_last chặn đúng trường hợp đó, giữ nguyên hành vi copy. */
+		{
+			int has_last = (last >= gp);
+
+			if ((y < sel.ne.y || lastx >= linelen) &&
+			    (!has_last || !(last->mode & ATTR_WRAP) ||
+			     sel.type == SEL_RECTANGULAR))
+				*ptr++ = '\n';
+		}
 	}
 	*ptr = 0;
 	return str;
@@ -877,7 +888,7 @@ ttynew(const char *line, char *cmd, const char *out, char **args)
 }
 
 static int twrite_aborted = 0;
-int ttyread_pending() { return twrite_aborted; }
+int ttyread_pending(void) { return twrite_aborted; }
 
 size_t
 ttyread(void)

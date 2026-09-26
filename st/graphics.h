@@ -6,7 +6,7 @@
 /// Initialize the graphics module.
 void gr_init(Display *disp, Visual *vis, Colormap cm);
 /// Deinitialize the graphics module.
-void gr_deinit();
+void gr_deinit(void);
 
 /// Add an image rectangle to a list if rectangles to draw. This function may
 /// actually draw some rectangles, or it may wait till more rectangles are
@@ -49,10 +49,10 @@ void gr_show_image_info(uint32_t image_id, uint32_t placement_id,
 			char *st_executable);
 
 /// Dumps the internal state (images and placements) to stderr.
-void gr_dump_state();
+void gr_dump_state(void);
 
 /// Unloads images to reduce RAM usage.
-void gr_unload_images_to_reduce_ram();
+void gr_unload_images_to_reduce_ram(void);
 
 /// Executes `callback` for each image cell. The callback should return 1 if it
 /// changed the glyph. This function is implemented in `st.c`.

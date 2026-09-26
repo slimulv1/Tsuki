@@ -56,6 +56,21 @@ static void sh_quote(char *dst, size_t dn, const char *s)
 	dst[j] = '\0';
 }
 
+/* Xoá sạch buffer chứa bí mật (mật khẩu Wi-Fi) — C23 memset_explicit()
+ * đảm bảo compiler không tối ưu mất lệnh xoá. Fallback cho libc cũ:
+ * volatile pointer để không bị coi là lệnh chết. */
+static void wipe_secure(void *p, size_t n)
+{
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L \
+    && defined(__STDC_VERSION_STDLIB_H__)
+	memset_explicit(p, 0, n);
+#else
+	volatile unsigned char *v = (volatile unsigned char *)p;
+	while (n--)
+		*v++ = 0;
+#endif
+}
+
 static int g_need_redraw = 1;
 
 /* đọc từng dòng từ con trỏ bộ đệm */
@@ -194,7 +209,12 @@ static void get_ip_gw(const char *ifn)
 	FILE *f = fopen("/proc/net/route", "r");
 	if (!f) return;
 	char line[256];
-	fgets(line, sizeof(line), f); /* header */
+	/* -D_FORTIFY_SOURCE=2 gắn warn_unused_result vào fgets: phải kiểm tra.
+	 * Nếu đọc header hỏng (EOF) thì coi như không có route nào. */
+	if (!fgets(line, sizeof(line), f)) { /* header */
+		fclose(f);
+		return;
+	}
 	while (fgets(line, sizeof(line), f)) {
 		char name[64];
 		unsigned dest = 0, gate = 0;
@@ -587,12 +607,15 @@ static void apply_dns(int idx)
 	if (idx == DNS_NCUSTOM) { ask_custom_dns(); return; }
 	const char *dns = dns_providers[idx].dns ? dns_providers[idx].dns : "";
 	const char *ignore = idx == 0 ? "no" : "yes";
-	char qc[300], cmd[900];
+	char qc[300], qd[200], cmd[900];
 	sh_quote(qc, sizeof(qc), ni.conn_name);
+	/* dns lấy từ bảng preset (tĩnh) nhưng vẫn quote để không phụ thuộc
+	 * giả định "bảng này luôn sạch" — cùng kiểu với conn_name/ip. */
+	sh_quote(qd, sizeof(qd), dns);
 	snprintf(cmd, sizeof(cmd),
-	         "nmcli con mod %s ipv4.ignore-auto-dns %s ipv4.dns '%s' && nmcli con up %s"
+	         "nmcli con mod %s ipv4.ignore-auto-dns %s ipv4.dns %s && nmcli con up %s"
 	         " && resolvectl flush-caches",
-	         qc, ignore, dns, qc);
+	         qc, ignore, qd, qc);
 	ni.dns_applying = 1;
 	g_need_redraw = 1;
 	job_run(cmd, cb_dns_done);
@@ -602,11 +625,15 @@ static void cb_custom_dns(Job *j)
 {
 	char ip[128];
 	if (sscanf(j->out, "%127s", ip) == 1 && strchr(ip, '.') && ni.conn_name[0]) {
-		char qc[300], cmd[900];
+		char qc[300], qi[160], cmd[900];
 		sh_quote(qc, sizeof(qc), ni.conn_name);
+		/* ip từ dmenu phải đi qua sh_quote: bọc trong '...' như trước là
+		 * không escape được dấu ' nên "1.1.1.1';reboot;'" sẽ thoát ra
+		 * ngoài và chạy lệnh tuỳ ý (shell injection). */
+		sh_quote(qi, sizeof(qi), ip);
 		snprintf(cmd, sizeof(cmd),
-		         "nmcli con mod %s ipv4.ignore-auto-dns yes ipv4.dns '%s' && nmcli con up %s",
-		         qc, ip, qc);
+		         "nmcli con mod %s ipv4.ignore-auto-dns yes ipv4.dns %s && nmcli con up %s",
+		         qc, qi, qc);
 		run_bg(cmd);
 		kick_status();
 	}
@@ -649,7 +676,7 @@ static void open_pw_prompt(const char *ssid, int known_before)
 	pw_known_before = known_before;
 	pw_mode = 1;
 	pw_len = 0;
-	pw_buf[0] = '\0';
+	wipe_secure(pw_buf, sizeof pw_buf);
 	pw_row = -1; /* index cũ là stale — để cb_status resolve lại theo ssid */
 	g_need_redraw = 1;
 }
@@ -678,7 +705,7 @@ static void cb_connect_done(Job *j)
 		         (int)sizeof(conn_msg) - 14, pw_ssid);
 		pw_mode = 0;
 		pw_len = 0;
-		pw_buf[0] = '\0';
+		wipe_secure(pw_buf, sizeof pw_buf);
 	}
 	conn_row = pw_row;
 	conn_msg_until = time(nullptr) + 4;
@@ -803,7 +830,7 @@ static void do_connect(const char *ssid, int secured)
 	for (int i = 0; i < ni.other_n; i++)
 		if (!strcmp(ni.other[i], ssid)) { pw_row = i; break; }
 	pw_len = 0;
-	pw_buf[0] = '\0';
+	wipe_secure(pw_buf, sizeof pw_buf);
 	g_need_redraw = 1;
 }
 
@@ -1585,8 +1612,13 @@ int main(void)
 		close(lockfd);
 		return 0; /* đã có panel mở */
 	}
-	ftruncate(lockfd, 0);
-	dprintf(lockfd, "%d", (int)getpid());
+	/* file lock: dùng làm "panel đã mở" — truncate trước khi ghi pid của mình.
+	 * ftruncate/dprintf có warn_unused_result với _FORTIFY_SOURCE=2, nên
+	 * kiểm tra để không âm thầm dựa vào lock hỏng. */
+	if (ftruncate(lockfd, 0) == -1 || dprintf(lockfd, "%d", (int)getpid()) == -1) {
+		fprintf(stderr, "netpanel: cannot write lock file: %s\n", strerror(errno));
+		exit(1);
+	}
 
 	dpy = XOpenDisplay(nullptr);
 	if (!dpy) die("cannot open display");

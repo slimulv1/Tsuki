@@ -23,7 +23,11 @@ uptime(const char *unused)
 
 	if (clock_gettime(UPTIME_FLAG, &uptime) < 0) {
 		snprintf(warn_buf, sizeof(warn_buf), "clock_gettime %d", UPTIME_FLAG);
-		warn(warn_buf);
+		/* %s chứ không phải warn(warn_buf): truyền chuỗi dựng lúc runtime
+		 * làm format string là mẫu CWE-134 — hiện warn_buf chưa chứa '%'
+		 * nên chưa nổ, nhưng chỉ cần thêm %s vào snprintf ở trên là
+		 * vfprintf sẽ đọc varargs không tồn tại (CERT C FIO34-C). */
+		warn("%s", warn_buf);
 		return nullptr;
 	}
 

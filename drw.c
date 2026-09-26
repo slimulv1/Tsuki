@@ -362,7 +362,8 @@ drw_text(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int lp
 	if (!invalid_width && render)
 		invalid_width = drw_fontset_getwidth(drw, invalid);
 	while (1) {
-		ew = ellipsis_len = utf8err = utf8charlen = utf8strlen = 0;
+		/* utf8charlen luôn được gán ở vòng kế tiếp trước khi đọc */
+		ew = ellipsis_len = utf8err = utf8strlen = 0;
 		utf8str = text;
 		nextfont = nullptr;
 		while (*text) {

@@ -262,6 +262,9 @@ static void drawbars(void);
 static int drawstatusbar(Monitor *m, int bh, char *text);
 static void drawtab(Monitor *m);
 static void drawtabs(void);
+/* đặt = 1 trong cleanup(): chặn focus()/arrange() vẽ lại lúc đang teardown.
+ * file-static vì chỉ dwm.c dùng — tránh extern trong .c (MISRA 8.8). */
+static int shutting_down;
 static void enternotify(XEvent *e);
 static void expose(XEvent *e);
 static void focus(Client *c);
@@ -273,7 +276,7 @@ static Atom getatomprop(Client *c, Atom prop);
 static Picture geticonprop(Window w, unsigned int *icw, unsigned int *ich);
 static int getrootptr(int *x, int *y);
 static long getstate(Window w);
-static unsigned int getsystraywidth();
+static unsigned int getsystraywidth(void);
 static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
@@ -577,6 +580,8 @@ int applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact) {
 }
 
 void arrange(Monitor *m) {
+  if (shutting_down)
+    return; /* teardown: unmanage() gọi arrange(), nhưng bar/pixmap đã bị phá */
   if (m)
     showhide(m->stack);
   else
@@ -727,12 +732,18 @@ void checkotherwm(void) {
   XSync(dpy, False);
 }
 
+/* Trong lúc dọn dẹp (atexit), unmanage() gọi focus()/arrange()/drawbars()/
+ * drawtabs() — tức chạy lại toàn bộ engine layout sau khi client đã free().
+ * Cờ shutting_down (khai báo ở đầu file) để các đường đó biết mà no-op,
+ * tránh vẽ lên X resources đang bị phá huỷ. */
+
 void cleanup(void) {
   Arg a = {.ui = ~0};
   Layout foo = {"", nullptr};
   Monitor *m;
   size_t i;
 
+  shutting_down = 1;
   view(&a);
   selmon->lt[selmon->sellt] = &foo;
   for (m = mons; m; m = m->next)
@@ -741,7 +752,10 @@ void cleanup(void) {
   XUngrabKey(dpy, AnyKey, AnyModifier, root);
   while (mons)
     cleanupmon(mons);
-  if (showsystray) {
+  /* guard giống 12 chỗ khác trong file (797, 3212, 3398…): chỉ showsystray
+   * không đủ — systray có thể chưa được cấp phát nếu khởi động thất bại giữa
+   * chừng, và khi đó systray->win là deref NULL. */
+  if (showsystray && systray) {
     Client *i, *n;
     XUnmapWindow(dpy, systray->win);
     XDestroyWindow(dpy, systray->win);
@@ -1069,11 +1083,72 @@ Monitor *dirtomon(int dir) {
   return m;
 }
 
+/* Đọc số nguyên của escape status2d mà KHÔNG BAO GIỜ đọc quá byte NUL.
+ *
+ * Status text lấy từ WM_NAME của root window — mọi X client trong session đều
+ * ghi được property đó, nên đây là input không tin cậy. Bản gốc dùng
+ * atoi(text + ++i) rồi while (text[++i] …): khi escape bị cắt cụt ở cuối
+ * chuỗi, ++i bước qua byte NUL và quét tiếp vào heap ngoài vùng cấp phát
+ * (CWE-125), rồi text[i]='\0' ở drawstatusbar() ghi đè ngoài vùng nhớ
+ * (CWE-787).
+ *
+ * `i` là chỉ số của ký tự mã ('f' hoặc 'r'); số bắt đầu ở i+1. Hàm không
+ * sửa `i` — giữ đúng convention của bản gốc (vòng lặp ngoài tự ++i để đi
+ * qua chữ số). `end` trỏ tới byte NUL hợp lệ cuối cùng của buffer.
+ * Trả về 0 nếu không có chữ số hợp lệ. */
+#define STATUS_NUM_MAX 65536 /* trần cho toạ độ/bề rộng tính bằng pixel */
+
+static int status_atoi(const char *text, int i, const char *end, int *out) {
+  int v = 0, neg = 0, any = 0;
+  const char *s = text + i + 1;
+
+  if (s > end)
+    return 0;
+  if (s < end && (*s == '-' || *s == '+')) {
+    neg = (*s == '-');
+    s++;
+  }
+  for (; s <= end && *s >= '0' && *s <= '9'; s++) {
+    int d = *s - '0';
+    /* chống tràn int, đồng thời trần ở STATUS_NUM_MAX để phía gọi cộng
+     * vào w/x không tràn signed int (UB) */
+    if (v > (STATUS_NUM_MAX - d) / 10)
+      v = STATUS_NUM_MAX;
+    else
+      v = v * 10 + d;
+    any = 1;
+  }
+  if (!any)
+    return 0;
+  *out = neg ? -v : v;
+  return 1;
+}
+
+/* Escape màu của status2d luôn có dạng ^c#RRGGBB^ / ^b#RRGGBB^.
+ *
+ * drw_clr_create() gọi die() nếu XftColorAllocName() thất bại, nên một
+ * chuỗi status chứa ^c theo sau bởi 7 ký tự bất kỳ (ví dụ ^c#zzzzzz^)
+ * sẽ giết chính tiến trình dwm. Status text lấy từ WM_NAME của root window
+ * — mọi X client trong session đều ghi được — nên đây là DoS ai cũng làm
+ * được. Vì vậy chỉ chấp nhận đúng dạng #RRGGBB, còn lại thì bỏ qua escape. */
+static int status_is_hexcolor(const char *s) {
+  if (s[0] != '#')
+    return 0;
+  for (int k = 1; k < 7; k++) {
+    char c = s[k];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+          (c >= 'A' && c <= 'F')))
+      return 0;
+  }
+  return 1;
+}
+
 int drawstatusbar(Monitor *m, int bh, char *stext) {
   int ret, i, w, x, len;
   short isCode = 0;
   char *text;
   char *p;
+  char *end;   /* trỏ tới byte NUL — mọi bước ++i phải dừng ở đây */
   static char *statusbuf = nullptr; /* reused scratch buffer: no malloc/free per draw */
   static size_t statusbuf_len = 0;
   static int fg_is_temp = 0, bg_is_temp = 0;
@@ -1089,23 +1164,30 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
   p = statusbuf;
   text = p;
   memcpy(p, stext, len);
+  end = p + len - 1; /* memcpy đã đảm bảo p[len-1] == '\0' */
   m->neticon_x0 = m->neticon_x1 = -1; /* hit-test icon internet: reset mỗi lần vẽ */
 
   /* compute width of the status text */
   w = 0;
   i = -1;
-  while (text[++i]) {
+  while (text + ++i <= end && text[i]) {
     if (text[i] == '^') {
       if (!isCode) {
+        int fw;
         isCode = 1;
         text[i] = '\0';
         w += TEXTW(text) - lrpad;
         text[i] = '^';
-        if (text[++i] == 'f')
-          w += atoi(text + ++i);
+        if (text + ++i <= end && text[i] == 'f' && status_atoi(text, i, end, &fw))
+          w += fw;
       } else {
         isCode = 0;
-        text = text + i + 1;
+        /* text[i]=='^' nghĩa là i < lastidx, nên +1 vẫn trong đệm; clamp
+         * để invariant "text ∈ [p, end]" không phụ thuộc lập luận */
+        if (i < (int)(end - text))
+          text = text + i + 1;
+        else
+          text = end;
         i = -1;
       }
     }
@@ -1118,8 +1200,8 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
 
   w += horizpadbar;
   if(floatbar){
-    ret = x = m->ww - m->gappov * 2 - borderpx - w;
-    x = m->ww - m->gappov * 2 - borderpx - w - getsystraywidth();
+    ret = m->ww - m->gappov * 2 - borderpx - w;
+    x = ret - getsystraywidth();
   }else{
     ret = x = m->ww -  borderpx - w;
     x = m->ww - w - getsystraywidth();
@@ -1138,10 +1220,8 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
 
   /* process status text */
   i = -1;
-  while (text[++i]) {
+  while (text + ++i <= end && text[i]) {
     if (text[i] == '^' && !isCode) {
-      isCode = 1;
-
       text[i] = '\0';
       w = TEXTW(text) - lrpad;
       drw_text(drw, x, borderpx + vertpadbar / 2, w, bh - vertpadbar, 0, text,
@@ -1149,8 +1229,17 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
 
       x += w;
 
-      /* process code */
-      while (text[++i] && text[i] != '^') {
+      /* lastidx = chỉ số hợp lệ lớn nhất (trỏ tới byte NUL). Thân vòng lặp
+       * có thể nhảy i (i += 7 ở nhánh ^c/^b, quét tìm ',' ở nhánh ^r) nên
+       * i có thể vượt lastidx; vòng for lại ++i thêm nữa trước khi thoát ->
+       * i = lastidx + 1. Nếu không clamp, `text = text + i` bên dưới chỉ ra
+       * NGOÀI buffer và TEXTW(text) đọc quá đệm. Đây là lớp lỗi thứ hai,
+       * cùng họ với lỗi ++i bước qua NUL, và chỉ lộ ra khi chạy binary thật
+       * dưới ASan. */
+      {
+        const int lastidx = (int)(end - text);
+
+        for (i++; i < lastidx && text[i] != '^'; i++) {
         if (text[i] == 'c' && text + i + 8 <= p + len) {
           char buf[8];
           memcpy(buf, (char *)text + i + 1, 7);
@@ -1165,19 +1254,23 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
             else
               m->neticon_x1 = x;
           }
-          if (fg_is_temp)
-            drw_clr_free(drw, &drw->scheme[ColFg]);
-          drw_clr_create(drw, &drw->scheme[ColFg], buf, OPAQUE);
-          fg_is_temp = 1;
+          if (status_is_hexcolor(buf)) {
+            if (fg_is_temp)
+              drw_clr_free(drw, &drw->scheme[ColFg]);
+            drw_clr_create(drw, &drw->scheme[ColFg], buf, OPAQUE);
+            fg_is_temp = 1;
+          }
           i += 7;
         } else if (text[i] == 'b' && text + i + 8 <= p + len) {
           char buf[8];
           memcpy(buf, (char *)text + i + 1, 7);
           buf[7] = '\0';
-          if (bg_is_temp)
-            drw_clr_free(drw, &drw->scheme[ColBg]);
-          drw_clr_create(drw, &drw->scheme[ColBg], buf, baralpha);
-          bg_is_temp = 1;
+          if (status_is_hexcolor(buf)) {
+            if (bg_is_temp)
+              drw_clr_free(drw, &drw->scheme[ColBg]);
+            drw_clr_create(drw, &drw->scheme[ColBg], buf, baralpha);
+            bg_is_temp = 1;
+          }
           i += 7;
         } else if (text[i] == 'd') {
           if (fg_is_temp)
@@ -1188,27 +1281,46 @@ int drawstatusbar(Monitor *m, int bh, char *stext) {
           drw->scheme[ColFg] = scheme[SchemeNorm][ColFg];
           drw->scheme[ColBg] = scheme[SchemeNorm][ColBg];
         } else if (text[i] == 'r') {
-          int rx = atoi(text + ++i);
-          while (text[++i] && text[i] != ',')
-            ;
-          int ry = atoi(text + ++i);
-          while (text[++i] && text[i] != ',')
-            ;
-          int rw = atoi(text + ++i);
-          while (text[++i] && text[i] != ',')
-            ;
-          int rh = atoi(text + ++i);
+          /* ^r<rx>,<ry>,<rw>,<rh>^ — giữ convention bản gốc: `i` luôn trỏ
+           * vào ký tự NGAY TRƯỚC số (code char hoặc dấu phẩy). Escape hỏng
+           * (thiếu trường, thiếu dấu phẩy, hết chuỗi) -> bỏ qua, không vẽ. */
+          int v[4] = {0, 0, 0, 0};
+          int k, ok = 1;
 
-          drw_rect(drw, rx + x, ry + borderpx + vertpadbar / 2, rw, rh, 1, 0);
+          for (k = 0; k < 4; k++) {
+            if (!status_atoi(text, i, end, &v[k])) {
+              ok = 0;
+              break;
+            }
+            if (k == 3)
+              break;
+            i++;
+            while (text + i < end && text[i] != ',')
+              i++;
+            if (text + i >= end || text[i] != ',') {
+              ok = 0;
+              break;
+            }
+          }
+          if (ok)
+            drw_rect(drw, v[0] + x, v[1] + borderpx + vertpadbar / 2, v[2],
+                     v[3], 1, 0);
         } else if (text[i] == 'f') {
-          x += atoi(text + ++i);
+          int fw;
+          if (status_atoi(text, i, end, &fw))
+            x += fw;
         }
-      }
+        }
 
-      if (text[i] == '^')
-        text = text + i + 1;
-      else
-        text = text + i; /* end of string: point at the null terminator */
+        /* clamp: i không bao giờ vượt byte NUL -> `text` luôn nằm trong
+         * [p, end] và TEXTW(text) cuối hàm không đọc quá đệm */
+        if (i > lastidx)
+          i = lastidx;
+        if (i < lastidx && text[i] == '^')
+          text = text + i + 1;
+        else
+          text = text + i; /* end of string: point at the null terminator */
+      }
       i = -1;
       isCode = 0;
     }
@@ -1384,9 +1496,9 @@ void dragmfact(const Arg *arg[[maybe_unused]]) {
 #if HORIZGRID_LAYOUT
       || m->lt[m->sellt]->arrange == &horizgrid
 #endif // HORIZGRID_LAYOUT
-#if GAPPLESSGRID_LAYOUT
+#if GAPLESSGRID_LAYOUT
       || m->lt[m->sellt]->arrange == &gaplessgrid
-#endif // GAPPLESSGRID_LAYOUT
+#endif // GAPLESSGRID_LAYOUT
 #if NROWGRID_LAYOUT
       || m->lt[m->sellt]->arrange == &nrowgrid
 #endif // NROWGRID_LAYOUT
@@ -1691,9 +1803,11 @@ drawtabs(void) {
 
 static int
 cmpint(const void *p1, const void *p2) {
-  /* proper qsort comparator (negative/zero/positive); the former
-     "a > b" form violated the C contract, never returning negative */
-  return *((const int *)p1) - *((const int *)p2);
+  /* Dạng trừ `*a - *b` là UB khi a=INT_MAX, b=INT_MIN (CERT C INT32-C).
+   * An toàn ở đây chỉ nhờ invariant tab_widths ∈ [0,250] sinh ở drawtab() —
+   * một giả định không được ghi ra. So sánh rồi trừ không bao giờ tránh. */
+  int a = *((const int *)p1), b = *((const int *)p2);
+  return (a > b) - (a < b);
 }
 
 
@@ -1707,7 +1821,7 @@ drawtab(Monitor *m) {
 	int buttons_w = 0;
 	int sorted_label_widths[MAXTABS];
 	int tot_width = 0;
-	int maxsize = bh;
+	int maxsize;		/* cả hai nhánh dưới đều gán */
 	int x = 0;
 	int w = 0;
   int mw = floatbar?m->ww - 2 * m->gappov:m->ww;
@@ -1727,17 +1841,27 @@ drawtab(Monitor *m) {
 	}
 
         if(tot_width > mw){ //not enough space to display the labels, they need to be truncated
-	  memcpy(sorted_label_widths, m->tab_widths, sizeof(int) * m->ntabs);
-	  qsort(sorted_label_widths, m->ntabs, sizeof(int), cmpint);
-	  for(i = 0; i < m->ntabs; ++i){
-          if(tot_width + (m->ntabs - i) * sorted_label_widths[i] > mw)
-	      break;
-	    tot_width += sorted_label_widths[i];
+	  /* ntabs có thể = 0: drawtab() được gọi vô điều kiện (drawtabs/restack/
+	   * property-notify) cho MỌI monitor, kể cả monitor không có cửa sổ
+	   * hiển thị. Nếu 3 nút tab không vừa (mw nhỏ hoặc âm) thì tot_width >
+	   * mw xảy ra với ntabs == 0 -> (m->ntabs - i) = 0 -> SIGFPE, dwm chết. */
+	  if (m->ntabs > 0) {
+	    memcpy(sorted_label_widths, m->tab_widths, sizeof(int) * m->ntabs);
+	    qsort(sorted_label_widths, m->ntabs, sizeof(int), cmpint);
+	    for(i = 0; i < m->ntabs; ++i){
+              if(tot_width + (m->ntabs - i) * sorted_label_widths[i] > mw){
+	        break;
+	      }
+	      tot_width += sorted_label_widths[i];
+	    }
+	    maxsize = (i < m->ntabs) ? (mw - tot_width) / (m->ntabs - i) : 0;
+	    if (maxsize < 0)
+	      maxsize = 0;
+	  } else {
+	    maxsize = 0;
 	  }
-          maxsize = (mw - tot_width) / (m->ntabs - i);
-	  if (maxsize < 0) maxsize = 0;
 	} else{
-          maxsize = mw;
+          maxsize = mw < 0 ? 0 : mw;
 	}
 	i = 0;
 
@@ -1773,7 +1897,6 @@ drawtab(Monitor *m) {
 	w = TEXTW(btn_close) - lrpad + horizpadtabo;
 	m->tab_btn_w[2] = w;
 	drw_text(drw, x + horizpadtabo / 2, vertpadbar / 2, w, th - vertpadbar, 0, btn_close, 0);
-	x += w;
 
 	drw_map(drw, m->tabwin, 0, 0, m->ww, th);
 }
@@ -1828,6 +1951,8 @@ void focus(Client *c) {
     XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
   }
   selmon->sel = c;
+  if (shutting_down)
+    return; /* teardown: đừng vẽ lại, X resources đang bị phá */
   drawbars();
   drawtabs();
 }
@@ -1939,7 +2064,7 @@ long getstate(Window w) {
   return result;
 }
 
-unsigned int getsystraywidth() {
+unsigned int getsystraywidth(void) {
   unsigned int w = 0;
   Client *i;
   if (systray)
@@ -3464,7 +3589,7 @@ void updatebarpos(Monitor *m) {
     m->by = -bh - m->gappoh;
 }
 
-void updateclientlist() {
+void updateclientlist(void) {
   Client *c;
   Monitor *m;
 
@@ -3619,7 +3744,7 @@ void updatesizehints(Client *c) {
 
 void updatestatus(void) {
   if (!gettextprop(root, XA_WM_NAME, stext, sizeof(stext)))
-    strcpy(stext, "dwm-" VERSION);
+    snprintf(stext, sizeof stext, "%s", "dwm-" VERSION);
   drawbar(selmon);
   updatesystray();
 }
@@ -3749,7 +3874,7 @@ void updatetitle(Client *c) {
   if (!gettextprop(c->win, netatom[NetWMName], c->name, sizeof c->name))
     gettextprop(c->win, XA_WM_NAME, c->name, sizeof c->name);
   if (c->name[0] == '\0') /* hack to mark broken clients */
-    strcpy(c->name, broken);
+    snprintf(c->name, sizeof c->name, "%s", broken);
 }
 
 void updatewindowtype(Client *c) {

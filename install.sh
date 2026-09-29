@@ -5,6 +5,8 @@
 #   ./install.sh              # cài đầy đủ: deps -> build -> dotfiles -> session
 #   ./install.sh deps         # chỉ cài gói phụ thuộc
 #   ./install.sh arisa        # hỏi rồi thêm kho arisa (Super+C, Super+D)
+#   ./install.sh paru         # cài paru để dùng AUR
+#   ./install.sh pty          # bộ gõ Lotus (tiếng Việt) — cần paru
 #   ./install.sh build        # chỉ build + cài binary
 #   ./install.sh dotfiles     # chỉ copy ~/.config
 #   ./install.sh session      # chỉ cấu hình chạy từ TTY (.xinitrc)
@@ -92,7 +94,7 @@ root_sh() {
 #     eza, expac, neovim, hwinfo, wget, openbsd-netcat, jq.
 #   - imagemagick — mediacard.sh:83 có guard `command -v magick`, thiếu thì
 #     ảnh bìa webp không đổi sang png chứ không chết.
-#   - fcitx5 — không chỗ nào trong repo spawn nó, tự cài nếu dùng bàn phím.
+#   - fcitx5-lotus-bin — engine tiếng Việt đến từ AUR, xem cmd_pty.
 #   - xorg-xsetroot, xorg-xwayland — xsetroot chỉ còn trong scripts/bar.sh,
 #     mà bar.sh đã bị slstatus thay và không còn ai gọi. XWayland thì bị tắt
 #     cố ý, xem scripts/run.sh.
@@ -148,6 +150,10 @@ readonly PKG_SESSION=(
     # dwm/.config nên không thuộc PKG_CONFIG; nhưng nó là app dwm spawn
     # thẳng, cùng kiểu với feh ở trên, nên để ở đây.
     thunar
+    # scripts/run.sh:98 `start_daemon fcitx fcitx5 -d` — daemon bộ gõ. Thiếu
+    # thì vẫn có bàn phím, mất gõ tiếng Việt. Engine Lotus tới từ AUR nên
+    # nằm ở PKG_PTY, xem cmd_pty.
+    fcitx5
 )
 
 # --- 3. app có dotfile trong dwm/.config ---
@@ -834,6 +840,124 @@ EOF
     ok "arisa xong — gói của kho này đã sẵn sàng cho ./install.sh deps"
 }
 
+# ------------------------------------------------- paru + bộ gõ Lotus (VN) ---
+# Repo này có 2 gói đến từ AUR nên cần AUR helper trước.
+readonly PARU_GIT=https://aur.archlinux.org/paru.git
+# Clone vào ~/.local/src, KHÔNG clone vào thư mục repo — `git clone` không có
+# đường dẫn đích sẽ rơi vào cwd, mà cwd khi chạy install.sh là ~/dwm, tức là
+# rác vào chính repo đang chạy.
+readonly PARU_SRC=$HOME/.local/src/paru
+
+# PKGBUILD của paru: makedepends=('cargo'), depends=('git' 'pacman' 'libalpm.so>=14')
+readonly PKG_AUR=(
+    cargo
+)
+# Gói bộ gõ. Không có trong kho nào của Arch/CachyOS, chỉ có ở AUR.
+readonly PKG_PTY=(
+    fcitx5-lotus-bin
+)
+
+# Tên người gọi, đúng cả khi chạy `sudo ./install.sh`. `id -un` lúc đó trả về
+# root, bật service theo tên root thì vô dụng.
+tsuki_user() { printf '%s\n' "${SUDO_USER:-${USER:-$(id -un)}}"; }
+
+cmd_paru() {
+    if command -v paru >/dev/null 2>&1; then
+        ok "paru đã có: $(paru --version 2>/dev/null | head -1)"
+        return 0
+    fi
+
+    install_pkgs PKG_AUR "aur-build"
+    step "clone paru ($PARU_GIT)"
+    mkdir -p "$(dirname -- "$PARU_SRC")"
+    rm -rf -- "$PARU_SRC"
+    git clone --depth 1 "$PARU_GIT" "$PARU_SRC"
+
+    step "build paru"
+    # KHÔNG as_root ở đây: makepkg từ chối chạy dưới root ("Running makepkg as
+    # root is not allowed"). Root chỉ dùng ở bước pacman -U ngay dưới đây.
+    ( cd "$PARU_SRC" && makepkg -sf --noconfirm ) || die "build paru thất bại"
+
+    local pkg
+    # -print -quit thay cho `| head -1`: dưới pipefail, head thoát sớm làm find
+    # dính SIGPIPE (141) và set -e giết script. Đã dính lỗi này ở cmd_firefox.
+    pkg=$(find "$PARU_SRC" -maxdepth 1 -name '*.pkg.tar.*' -print -quit)
+    [[ -n $pkg ]] || die "build xong nhưng không thấy *.pkg.tar.* trong $PARU_SRC"
+    as_root pacman -U --noconfirm "$pkg"
+    command -v paru >/dev/null 2>&1 || die "pacman -U xong nhưng vẫn không gọi được paru"
+    ok "paru: $(paru --version 2>/dev/null | head -1)"
+}
+
+cmd_pty() {
+    step "bộ gõ Lotus — tiếng Việt"
+    cmd_paru
+
+    local -a want=()
+    mapfile -t want < <(missing_pkgs PKG_PTY)
+    if ((${#want[@]})); then
+        step "cài từ AUR: ${want[*]}"
+        # --noconfirm vì người dùng đã đồng ý bằng cách chạy lệnh này; paru
+        # vẫn tự hỏi mật khẩu sudo một lần.
+        paru -S --needed --noconfirm -- "${want[@]}" || die "paru không cài được: ${want[*]}"
+    else
+        ok "đã có: ${PKG_PTY[*]}"
+    fi
+
+    # User cần cho unit là `uinput_proxy`, KHÔNG phải "lotus" — xem
+    # /usr/lib/sysusers.d/lotus.conf do chính gói đó cài:
+    #   u  uinput_proxy  -  "Lotus Uinput Proxy"
+    #   m  uinput_proxy  input
+    # Unit chạy `User=uinput_proxy Group=input`, nên phải có user trước khi
+    # enable, không thì systemctl start sẽ fail.
+    step "tạo user uinput_proxy"
+    as_root systemd-sysusers
+    getent passwd uinput_proxy >/dev/null 2>&1 ||
+        die "sysusers xong nhưng user uinput_proxy vẫn chưa có — kiểm tra /usr/lib/sysusers.d/lotus.conf"
+
+    step "module uinput"
+    # `lsmod | grep -q` SAI dưới `set -o pipefail`: grep -q thoát ngay khi
+    # thấy dòng khớp, đóng pipe, lsmod dính SIGPIPE (141), pipefail đưa cả
+    # pipeline về 141 -> if rơi nhánh else -> modprobe chạy lại vô ích.
+    # Đã tái hiện. Vì thế hút hết lsmod vào biến trước, rồi grep trên đó.
+    local mods
+    mods=$(lsmod)
+    if grep -q '^uinput' <<<"$mods"; then
+        ok "uinput đang chạy"
+    else
+        as_root modprobe uinput
+    fi
+    # modprobe chỉ có tác dụng tới lần boot này. Không ghi modules-load.d thì
+    # reboot là mất, và service sẽ fail vì không có /dev/uinput.
+    if [[ -f /etc/modules-load.d/uinput.conf ]]; then
+        ok "/etc/modules-load.d/uinput.conf đã có"
+    else
+        root_sh -c 'install -d -m 755 /etc/modules-load.d
+            printf "uinput\n" > /etc/modules-load.d/uinput.conf
+            chmod 644 /etc/modules-load.d/uinput.conf
+            echo "  + /etc/modules-load.d/uinput.conf"'
+    fi
+
+    local unit="fcitx5-lotus-server@$(tsuki_user).service"
+    step "bật $unit"
+    as_root systemctl enable --now "$unit"
+
+    step "tắt ibus (xung đột với fcitx5)"
+    if pgrep -x ibus-daemon >/dev/null 2>&1; then
+        pkill -x ibus-daemon || true
+        ok "đã dừng ibus-daemon"
+    else
+        ok "ibus-daemon không chạy"
+    fi
+    # kill chỉ dừng được tiến trình, không tắt autostart. Nếu ibus tự quay lại
+    # ở lần đăng nhập sau thì phải bỏ autostart của nó, không có cách nào
+    # chung cho mọi DE — nên nói rõ thay vì giả vờ đã xong.
+    systemctl is-active --quiet ibus 2>/dev/null &&
+        warn "service ibus đang bật — sẽ kéo ibus-daemon lại ở lần đăng nhập sau"
+
+    ok "bộ gõ Lotus xong. Đăng xuất rồi đăng nhập lại để biến môi trường có hiệu lực."
+    info "biến IM đã có sẵn trong .config/fish/config.fish và scripts/run.sh — không cần thêm gì"
+}
+
 # -------------------------------------------------------------- uninstall ---
 cmd_uninstall() {
     detect_sudo
@@ -873,6 +997,8 @@ main() {
         session)   cmd_session "${2:-}" ;;
         xlibre)    cmd_xlibre "${2:-stable}" ;;
         arisa)     cmd_arisa ;;
+        paru)      cmd_paru ;;
+        pty)       cmd_pty ;;
         uninstall) cmd_uninstall ;;
         all)
             # Trước deps: PKG_KEYBINDS có visual-studio-code-bin và discord-ptb
@@ -880,6 +1006,8 @@ main() {
             # bỏ qua rồi, phải chạy lại ./install.sh deps mới lấy được.
             cmd_arisa
             cmd_deps
+            # Sau deps: cần base-devel + cargo mới build được paru.
+            cmd_pty
             cmd_build
             cmd_dotfiles
             cmd_firefox

@@ -65,11 +65,24 @@ GitHub Actions, không phải kho chính thức. Cần kho đó cho `Super+C`
 (`visual-studio-code-bin`) và `Super+D` (`discord-ptb`). Từ chối thì phần còn
 lại vẫn cài đủ, chỉ hai phím đó không chạy. Thêm tay bằng `./install.sh arisa`.
 
-Còn các thứ sau thì cài khi muốn, session vẫn chạy bình thường:
+## Bộ gõ tiếng Việt
+
+`./install.sh pty` cài `paru` (AUR helper) rồi `fcitx5-lotus-bin`, tạo user
+`uinput_proxy`, bật `fcitx5-lotus-server@<bạn>.service`, nạp module `uinput` và
+ghi vào `/etc/modules-load.d/uinput.conf` để giữ qua reboot.
+
+Biến môi trường **đã có sẵn** trong `.config/fish/config.fish` và
+`scripts/run.sh` — đừng thêm lần nữa. Thêm vào `config.fish` bằng tay sẽ bị
+`install.sh dotfiles` ghi đè mất.
+
+Nếu `ibus-daemon` tự quay lại ở lần đăng nhập sau, phải bỏ autostart của
+ibus trong desktop environment — `install.sh` chỉ dừng được tiến trình, không
+tắt được autostart.
+
+## Tuỳ chọn khác
 
 ```sh
 sudo pacman -S --needed \
-    fcitx5                 # bàn phím
     imagemagick            # ảnh bìa album nhạc .webp -> .png (có guard)
     eza expac neovim hwinfo wget openbsd-netcat jq    # tiện ích cho fish
 ```

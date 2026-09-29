@@ -92,9 +92,17 @@ picom &
     /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
 
 # --- fcitx5 -----------------------------------------------------------------
+# 5 biến, khớp với khối `if status is-login` trong .config/fish/config.fish.
+# Thiếu SDL và GLFW thì app SDL/GLFW (game, mpv, ...) chạy từ dwm không gõ
+# được — biến trong config.fish chỉ có tác dụng với shell fish, app được
+# dwm spawn thì kế thừa môi trường ở đây chứ không qua config.fish.
+# GLFW_IM_MODULE=ibus là cố ý: fcitx5 có frontend tương thích ibus cho app
+# GLFW, đặt "fcitx" sẽ làm chúng không gõ được.
 export GTK_IM_MODULE=fcitx
 export QT_IM_MODULE=fcitx
 export XMODIFIERS=@im=fcitx
+export SDL_IM_MODULE=fcitx
+export GLFW_IM_MODULE=ibus
 command -v fcitx5 >/dev/null 2>&1 && start_daemon fcitx fcitx5 -d
 
 # --- status bar -------------------------------------------------------------

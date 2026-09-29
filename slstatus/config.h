@@ -75,14 +75,14 @@ static const struct arg args[] = {
     // tai sinh config.h TU FILE NAY moi lan doi hinh nen.
 
 /* function       format                          argument */
-{ updates,       "%s", "#cec4de #79405a" },  /* ON=trang khi co update, OFF=xanh khi khong */
-{ cpu_perc,      " ^c#d38aab^󰻠 %s%%^d^ ",        nullptr },
-{ ram_used,      "^c#9d81d0^ %s^d^ ",           nullptr },
-{ disk_perc,     "^c#a5d793^󰋊 %s%%^d^ ",        "/" },
-{ run_command, "^c#b9a4dd^󱩱 %s°C^d^ ",        "~/dwm/scripts/cpu_temp.sh" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
+{ updates,       "%s", "#d3cfcf #2c468e" },  /* ON=trang khi co update, OFF=xanh khi khong */
+{ cpu_perc,      " ^c#7895e5^󰻠 %s%%^d^ ",        nullptr },
+{ ram_used,      "^c#e36e8a^ %s^d^ ",           nullptr },
+{ disk_perc,     "^c#e7e582^󰋊 %s%%^d^ ",        "/" },
+{ run_command, "^c#97adeb^󱩱 %s°C^d^ ",        "~/dwm/scripts/cpu_temp.sh" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
 { net_icon,      "^c#7842d7^ %s ",               nullptr },  /* icon internet: MAU CO DINH #7842d7 — KHONG dung sentinel nen khong doi theo wallpaper; chi click vao icon (marker trong net_icon.c) -> netpanel.sh */
 { wifi_panel,    "%s",                           nullptr },  /* Wi-Fi Mini: chỉ tên mạng đang kết nối; màu nằm trong wifi_panel.c (#define) nên cũng cố định */
-{ battery_perc,  "^c#7842d7^ %s%%^d^",          "BAT1" },
-{ battery_state, "^c#a5d793^%s^d^ ",        "BAT1" },
-{ datetime,      "^c#a5d793^󰸗 %s^d^",          "%a, %d/%m, %H:%M" },
+{ battery_perc,  "^c#d76642^ %s%%^d^",          "BAT1" },
+{ battery_state, "^c#e7e582^%s^d^ ",        "BAT1" },
+{ datetime,      "^c#e7e582^󰸗 %s^d^",          "%a, %d/%m, %H:%M" },
 };

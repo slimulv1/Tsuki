@@ -4,6 +4,7 @@
 #
 #   ./install.sh              # cài đầy đủ: deps -> build -> dotfiles -> session
 #   ./install.sh deps         # chỉ cài gói phụ thuộc
+#   ./install.sh arisa        # hỏi rồi thêm kho arisa (Super+C, Super+D)
 #   ./install.sh build        # chỉ build + cài binary
 #   ./install.sh dotfiles     # chỉ copy ~/.config
 #   ./install.sh session      # chỉ cấu hình chạy từ TTY (.xinitrc)
@@ -33,6 +34,7 @@ else
 fi
 step() { printf '%s==>%s %s%s%s\n' "$C_B" "$C_RST" "$C_B" "$*" "$C_RST"; }
 ok()   { printf '  %s✓%s %s\n' "$C_G" "$C_RST" "$*"; }
+info() { printf '  %s·%s %s\n' "$C_B" "$C_RST" "$*"; }
 warn() { printf '  %s!%s %s\n' "$C_Y" "$C_RST" "$*" >&2; }
 die()  { printf '%serror:%s %s\n' "$C_R" "$C_RST" "$*" >&2; exit 1; }
 
@@ -498,31 +500,40 @@ xlibre_add_key() {
     ok "khoá đã được trust"
 }
 
-# Liệt kê mọi mục [xlibre*] mà pacman đang dùng, kèm file khai báo.
+# Liệt kê mọi mục [prefix...] mà pacman đang dùng, kèm file khai báo.
 # Định dạng: [xlibre-beta]<TAB>/etc/pacman.conf
 #
 # Chỉ grep pacman.conf là thiếu — người dùng thường tự thêm [xlibre-beta]
 # thẳng vào pacman.conf, không qua file Include của ta, nên ta sẽ không thấy
 # và sẽ bật thêm kênh thứ hai. Hai kênh cùng bật thì pacman lấy version cao
 # nhất: bạn định dùng stable vẫn nhận beta.
-xlibre_active_channels() {
+#
+# Dùng chung cho [xlibre] và [arisa] — trước đây logic này viết riêng cho
+# XLibre, arisa sẽ cần y hệt nên copy thêm bản thì hai chỗ lệch nhau theo
+# thời gian.
+pacman_active_sections() {
+    local pattern=$1
     local conf f sec
     conf=/etc/pacman.conf
     [[ -r $conf ]] || return 0
 
     while IFS= read -r sec; do
         [[ -n $sec ]] && printf '%s\t%s\n' "$sec" "$conf"
-    done < <(grep -hoE '^\[xlibre[^]]*\]' "$conf" 2>/dev/null || true)
+    done < <(grep -hoE "$pattern" "$conf" 2>/dev/null || true)
 
     while read -r f; do
         [[ -r $f ]] || continue
         while IFS= read -r sec; do
             [[ -n $sec ]] && printf '%s\t%s\n' "$sec" "$f"
-        done < <(grep -hoE '^\[xlibre[^]]*\]' "$f" 2>/dev/null || true)
+        done < <(grep -hoE "$pattern" "$f" 2>/dev/null || true)
     done < <(
         grep -hoE '^[[:space:]]*Include[[:space:]]*=[[:space:]]*.*' "$conf" 2>/dev/null \
             | sed -E 's/^[^=]*=[[:space:]]*//' | tr -d '"'
     )
+}
+
+xlibre_active_channels() {
+    pacman_active_sections '^\[xlibre[^]]*\]'
 }
 
 readonly XLIBRE_OWN_CONF=/etc/pacman.d/xlibre.conf
@@ -634,6 +645,195 @@ cmd_xlibre() {
 EOF
 }
 
+# ------------------------------------------------------------------- arisa ---
+# Kho nhị phân tự dựng bằng GitHub Actions, KHÔNG phải kho của Arch/CachyOS.
+# Không phải kho chính thức nên cần hỏi ý kiến thật sự, không phải hỏi cho
+# có: thêm nó vào là pacman được quyền chạy code của kho đó bằng quyền root.
+readonly ARISA_SERVER=https://github.com/slimulv1/arisa-repo/releases/download/repository
+readonly ARISA_KEY_URL=$ARISA_SERVER/arisa.gpg
+readonly ARISA_KEY_FPR=BD8284BAEE6197CF2EC59839A3C506C20357176E
+
+# Hỏi y/n. 0 = có, 1 = không.
+#
+# Không đọc stdin khi stdin không phải terminal. install.sh chạy trong pipe,
+# cron hay CI sẽ treo vô hạn ở `read`. Trường hợp đó lấy mặc định và nói rõ
+# đang chọn gì, thay vì đoán.
+confirm() {
+    local prompt=$1 def=${2:-n} reply hint=${3:-}
+    if [[ ! -t 0 ]]; then
+        warn "không có terminal để hỏi — tự chọn '$def'."
+        if [[ -n $hint ]]; then printf '    %s\n' "$hint"; fi
+        if [[ $def == y ]]; then return 0; else return 1; fi
+    fi
+    local q='[y/N]'
+    if [[ $def == y ]]; then q='[Y/n]'; fi
+    while :; do
+        printf '  %s %s ' "$prompt" "$q"
+        read -r reply || reply=''
+        case ${reply,,} in
+            '')              if [[ $def == y ]]; then return 0; else return 1; fi ;;
+            y|yes|co)        return 0 ;;
+            n|no|khong)      return 1 ;;
+        esac
+        printf '  trả lời y hoặc n\n'
+    done
+}
+
+# Đọc giá trị Server của đúng một mục trong file cấu hình pacman.
+# Phải giới hạn theo mục — quét cả file sẽ trả về Server của mục đầu tiên
+# (đã dính: [arisa] mà lại ra URL của [xlibre-beta] ở trên).
+# So sánh tên mục bằng chuỗi thuần, không dùng regex: "arisa" chứa ký tự
+# không đặc biệt nhưng "[xlibre]" thì có — truyền vào awk -v rồi so khớp regex
+# sẽ hiểu [ là lớp ký tự.
+pacman_section_server() {
+    local file=$1 name=$2
+    [[ -r $file ]] || return 0
+    awk -v want="$name" '
+        /^[[:space:]]*\[/ {
+            s = $0
+            gsub(/[[:space:]]/, "", s)
+            inside = (s == "[" want "]")
+            next
+        }
+        inside && /^[[:space:]]*Server[[:space:]]*=/ {
+            line = $0
+            sub(/^[^=]*=[[:space:]]*/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            print line
+            exit
+        }
+    ' "$file"
+}
+
+arisa_add_key() {
+    step "thêm khoá ký arisa ($ARISA_KEY_FPR)"
+    if pacman-key --finger "$ARISA_KEY_FPR" >/dev/null 2>&1; then
+        ok "khoá đã có trong keyring"
+        return 0
+    fi
+    local tmp
+    tmp="$(mktemp -d)"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmp'" RETURN
+    # README dùng `curl -LO` (tải vào thư mục hiện tại). Tải vào thư mục tạm
+    # để không rác file .gpg vào ~/dwm khi chạy install.sh từ repo — bước còn
+    # lại giữ nguyên.
+    curl -fsSL -o "$tmp/arisa.gpg" "$ARISA_KEY_URL"
+    as_root pacman-key --add "$tmp/arisa.gpg"
+    # --lsign-key là bắt buộc: key vừa thêm mặc định trust là "unknown",
+    # pacman sẽ từ chối package với lỗi "signature ... is marginal trust".
+    as_root pacman-key --lsign-key "$ARISA_KEY_FPR"
+    ok "khoá đã được trust"
+}
+
+arisa_add_repo() {
+    step "bật repo [arisa] trong /etc/pacman.conf"
+
+    local -a active=()
+    local sec src
+    while IFS=$'\t' read -r sec src; do
+        [[ -n $sec ]] && active+=("$sec"$'\t'"$src")
+    done < <(pacman_active_sections '^\[arisa[^]]*\]')
+
+    if ((${#active[@]} > 1)); then
+        local list="" a
+        for a in "${active[@]}"; do
+            list+="        ${a%%$'\t'*}  (trong ${a##*$'\t'})
+"
+        done
+        die "đang bật nhiều mục [arisa*] — pacman chỉ được dùng một:
+$list     Gỡ bớt rồi chạy lại."
+    fi
+
+    if ((${#active[@]} == 1)); then
+        sec=${active[0]%%$'\t'*}
+        src=${active[0]##*$'\t'}
+        if [[ $sec != '[arisa]' ]]; then
+            die "$sec đang bật trong $src — không phải tên mà tôi biết. Sửa tay rồi chạy lại."
+        fi
+        # Đã có sẵn thì không thêm lần nữa: hai mục [arisa] trùng nhau thì
+        # pacman báo "Duplicate section" và HỎNG luôn, không phải chỉ thừa.
+        local have
+        have=$(pacman_section_server "$src" arisa)
+        if [[ $have == "$ARISA_SERVER" ]]; then
+            ok "[arisa] đã có trong $src với đúng Server, giữ nguyên"
+        else
+            warn "[arisa] trong $src nhưng Server là: ${have:-(không thấy dòng Server)}"
+            warn "cần đúng URL thì đặt: $ARISA_SERVER"
+        fi
+        return 0
+    fi
+
+    # Theo README của arisa-repo: chèn block thẳng vào ĐẦU /etc/pacman.conf.
+    # Không dùng file riêng + Include như XLibre — arisa không có nhiều kênh,
+    # và README chỉ dạy cách này.
+    #
+    # Sửa /etc/pacman.conf của hệ thống nên sao lưu trước.
+    root_sh -c '
+        set -e
+        f=/etc/pacman.conf
+        bak="$f.tsuki-bak-$(date +%Y%m%d%H%M%S)"
+        cp -a -- "$f" "$bak"
+        # File tạm do mktemp sinh, không phải "$f.new" đặt cứng: nếu bị ngắt
+        # giữa chừng thì không để lại rác trong /etc.
+        new=$(mktemp /etc/pacman.conf.tsuki-XXXXXX)
+        trap "rm -f -- \"\$new\"" EXIT
+        {
+            printf "%s\n" \
+                "# Arisa — kho nhị phân tự dựng, KHÔNG phải kho chính thức Arch/CachyOS." \
+                "# Do Tsuki install.sh chèn sau khi bạn đồng ý. Bỏ: xoá cả khối này rồi pacman -Sy" \
+                "[arisa]" \
+                "Server = $1" \
+                "# Kho tự ký. Muốn bắt buộc kiểm tra chữ ký gói thì đổi thành:" \
+                "#   SigLevel = Required DatabaseOptional" \
+                "SigLevel = Optional DatabaseOptional" \
+                ""
+            cat -- "$f"
+        } > "$new"
+        # Ghi đè bằng `cat >` chứ không phải `mv`: giữ nguyên inode và quyền
+        # của file gốc, và nếu hỏng giữa dòng thì còn file sao lưu.
+        cat -- "$new" > "$f"
+        echo "  + $f (sao lưu: ${bak##*/})"
+    ' _ "$ARISA_SERVER"
+    ok "đã bật [arisa]"
+}
+
+cmd_arisa() {
+    printf '%sArisa — %s%s\n' "$C_B" "$ARISA_SERVER" "$C_RST"
+    cat <<EOF
+  Kho nhị phân dựng tự động bằng GitHub Actions, do
+  github.com/slimulv1/arisa-repo phát hành. KHÔNG phải kho của Arch/CachyOS.
+
+  Tsuki cần nó cho hai gói trong PKG_KEYBINDS:
+    visual-studio-code-bin   Super+C
+    discord-ptb              Super+D
+  Không thêm kho này thì hai phím đó không hoạt động, phần còn lại vẫn bình
+  thường — nên từ chối cũng được.
+
+  Thêm vào nghĩa là pacman được chạy code từ kho này bằng quyền root.
+EOF
+
+    if ! confirm "thêm kho arisa?" n "bật tay: ./install.sh arisa"; then
+        info "bỏ qua arisa"
+        return 0
+    fi
+
+    detect_sudo
+    # Key trước, kho sau — ngược thứ tự README. Hai bước độc lập và `pacman -Sy`
+    # chạy sau cùng nên kết quả như nhau, nhưng làm key trước thì không có
+    # khoảnh khắc nào pacman.conf đã trỏ tới kho mà keyring chưa có key.
+    arisa_add_key
+    arisa_add_repo
+
+    step "đồng bộ index"
+    # -Sy chứ không phải -Syyu: thêm kho mới không đòi nâng cấp cả hệ thống,
+    # nên --noconfirm ở đây vô hại (khác với -Syyu trong cmd_xlibre, đó mới là
+    # nâng cấp toàn hệ thống và Arch không hỗ trợ partial upgrade).
+    as_root pacman -Sy --noconfirm
+
+    ok "arisa xong — gói của kho này đã sẵn sàng cho ./install.sh deps"
+}
+
 # -------------------------------------------------------------- uninstall ---
 cmd_uninstall() {
     detect_sudo
@@ -672,8 +872,13 @@ main() {
         dotfiles)  cmd_dotfiles; cmd_firefox ;;
         session)   cmd_session "${2:-}" ;;
         xlibre)    cmd_xlibre "${2:-stable}" ;;
+        arisa)     cmd_arisa ;;
         uninstall) cmd_uninstall ;;
         all)
+            # Trước deps: PKG_KEYBINDS có visual-studio-code-bin và discord-ptb
+            # nằm trong kho arisa. Hỏi sau khi cài deps thì hai gói đó đã bị
+            # bỏ qua rồi, phải chạy lại ./install.sh deps mới lấy được.
+            cmd_arisa
             cmd_deps
             cmd_build
             cmd_dotfiles

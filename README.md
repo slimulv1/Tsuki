@@ -59,9 +59,11 @@ bản thử. Muốn có màn hình đăng nhập (GDM/SDDM/LightDM) thì `./inst
 
 ## Cài tay phần còn lại
 
-`install.sh` cài đủ những gì phím tắt cần, ngoại trừ `Super+P` — đó là app đi
-kèm chuột EPOS GSX300, không có trong kho Arch/CachyOS. Máy bạn dùng chuột
-khác thì sửa `config.h:189` hoặc xoá dòng đó.
+`install.sh` sẽ **hỏi** trước khi thêm kho
+[arisa](https://github.com/slimulv1/arisa-repo) — kho nhị phân tự dựng bằng
+GitHub Actions, không phải kho chính thức. Cần kho đó cho `Super+C`
+(`visual-studio-code-bin`) và `Super+D` (`discord-ptb`). Từ chối thì phần còn
+lại vẫn cài đủ, chỉ hai phím đó không chạy. Thêm tay bằng `./install.sh arisa`.
 
 Còn các thứ sau thì cài khi muốn, session vẫn chạy bình thường:
 
@@ -72,9 +74,8 @@ sudo pacman -S --needed \
     eza expac neovim hwinfo wget openbsd-netcat jq    # tiện ích cho fish
 ```
 
-Gói đến từ repo thứ ba (`visual-studio-code-bin` cho `Super+C`, `discord-ptb`
-cho `Super+D`) sẽ bị bỏ qua kèm cảnh báo nếu máy chưa bật repo đó — `install.sh`
-không dừng cả nhóm vì lý do đó.
+`Super+P` (`epos-gsx300-gui`) là app đi kèm chuột EPOS GSX300, không có trong
+kho nào — máy dùng chuột khác thì sửa hoặc xoá dòng `config.h:189`.
 
 ---
 

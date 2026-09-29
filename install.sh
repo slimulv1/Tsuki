@@ -30,9 +30,9 @@ PREFIX="${PREFIX:-/usr/local}"
 # ---------------------------------------------------------------- logging ---
 if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
     C_RST=$'\033[0m' C_R=$'\033[1;31m' C_G=$'\033[1;32m'
-    C_Y=$'\033[1;33m' C_B=$'\033[1;34m' C_D=$'\033[2m'
+    C_Y=$'\033[1;33m' C_B=$'\033[1;34m'
 else
-    C_RST="" C_R="" C_G="" C_Y="" C_B="" C_D=""
+    C_RST="" C_R="" C_G="" C_Y="" C_B=""
 fi
 step() { printf '%s==>%s %s%s%s\n' "$C_B" "$C_RST" "$C_B" "$*" "$C_RST"; }
 ok()   { printf '  %s✓%s %s\n' "$C_G" "$C_RST" "$*"; }
@@ -100,8 +100,16 @@ root_sh() {
 #     cố ý, xem scripts/run.sh.
 #   - epos-gsx300-gui (config.h:189, Super+P) — app đi kèm chuột EPOS
 #     GSX300, không có trong kho nào. Xem PKG_KEYBINDS.
+#
+# Vì sao có "shellcheck disable=SC2034" trước từng mảng PKG_*: shellcheck báo
+# chúng "appears unused". Sai. Chúng được đọc qua nameref (`local -n ref=$1`)
+# nên shellcheck không thấy chỗ dùng. Không có dòng đó thì lần shellcheck sau
+# sẽ có người "sửa" bằng cách xoá mảng đi.
 
 # --- 1. build ---
+# bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
+# (xem ghi chuc dau muc "packages")
+# shellcheck disable=SC2034
 readonly PKG_BUILD=(
     # toolchain: cc/make cho mọi Makefile
     base-devel make
@@ -130,6 +138,9 @@ readonly PKG_BUILD=(
 # Tsuki chạy X11 thuần: không cài xorg-xwayland. XWayland mở được app
 # Wayland-only, đổi lại clipboard và chia sẻ màn hình bị vỡ — không đáng.
 # Muốn bật thì tự thêm, xem scripts/run.sh.
+# bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
+# (xem ghi chuc dau muc "packages")
+# shellcheck disable=SC2034
 readonly PKG_SESSION=(
     xorg-server
     # startx — .config/fish/conf.d/tsuki.fish chặn `dwm` nếu thiếu startx
@@ -159,6 +170,9 @@ readonly PKG_SESSION=(
 # --- 3. app có dotfile trong dwm/.config ---
 # Thứ tự khớp với thứ tự mục trong dwm/.config. Thêm dotfile mới thì phải sửa
 # cả mảng này lẫn `items` trong cmd_dotfiles — hai chỗ phải khớp 1-1.
+# bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
+# (xem ghi chuc dau muc "packages")
+# shellcheck disable=SC2034
 readonly PKG_CONFIG=(
     dunst        # .config/dunst/
     fastfetch    # .config/fastfetch/
@@ -177,6 +191,9 @@ readonly PKG_CONFIG=(
 # Cố ý bỏ qua `epos-gsx300-gui` (config.h:189, Super+P): đó là app đi kèm
 # chuột EPOS GSX300, không có trong kho Arch/CachyOS nào. Cài nó chỉ có thể
 # bằng tay, nên để ngoài danh sách thay vì làm cả lô cài hỏng.
+# bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
+# (xem ghi chuc dau muc "packages")
+# shellcheck disable=SC2034
 readonly PKG_KEYBINDS=(
     # config.h:170-172 — XF86XK_Audio*: scripts/mediacard.sh volume
     #   pactl đọc volume/mute, playerctl đọc metadata, curl tải ảnh bìa album
@@ -356,7 +373,8 @@ install_dotfile() {
         if same_content "$src" "$dst"; then
             return 0   # giống hệt, không đụng
         fi
-        local bak="$dst.tsuki-bak-$(date +%Y%m%d%H%M%S)"
+        local bak
+        bak="$dst.tsuki-bak-$(date +%Y%m%d%H%M%S)"
         mv -- "$dst" "$bak"
         warn "$(basename -- "$dst") khác nội dung -> backup: ${bak##*/}"
     fi
@@ -408,7 +426,8 @@ write_xinitrc() {
     # Backup nếu đã có .xinitrc: `cat >` xoá trắng file cũ mà không để lại dấu
     # vết, và người dùng rất dễ đã có .xinitrc riêng từ trước.
     if [[ -f $HOME/.xinitrc ]] && ! grep -q 'Tsuki install.sh' "$HOME/.xinitrc"; then
-        local bak="$HOME/.xinitrc.tsuki-bak-$(date +%Y%m%d%H%M%S)"
+        local bak
+        bak="$HOME/.xinitrc.tsuki-bak-$(date +%Y%m%d%H%M%S)"
         cp -a -- "$HOME/.xinitrc" "$bak"
         warn ".xinitrc đã tồn tại -> backup: ${bak##*/}"
     fi
@@ -422,6 +441,10 @@ export PATH="$PREFIX/bin:\$PATH"
 exec "$REPO_DIR/scripts/run.sh"
 EOF
     chmod 644 "$HOME/.xinitrc"
+    # "~/.xinitrc" là chuỗi hiển thị cho người đọc, KHÔNG phải đường dẫn cần
+    # mở — nên cố ý không dùng $HOME. shellcheck báo SC2088 ở đây là dương
+    # tính giả.
+    # shellcheck disable=SC2088
     ok "~/.xinitrc -> $REPO_DIR/scripts/run.sh"
 }
 
@@ -849,6 +872,9 @@ readonly PARU_GIT=https://aur.archlinux.org/paru.git
 readonly PARU_SRC=$HOME/.local/src/paru
 
 # PKGBUILD của paru: makedepends=('cargo'), depends=('git' 'pacman' 'libalpm.so>=14')
+# bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
+# (xem ghi chuc dau muc "packages")
+# shellcheck disable=SC2034
 readonly PKG_AUR=(
     cargo
 )
@@ -937,7 +963,8 @@ cmd_pty() {
             echo "  + /etc/modules-load.d/uinput.conf"'
     fi
 
-    local unit="fcitx5-lotus-server@$(tsuki_user).service"
+    local unit
+    unit="fcitx5-lotus-server@$(tsuki_user).service"
     step "bật $unit"
     as_root systemctl enable --now "$unit"
 

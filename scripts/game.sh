@@ -26,17 +26,28 @@ if [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-CMD=""
-[ "${GAME_MANGO:-0}" = "1" ] && command -v mangohud >/dev/null 2>&1 && CMD="mangohud "
-command -v gamemoderun >/dev/null 2>&1 && CMD="${CMD}gamemoderun "
-
+# Đối số được gom vào chính "$@" rồi `exec "$@"`, KHÔNG dựng chuỗi
+# "mangohud gamemoderun " rồi `exec ${CMD}$@`.
+# Lý do: `${CMD}` không quote là cố ý để tách từ, nhưng `$@` không quote thì
+# mất luôn dấu nháy của từng đối số — `game.sh steam "Tên game có space"`
+# sẽ chạy thành 3 đối số khác nhau. Gamescope phải nằm trong "$@" (ngoài
+# wrapper) nên ta dựng từ trong ra ngoài, prepend sau mỗi bước.
 if [ "$GS" = "yes" ] && command -v gamescope >/dev/null 2>&1; then
     if [ "${1:-}" = "-W" ]; then
         RES="$2"
         shift 2
-        exec ${CMD}gamescope -W "${RES%x*}" -H "${RES#*x}" -f -- "$@"
+        set -- gamescope -W "${RES%x*}" -H "${RES#*x}" -f -- "$@"
+    else
+        set -- gamescope -f -- "$@"
     fi
-    exec ${CMD}gamescope -f -- "$@"
 fi
 
-exec ${CMD}$@
+if command -v gamemoderun >/dev/null 2>&1; then
+    set -- gamemoderun "$@"
+fi
+
+if [ "${GAME_MANGO:-0}" = "1" ] && command -v mangohud >/dev/null 2>&1; then
+    set -- mangohud "$@"
+fi
+
+exec "$@"

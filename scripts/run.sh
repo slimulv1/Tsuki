@@ -15,7 +15,7 @@ set -u
 
 # --- vị trí repo: suy ra từ chính script, không hardcode $HOME/dwm -----------
 # Đặt sau $HOME để người dùng clone ở đường dẫn khác vẫn chạy được.
-DWM_DIR="${TSUKI_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)}"
+DWM_DIR="${TSUKI_DIR:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)}"
 export TSUKI_DIR="$DWM_DIR"
 
 # startx không nạp profile login shell -> PATH không có /usr/local/bin,

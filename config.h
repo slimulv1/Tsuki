@@ -82,7 +82,7 @@ static const char *colors[][3]      = {
 };
 
 /* tagging */
-static char *tags[] = {"I", "II", "III", "IV", "V"}; /* icon left bar */
+static char *tags[] = {"一", "二", "三", "四", "五"}; /* icon left bar — số đếm tiếng Nhật */
 
 /* bar launchers disabled (guarded in dwm.c by name[0]) */
 static const Launcher launchers[] = { { nullptr, "" } };
@@ -103,7 +103,7 @@ static const Rule rules[] = {
      */
     /* class      instance    title       tags mask     iscentered   isfloating   monitor */
     { "Gimp",     nullptr,       nullptr,       0,            0,           1,           -1 },
-    /* tag I: terminals + Steam/gamescope */
+    /* tag 一: terminals + Steam/gamescope */
     { "st-256color",   nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
     { "kitty",         nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
     { "Steam",         nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
@@ -111,11 +111,11 @@ static const Rule rules[] = {
      * matches both gamescope and Gamescope */
     { "amescope",      nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
     { "steam_app_",    nullptr,       nullptr,       1 << 0,       0,           0,           -1 },
-    /* tag II: browsers */
+    /* tag 二: browsers */
     { "firefox",       nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
     { "Brave-origin",  nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
     { "Brave",         nullptr,       nullptr,       1 << 1,       0,           0,           -1 },
-    /* tag III: chat */
+    /* tag 三: chat */
     { "discord",       nullptr,       nullptr,       1 << 2,       0,           0,           -1 },
     { "Discord",       nullptr,       nullptr,       1 << 2,       0,           0,           -1 },
     { "eww",           nullptr,       nullptr,       0,            0,           1,           -1 },

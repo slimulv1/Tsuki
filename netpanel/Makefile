@@ -14,7 +14,13 @@ netpanel.o: netpanel.c config.h
 netpanel: netpanel.o
 	$(CC) -o $@ netpanel.o $(LDFLAGS) $(LIBS)
 
+# KHÔNG xoá config.h: nó được git track và là cấu hình thật của máy.
+# Rule `config.h:` cp từ config.def.h sẽ âm thầm thay hết tùy chỉnh nếu mất.
+# Muốn dựng bản sạch: dùng `make distclean`.
 clean:
-	rm -f netpanel netpanel.o config.h
+	rm -f netpanel netpanel.o
 
-.PHONY: all clean
+distclean: clean
+	rm -f config.h
+
+.PHONY: all clean distclean

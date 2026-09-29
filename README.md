@@ -4,8 +4,17 @@
   <img src="assets/tsuki-logo.png" alt="Tsuki" width="150">
 </p>
 
-Rice cho [dwm](https://dwm.suckless.org/) trên Arch/CachyOS. Màu giao diện bám theo
-ảnh nền — đổi wallpaper là đổi cả theme.
+<p align="center"><i>
+— good evening —<br><br>
+One window opens,<br>
+the pale moon comes in and stays —<br>
+nothing at all moves.<br><br>
+Each tile finds its place;<br>
+the keyboard speaks, not the hand —<br>
+and a color lands.
+</i></p>
+
+<p align="center"><sub>月 &nbsp;·&nbsp; <a href="https://dwm.suckless.org/">dwm</a> rice for Arch/CachyOS</sub></p>
 
 ## Ảnh
 

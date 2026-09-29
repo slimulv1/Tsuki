@@ -1,5 +1,15 @@
 #!/bin/sh
 
+# --- Danh tính session ---
+# GDM kế thừa nguyên bộ biến của session GNOME cho mọi session nó khởi chạy.
+# Ta là dwm + X11, nên phải tự ghi đè trước khi bất kỳ tiến trình nào kế thừa.
+# Nếu không: xdg-desktop-portal chạy dưới nhãn GNOME/Wayland trên X11 thật →
+# FileChooser nhận lệnh và trả về request handle nhưng không dựng được cửa sổ
+# (Save Image As / Lưu ảnh không hiện gì). Đặt ở đây, trước mọi lệnh khác.
+export XDG_CURRENT_DESKTOP=dwm
+export XDG_SESSION_DESKTOP=dwm
+export DESKTOP_SESSION=dwm
+
 xrdb -merge ~/.Xresources &
 WALLPAPER=$(cat "$HOME/dwm/scripts/.wallpaper" 2>/dev/null || echo "$HOME/Pictures/Wallpapers/japanese.jpg")
 feh --bg-fill "$WALLPAPER" &

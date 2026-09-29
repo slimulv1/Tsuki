@@ -1,4 +1,10 @@
-@import url("../../../../../.cache/dwmwal/colors.css");
+/* colors.css nằm cạnh userChrome.css — đường dẫn tương đối 1 cấp này không
+ * phụ thuộc vị trí/thứ sâu của profile. Đường dẫn kiểu "../../../../../.cache/"
+ * (như README gợi ý) hỏng khi profile là symlink: Firefox resolve theo realpath
+ * nên 5 cấp lên rơi vào /run/ thay vì ~, rồi @import fail âm thầm — mọi màu rơi
+ * về fallback viết sẵn trong file. File colors.css cạnh bên được
+ * scripts/dwmwal.sh copy sang mỗi khi đổi wallpaper. */
+@import url("colors.css");
 
 :root {
 	--tab-active-bg-color: var(--color4, #057);

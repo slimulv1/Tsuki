@@ -50,8 +50,11 @@ else
 fi
 
 # 2b) firefox: xuất colors.css (biến CSS chuẩn) để userChrome.css lấy màu theo
-#     wallpaper (tab active, urlbar...). Firefox chỉ đọc đc file nằm ngoài
-#     profile qua @import — cache dwmwal đủ quyền đọc.
+#     wallpaper (tab active, urlbar...). userChrome.css @import "colors.css" —
+#     tức file phải nằm CẠNH userChrome.css trong thư mục chrome/ của profile.
+#     Dùng đường dẫn ngoài profile (vd ~/.cache/dwmwal) không ổn: khi profile là
+#     symlink, Firefox resolve @import theo realpath nên đường dẫn tương đối
+#     hỏng và mọi màu rơi về fallback trong userChrome.css.
 cat > "$CACHE/colors.css" << EOF
 :root {
   --background: ${background};
@@ -76,6 +79,13 @@ cat > "$CACHE/colors.css" << EOF
   --accent: ${accent};
 }
 EOF
+
+# 2c) copy colors.css vào chrome/ của các profile Firefox đang có.
+#     Bỏ qua profile không có userChrome.css (không cài theme này).
+for ffchrome in "$HOME"/.config/mozilla/firefox/*/chrome; do
+    [ -f "$ffchrome/userChrome.css" ] || continue
+    cp -f "$CACHE/colors.css" "$ffchrome/colors.css" 2>/dev/null || true
+done
 
 # ---------------------------------------------------------------------------
 # 3) Đặt wallpaper (feh) + lưu lại cho lần chạy sau

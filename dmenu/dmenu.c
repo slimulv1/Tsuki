@@ -50,6 +50,14 @@ static struct item *matches, *matchend;
 static struct item *prev, *curr, *next, *sel;
 static int mon = -1, screen;
 
+/* Con tro nao trong fonts[]/colors[][] da duoc CAP PHAT tren heap (qua strdup).
+ * Cac gia tri mac dinh trong config.h la string literal nam trong read-only
+ * data; free() chung se bi glibc tu choi: "free(): invalid pointer" + abort.
+ * readxresources() chi strdup khi X server co RESOURCE_MANAGER — may khong
+ * co ~/.Xresources — nen phai co co de chi free dung choi. */
+static int fonts_heap = 0;
+static int colors_heap[SchemeLast][2];
+
 static Atom clip, utf8;
 static Display *dpy;
 static Window root, parentwin, win;
@@ -776,7 +784,8 @@ setup(void)
 	}
 	for (j = 0; j < SchemeOut; ++j) {
 		for (i = 0; i < 2; ++i)
-			free((void *)colors[j][i]);
+			if (colors_heap[j][i])
+				free((void *)colors[j][i]);
 	}
 
 	clip = XInternAtom(dpy, "CLIPBOARD",   False);
@@ -901,22 +910,27 @@ readxresources(void) {
 			fonts[0] = strdup(xval.addr);
 		else
 			fonts[0] = strdup(fonts[0]);
+		fonts_heap = 1;
 		if (XrmGetResource(xdb, "dmenu.background", "*", &type, &xval))
 			colors[SchemeNorm][ColBg] = strdup(xval.addr);
 		else
 			colors[SchemeNorm][ColBg] = strdup(colors[SchemeNorm][ColBg]);
+		colors_heap[SchemeNorm][ColBg] = 1;
 		if (XrmGetResource(xdb, "dmenu.foreground", "*", &type, &xval))
 			colors[SchemeNorm][ColFg] = strdup(xval.addr);
 		else
 			colors[SchemeNorm][ColFg] = strdup(colors[SchemeNorm][ColFg]);
+		colors_heap[SchemeNorm][ColFg] = 1;
 		if (XrmGetResource(xdb, "dmenu.selbackground", "*", &type, &xval))
 			colors[SchemeSel][ColBg] = strdup(xval.addr);
 		else
 			colors[SchemeSel][ColBg] = strdup(colors[SchemeSel][ColBg]);
+		colors_heap[SchemeSel][ColBg] = 1;
 		if (XrmGetResource(xdb, "dmenu.selforeground", "*", &type, &xval))
 			colors[SchemeSel][ColFg] = strdup(xval.addr);
 		else
 			colors[SchemeSel][ColFg] = strdup(colors[SchemeSel][ColFg]);
+		colors_heap[SchemeSel][ColFg] = 1;
 
 		XrmDestroyDatabase(xdb);
 	}
@@ -981,21 +995,32 @@ main(int argc, char *argv[])
 	drw = drw_create(dpy, screen, root, wa.width, wa.height, visual, depth, cmap);
 	readxresources();
 	/* Now we check whether to override xresources with commandline parameters */
-	if ( tempfonts )
+	if ( tempfonts ) {
 	   fonts[0] = strdup(tempfonts);
-	if ( colortemp[0])
+	   fonts_heap = 1;
+	}
+	if ( colortemp[0]) {
 	   colors[SchemeNorm][ColBg] = strdup(colortemp[0]);
-	if ( colortemp[1])
+	   colors_heap[SchemeNorm][ColBg] = 1;
+	}
+	if ( colortemp[1]) {
 	   colors[SchemeNorm][ColFg] = strdup(colortemp[1]);
-	if ( colortemp[2])
+	   colors_heap[SchemeNorm][ColFg] = 1;
+	}
+	if ( colortemp[2]) {
 	   colors[SchemeSel][ColBg]  = strdup(colortemp[2]);
-	if ( colortemp[3])
+	   colors_heap[SchemeSel][ColBg] = 1;
+	}
+	if ( colortemp[3]) {
 	   colors[SchemeSel][ColFg]  = strdup(colortemp[3]);
+	   colors_heap[SchemeSel][ColFg] = 1;
+	}
 
 	if (!drw_fontset_create(drw, (const char**)fonts, LENGTH(fonts)))
 		die("no fonts could be loaded.");
 
-	free((void *)fonts[0]);
+	if (fonts_heap)
+		free((void *)fonts[0]);
 	lrpad = drw->fonts->h;
 
 #ifdef __OpenBSD__

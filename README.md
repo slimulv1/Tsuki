@@ -57,6 +57,25 @@ echo "$HOME/Pictures/Wallpapers/<tên>.jpg" > ~/dwm/scripts/.wallpaper
 Muốn thay X.Org bằng XLibre thì `./install.sh xlibre`, thêm `beta` nếu muốn dùng
 bản thử. Muốn có màn hình đăng nhập (GDM/SDDM/LightDM) thì `./install.sh session --dm`.
 
+## Cài tay phần còn lại
+
+`install.sh` cài đủ những gì phím tắt cần, ngoại trừ `Super+P` — đó là app đi
+kèm chuột EPOS GSX300, không có trong kho Arch/CachyOS. Máy bạn dùng chuột
+khác thì sửa `config.h:189` hoặc xoá dòng đó.
+
+Còn các thứ sau thì cài khi muốn, session vẫn chạy bình thường:
+
+```sh
+sudo pacman -S --needed \
+    fcitx5                 # bàn phím
+    imagemagick            # ảnh bìa album nhạc .webp -> .png (có guard)
+    eza expac neovim hwinfo wget openbsd-netcat jq    # tiện ích cho fish
+```
+
+Gói đến từ repo thứ ba (`visual-studio-code-bin` cho `Super+C`, `discord-ptb`
+cho `Super+D`) sẽ bị bỏ qua kèm cảnh báo nếu máy chưa bật repo đó — `install.sh`
+không dừng cả nhóm vì lý do đó.
+
 ---
 
 MIT — [LICENSE](LICENSE). `dwm` `st` `slock` `dmenu` `slstatus` thuộc

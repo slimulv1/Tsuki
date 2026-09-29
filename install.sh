@@ -69,27 +69,134 @@ root_sh() {
 }
 
 # --------------------------------------------------------------- packages ---
-# Gom theo nhóm để `install.sh deps` đọc được; nhóm rỗng nghĩa là không cài.
-readonly PKG_CORE=(
-    base-devel git make pkgconf
+# Bốn nhóm. Mỗi gói đều truy được về một chỗ cụ thể trong repo.
+#
+#   PKG_BUILD     — thư viện và toolchain lúc compile, lấy từ cờ -l trong
+#                   */config.mk và pkg-config trong */Makefile
+#   PKG_SESSION   — hạ tầng X11, lấy từ những gì scripts/run.sh và
+#                   .config/fish/conf.d/tsuki.fish cần có mặt
+#   PKG_CONFIG    — app có sẵn dotfile trong dwm/.config, mỗi mục khớp 1-1
+#                   với một thư mục (hoặc file) trong đó
+#   PKG_KEYBINDS  — app dwm mở bằng phím tắt, mỗi dòng ghi kèm SHCMD nào
+#
+# Nguồn đã quét khi lập danh sách: config.h + config.def.h (mọi SHCMD),
+# scripts/*.sh, netpanel/*.sh, *.py, .config/fish/**, */config.mk, */Makefile.
+#
+# Cố ý KHÔNG cài:
+#   - lệnh hệ thống — coreutils, grep, sed, findutils, gawk, tar, gzip,
+#     procps-ng, psmisc. Đây là bộ phận của mọi Arch, cài lại chỉ là chạy
+#     pacman không cần thiết.
+#   - tiện ích chỉ nằm trong alias của .config/fish, không mở app nào:
+#     eza, expac, neovim, hwinfo, wget, openbsd-netcat, jq.
+#   - imagemagick — mediacard.sh:83 có guard `command -v magick`, thiếu thì
+#     ảnh bìa webp không đổi sang png chứ không chết.
+#   - fcitx5 — không chỗ nào trong repo spawn nó, tự cài nếu dùng bàn phím.
+#   - xorg-xsetroot, xorg-xwayland — xsetroot chỉ còn trong scripts/bar.sh,
+#     mà bar.sh đã bị slstatus thay và không còn ai gọi. XWayland thì bị tắt
+#     cố ý, xem scripts/run.sh.
+#   - epos-gsx300-gui (config.h:189, Super+P) — app đi kèm chuột EPOS
+#     GSX300, không có trong kho nào. Xem PKG_KEYBINDS.
+
+# --- 1. build ---
+readonly PKG_BUILD=(
+    # toolchain: cc/make cho mọi Makefile
+    base-devel make
+    # netpanel/config.mk:5 và scripts/Makefile.imgdec:20-22 gọi pkg-config
+    pkgconf
+    # git chỉ để clone repo rồi chạy install.sh; Makefile nào cũng không gọi git
+    git
+
+    # dwm + dmenu: -lfontconfig -lXft -lXinerama -lXrender -lX11
     libx11 libxft libxinerama libxrender
-    fontconfig freetype2 harfbuzz libjpeg-turbo libwebp
+    # drw tự dựng: -lfontconfig (kéo theo freetype2, harfbuzz)
+    fontconfig freetype2 harfbuzz
+    # dwm: -lImlib2
+    imlib2
+
+    # st: -lm -lXft -lXrender -lX11
+    # slock: -lcrypt -lXext -lXrandr
+    # netpanel: pkg-config x11 xft xrender xext fontconfig
+    libxcrypt libxext libxrandr
+
+    # scripts/Makefile.imgdec: pkg-config libturbojpeg + libwebp
+    libjpeg-turbo libwebp
 )
-# Tsuki chạy X11 thuần: không cài xorg-xwayland, không bật Xwayland trong
-# run.sh. XWayland mở được app Wayland-only, đổi lại clipboard và chia sẻ màn
-# hình bị vỡ — không đáng. Muốn bật thì tự thêm, xem scripts/run.sh.
+
+# --- 2. session ---
+# Tsuki chạy X11 thuần: không cài xorg-xwayland. XWayland mở được app
+# Wayland-only, đổi lại clipboard và chia sẻ màn hình bị vỡ — không đáng.
+# Muốn bật thì tự thêm, xem scripts/run.sh.
 readonly PKG_SESSION=(
-    xorg-server xorg-xrdb xorg-xset xorg-xinit
+    xorg-server
+    # startx — .config/fish/conf.d/tsuki.fish chặn `dwm` nếu thiếu startx
+    xorg-xinit
+    # scripts/run.sh: xrdb nạp .Xresources, xset đổi nền chuột
+    xorg-xrdb xorg-xset
+    # scripts/dwmwal.sh:84 — feh vẽ wallpaper
+    feh
+    # libnotify cấp notify-send; dunst/picom/xsettingsd nằm ở PKG_CONFIG vì
+    # chúng có dotfile trong dwm/.config
+    libnotify
+    # scripts/rebuild.sh chạy pkexec — không có auth agent thì hộp thoại hỏi
+    # mật khẩu rơi vào terminal, không lên GUI
+    polkit-gnome
+    # mọi script trong repo shebang #!/bin/dash, config.h cũng spawn bằng `dash`
+    dash
+    # config.h:283 — Super+e mở quản lý file. Không có dotfile trong
+    # dwm/.config nên không thuộc PKG_CONFIG; nhưng nó là app dwm spawn
+    # thẳng, cùng kiểu với feh ở trên, nên để ở đây.
+    thunar
 )
-readonly PKG_DESKTOP=(
-    feh picom xsettingsd dunst libnotify polkit-gnome
-    kitty fastfetch fish starship dash python
-    fcitx5 ttf-jetbrains-mono-nerd ttc-iosevka
-    networkmanager playerctl libpulse qrencode curl
-    iw wpa_supplicant
+
+# --- 3. app có dotfile trong dwm/.config ---
+# Thứ tự khớp với thứ tự mục trong dwm/.config. Thêm dotfile mới thì phải sửa
+# cả mảng này lẫn `items` trong cmd_dotfiles — hai chỗ phải khớp 1-1.
+readonly PKG_CONFIG=(
+    dunst        # .config/dunst/
+    fastfetch    # .config/fastfetch/
+    firefox      # .config/firefox/
+    fish         # .config/fish/
+    kitty        # .config/kitty/
+    picom        # .config/picom/
+    starship     # .config/starship.toml
+    xsettingsd   # .config/xsettingsd/
 )
-readonly PKG_FIREFOX=(
-    firefox
+
+# --- 4. app mở bằng phím tắt ---
+# Mỗi dòng là một SHCMD(...) trong config.h. Không kèm gói cho `st` `slock`
+# `dmenu_run` — ba cái đó build từ chính repo.
+#
+# Cố ý bỏ qua `epos-gsx300-gui` (config.h:189, Super+P): đó là app đi kèm
+# chuột EPOS GSX300, không có trong kho Arch/CachyOS nào. Cài nó chỉ có thể
+# bằng tay, nên để ngoài danh sách thay vì làm cả lô cài hỏng.
+readonly PKG_KEYBINDS=(
+    # config.h:170-172 — XF86XK_Audio*: scripts/mediacard.sh volume
+    #   pactl đọc volume/mute, playerctl đọc metadata, curl tải ảnh bìa album
+    libpulse playerctl curl
+    # config.h:178,180,182 — Super+Ctrl+U / Super+U / Print
+    scrot xclip
+
+    # config.h:185 Super+C — `code`
+    visual-studio-code-bin
+    # config.h:187 Super+G
+    steam
+    # config.h:201 Super+D
+    discord-ptb
+    # config.h:202 Super+/ — `bat ... || less ...`; less là nhánh dự phòng nên
+    # cần cả hai, thiếu less thì phím báo lỗi khi bat hỏng
+    bat less
+
+    # config.h:203 Super+W — scripts/dwmwal.sh, mở wallpicker.py
+    python-gobject python-cairo python-pillow python-numpy gtk3
+
+    # config.h:301 ClkNetIcon — netpanel.sh -> netpanel-band.sh + netpanel-qr.sh
+    #   nmcli: đọc wifi (networkmanager), iw: băng tần, qrencode: vẽ QR,
+    #   ip: tìm interface mặc định, column: canh cột trong netpanel-qr.sh
+    networkmanager iw qrencode iproute2 util-linux
+
+    # config.h:184 Super+R — dmenu_run; drw dựng chữ bằng fonts[] trong config.h
+    # nên thiếu font thì mọi chữ trên bar và trong dmenu đều là ô vuông
+    ttc-iosevka ttf-jetbrains-mono-nerd
 )
 
 missing_pkgs() {
@@ -100,27 +207,53 @@ missing_pkgs() {
     done
 }
 
+# Có tồn tại trong kho nào đang bật không. Cần vì `pacman -S a b c` huỷ CẢ LÔ
+# khi chỉ một gói không tìm thấy ("target not found") — đã kiểm: cho
+# `pacman -Sp less fake-pkg-xyz` thì cả `less` cũng không được nạp, exit 1.
+# Mấy gói như visual-studio-code-bin hay discord-ptb nằm ở repo thứ ba, thiếu
+# repo đó là toàn bộ nhóm hỏng theo.
+available_pkgs() {
+    local -a missing=("$@")
+    local -a ok=() bad=()
+    local p
+    for p in "${missing[@]}"; do
+        if pacman -Sddp "$p" >/dev/null 2>&1; then ok+=("$p"); else bad+=("$p"); fi
+    done
+    if (( ${#bad[@]} )); then
+        warn "không có trong kho nào đang bật, bỏ qua: ${bad[*]}"
+    fi
+    (( ${#ok[@]} )) || return 0
+    root_sh -c 'pacman -S --needed --noconfirm "$@"' _ "${ok[@]}"
+}
+
 install_pkgs() {
-    local -n ref=$1
+    # Truyền "$1" (TÊN mảng) chứ không phải "$ref". Với `local -n ref=$1`,
+    # biến "$ref" mở rộng ra GIÁ TRỊ của mảng — tức phần tử đầu tiên — chứ
+    # không phải tên. `missing_pkgs "$ref"` vì thế nhận "dunst" thay vì
+    # "PKG_CONFIG", rồi `local -n ref=dunst` tạo nameref tới biến rỗng
+    # `dunst`; vòng lặp duyệt rỗng nên luôn ra "đã đủ". Đã tái hiện được:
+    # mảng PKG_CONFIG bắt đầu bằng `dunst` (tên biến hợp lệ, lỗi im lặng),
+    # PKG_BUILD bắt đầu bằng `base-devel` (tên không hợp lệ, báo lỗi
+    # "invalid variable name"). Ở đây chỉ cần tên, không cần nameref.
     local label=$2
-    local missing
-    mapfile -t missing < <(missing_pkgs "$ref")
+    local -a missing=()
+    mapfile -t missing < <(missing_pkgs "$1")
     if (( ${#missing[@]} == 0 )); then
         ok "$label: đã đủ"
         return 0
     fi
     step "cài gói ($label): ${#missing[@]} thiếu"
     printf '    %s\n' "${missing[*]}"
-    root_sh -c 'pacman -S --needed --noconfirm "$@"' _ "${missing[@]}"
+    available_pkgs "${missing[@]}"
     ok "$label: xong"
 }
 
 cmd_deps() {
     detect_sudo
-    install_pkgs PKG_CORE     "build"
-    install_pkgs PKG_SESSION "session"
-    install_pkgs PKG_DESKTOP "desktop"
-    install_pkgs PKG_FIREFOX "firefox"
+    install_pkgs PKG_BUILD      "build"
+    install_pkgs PKG_SESSION    "session"
+    install_pkgs PKG_CONFIG     "config-apps"
+    install_pkgs PKG_KEYBINDS   "keybind-apps"
 }
 
 # ------------------------------------------------------------------ build ---
@@ -224,16 +357,22 @@ install_dotfile() {
 
 cmd_dotfiles() {
     step "cài dotfiles vào ~/.config"
+    # Danh sách này phải khớp PKG_CONFIG: mỗi gói ở đó có đúng một mục ở đây,
+    # và ngược lại. Thêm dotfile mới thì sửa cả hai chỗ — nếu không sẽ có
+    # dotfile được copy tới ~/.config mà không cài gói nào, hoặc cài gói mà
+    # không dotfile nào dùng tới.
+    local -a items=(dunst fastfetch firefox fish kitty picom starship.toml xsettingsd)
     local n=0 d
-    for d in dunst fastfetch kitty picom xsettingsd fish firefox; do
-        if [[ -d "$REPO_DIR/.config/$d" ]]; then
+    for d in "${items[@]}"; do
+        # starship.toml là file, còn lại là thư mục — install_dotfile nhận cả hai
+        if [[ -e "$REPO_DIR/.config/$d" ]]; then
             install_dotfile "$REPO_DIR/.config/$d" "$HOME/.config/$d"
             n=$((n + 1))
+        else
+            warn "thiếu .config/$d trong repo — bỏ qua"
         fi
     done
-    [[ -f $REPO_DIR/.config/starship.toml ]] &&
-        install_dotfile "$REPO_DIR/.config/starship.toml" "$HOME/.config/starship.toml"
-    ok "xong ($n thư mục)"
+    ok "xong ($n/${#items[@]} mục)"
 }
 
 cmd_firefox() {

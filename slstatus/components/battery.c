@@ -1,5 +1,6 @@
 /* See LICENSE file for copyright and license details. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../slstatus.h"
@@ -76,6 +77,45 @@
 		return (i == LEN(map)) ? "?" : map[i].symbol;
 	}
 
+	/*
+	 * Cả khối pin: icon + phần trăm + ký hiệu sạc, đóng gói thành MỘT
+	 * chuỗi. Trả nullptr khi máy không lắp pin, nên slstatus in ra
+	 * unknown_str (rỗng) — cả icon biến mất thay vì còn icon rỗng bên
+	 * cạnh số trống.
+	 *
+	 * Vì sao không dùng battery_perc + battery_state như trước: cả hai trả
+	 * nullptr khi không có pin, nhưng format string trong config.h vẫn in ra
+	 * phần chữ tĩnh của nó (mã màu, icon, dấu phần trăm). Máy không lắp pin
+	 * thì bar vẫn hiện icon rỗng — đúng lỗi cần sửa.
+	 *
+	 * Màu lấy từ môi trường do slstatus.c setenv theo config.h, nên vẫn đổi
+	 * theo theme wallpaper (dwmwal.sh thay sentinel trong config.def.h) mà
+	 * không phải nhét mã màu vào đây.
+	 */
+	const char *
+	battery_bar(const char *bat)
+	{
+		int cap_perc;
+		char path[PATH_MAX];
+		const char *col, *colstate, *state;
+
+		if (esnprintf(path, sizeof(path), POWER_SUPPLY_CAPACITY, bat) < 0)
+			return nullptr;
+		if (pscanf(path, "%d", &cap_perc) != 1)
+			return nullptr;
+
+		col = getenv("SLSTATUS_BAT_COLOUR");
+		if (!col || !*col)
+			col = "#4296d7";
+		colstate = getenv("SLSTATUS_BAT_STATE_COLOUR");
+		if (!colstate || !*colstate)
+			colstate = "#8cbadd";
+
+		state = battery_state(bat);
+		return bprintf("^c%s^\357\211\200 %d%%^d^^c%s^%s^d^ ", col,
+		                cap_perc, colstate, state ? state : "?");
+	}
+
 	const char *
 	battery_remaining(const char *bat)
 	{
@@ -111,7 +151,18 @@
 
 		return "";
 	}
+
 #elif defined(__OpenBSD__)
+/*
+ * Nền tảng khác: chưa dựng battery_bar. Trả nullptr nghĩa là khối pin bị
+ * ẩn — cùng hành vi với máy không lắp pin.
+ */
+const char *
+battery_bar(const char *unused)
+{
+	return nullptr;
+}
+
 	#include <fcntl.h>
 	#include <machine/apmvar.h>
 	#include <sys/ioctl.h>
@@ -190,7 +241,18 @@
 
 		return nullptr;
 	}
+
 #elif defined(__FreeBSD__)
+/*
+ * Nền tảng khác: chưa dựng battery_bar. Trả nullptr nghĩa là khối pin bị
+ * ẩn — cùng hành vi với máy không lắp pin.
+ */
+const char *
+battery_bar(const char *unused)
+{
+	return nullptr;
+}
+
 	#include <sys/sysctl.h>
 
 	#define BATTERY_LIFE  "hw.acpi.battery.life"

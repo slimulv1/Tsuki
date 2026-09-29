@@ -64,6 +64,14 @@ static const char unknown_str[] = "";
  * wifi_essid          WiFi ESSID                      interface name (wlan0)
  * wifi_perc           WiFi signal in percent          interface name (wlan0)
  */
+/*
+ * Màu khối pin — sentinel để dwmwal.sh thay mỗi lần đổi wallpaper.
+ * Truyền xuống battery_bar() qua setenv (xem slstatus.c), vì battery_bar()
+ * trả về cả icon lẫn màu trong MỘT chuỗi để ẩn trọn khối khi không có pin.
+ */
+static const char bat_colour[] = "#42d757";
+static const char bat_state_colour[] = "#82aae8";
+
 static const struct arg args[] = {
     // Màu theo theme wal: dwmwal.sh thay sentinel XXX_HEX bằng #RRGGBB mỗi khi
     // đổi wallpaper (xem dwmwal.sh section 9) rồi rebuild slstatus.
@@ -82,7 +90,7 @@ static const struct arg args[] = {
 { run_command, "^c#96eba2^󱩱 %s°C^d^ ",        "~/dwm/scripts/cpu_temp.sh" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
 { net_icon,      "^c#7842d7^ %s ",               nullptr },  /* icon internet: MAU CO DINH #7842d7 — KHONG dung sentinel nen khong doi theo wallpaper; chi click vao icon (marker trong net_icon.c) -> netpanel.sh */
 { wifi_panel,    "%s",                           nullptr },  /* Wi-Fi Mini: chỉ tên mạng đang kết nối; màu nằm trong wifi_panel.c (#define) nên cũng cố định */
-{ battery_perc,  "^c#42d757^ %s%%^d^",          "BAT1" },
-{ battery_state, "^c#82aae8^%s^d^ ",        "BAT1" },
+{ battery_bar,   "%s",                           "BAT1" },
+  /* Trả cả khối (icon + % + ký hiệu) hoặc rỗng nếu máy không lắp pin. */
 { datetime,      "^c#82aae8^󰸗 %s^d^",          "%a, %d/%m, %H:%M" },
 };

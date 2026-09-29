@@ -82,6 +82,18 @@ main(int argc, char *argv[])
 	if (!sflag && !(dpy = XOpenDisplay(nullptr)))
 		die("XOpenDisplay: Failed to open display");
 
+	/*
+	 * Truyền màu pin xuống component qua môi trường.
+	 *
+	 * Lý do: battery_bar() phải trả về CẢ KHỐI (icon + số + ký hiệu) để
+	 * khi máy không lắp pin, cả khối biến mất chứ không còn icon rỗng. Màu
+	 * thì vẫn phải theo theme — mà theme nằm ở config.h, do dwmwal.sh thay
+	 * sentinel ở đó. Nếu nhét mã màu vào battery.c thì dwmwal.sh không sờ
+	 * tới, và pin sẽ kẹt một màu cứng không đổi theo wallpaper.
+	 */
+	setenv("SLSTATUS_BAT_COLOUR", bat_colour, 1);
+	setenv("SLSTATUS_BAT_STATE_COLOUR", bat_state_colour, 1);
+
 	do {
 		if (clock_gettime(CLOCK_MONOTONIC, &start) < 0)
 			die("clock_gettime:");

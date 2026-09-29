@@ -26,6 +26,7 @@ Personal dwm rice for Arch/CachyOS — built around minimalism, performance, and
 | `slock` | Lock screen |
 | `netpanel` | Bấm icon Wi-Fi trên bar là ra panel: chọn mạng, giữ band, chia sẻ mật khẩu bằng QR |
 | `dmenu` | Launcher |
+| `.config/firefox/` | Giao diện Firefox tối giản kiểu qutebrowser (userChrome.css) |
 | `scripts/` | Toàn bộ "phần mềm giữa": khởi động session, đổi wallpaper + sinh màu, picker ảnh nền, decoder ảnh viết bằng C, wrapper chơi game... |
 | `.config/` | Config cho kitty, dunst, fastfetch, fish + starship, picom |
 
@@ -80,61 +81,216 @@ Vài cái đáng nói:
 cp -r ~/dwm/.config/* ~/.config/     # hoặc symlink từng thư mục nếu thích gỡ bỏ dễ
 ```
 
-> **Firefox transparent chrome (userChrome.css)** nằm riêng ở `.config/firefox/` trong repo —
-> copy vào profile Firefox đang dùng, rồi **đổi path @import** cho khớp đường dẫn máy:
+> ### Firefox — giao diện tối giản kiểu qutebrowser
+>
+> Firefox trên Tsuki mặc định ăn mình cái giao diện phẳng, bo góc bằng 0, thanh
+> địa chỉ mảnh dính, nút thừa bị đá hết — đúng kiểu lười nhất có thể mà vẫn nhìn ra
+> là người biết dùng bàn phím. Không có màu chuyển theo wallpaper, không có tab
+> trong suốt xuyên ảnh nền, không có gì cả. Bù lại nó nhẹ, không giật, không xung đột
+> với bất cứ theme nào khác, và quan trọng nhất: **không bao giờ hỏng** vì tôi lỡ tay
+> sửa `@import` trỏ nhầm đường dẫn.
+>
+> Nguồn: [Dook97/firefox-qutebrowser-userchrome](https://github.com/Dook97/firefox-qutebrowser-userchrome)
+> (GPL-3.0, 206 sao). Tác giả ghi rõ theme này sinh ra cho WM kiểu dwm, xmonad, awesome —
+> nên nó hợp với Tsuki từ gốc.
+>
+> **Cài — ba lệnh, xong:**
 >
 > ```sh
-> # 1. Tìm profile (có chứa chuỗi .default-release, không -back-ovfs)
-> ls ~/.config/mozilla/firefox/*.default-release*/
-> # 2. Copy 2 file vào thư mục chrome/ của profile đó
-> PROFILE=~/.config/mozilla/firefox/<tên-profile>
+> # 1. Copy user.js và userChrome.css vào profile Firefox đang dùng
+> PROFILE=$(ls -d ~/.config/mozilla/firefox/*.default-release 2>/dev/null | head -1)
 > mkdir -p "$PROFILE/chrome"
-> cp .config/firefox/user.js                     "$PROFILE/"
-> cp .config/firefox/chrome/userChrome.css       "$PROFILE/chrome/"
-> # 3. Trong userChrome.css, sửa @import trỏ tới màu dwmwal:
-> #    ../../../../../.cache/dwmwal/colors.css
-> #    (path tính từ chrome/, 5 cấp lên tới ~/ rồi vào .cache/dwmwal/)
+> cp .config/firefox/user.js           "$PROFILE/"
+> cp .config/firefox/chrome/userChrome.css "$PROFILE/chrome/"
+>
+> # 2. Xong. Restart Firefox.
 > ```
 >
-> **Cần bật** `browser.tabs.allowTransparentBrowser=true` — file `user.js` tự đặt khi Firefox
-> khởi động (userPref). Toàn bộ cấu hình cần thiết đều nằm trong `.config/firefox/user.js`
-> (đã copy ở bước 2), gồm:
+> Hết. Không sửa `@import`, không chỉnh path, không đoán mò. Dook97 dùng màu viết cứng
+> trong file nên copy là chạy, không cần bất cứ bước nào khác.
+>
+> **Lưu profile tốt vào trước** (không nhất thiết nhưng nên):
+>
+> ```sh
+> ls ~/.config/mozilla/firefox/
+> ```
+>
+> Nếu thấy mấy thứ kiểu `*.default-release-back-ovfs`, `*-backup` — đừng xóa bừa. Đó là
+> bản sao lưu của Firefox hoặc lớp overlay của bạn. Cài nhầm profile thì profile đúng vẫn
+> nguyên, chỉ mất thời gian xóa đi làm lại.
+>
+> **Ba thứ phải bật**, tất cả nằm sẵn trong `user.js` mà bạn vừa copy — Firefox tự áp
+> dụng lúc khởi động:
 >
 > ```js
-> // 1. BẮT BUỘC - bật userChrome.css (nếu tắt, css customize không load)
-> user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
-> // 2. Cho phép vẽ nền trong suốt (cho tab trong suốt xuyên wallpaper)
-> user_pref("browser.tabs.allowTransparentBrowser", true);
-> // 3. Tắt theme "Nova" mặc định (nếu để on, nó đè/bao phủ userChrome.css)
-> user_pref("browser.nova.enabled", false);
-> // 4. Hiện tùy chọn mật độ Compact trong menu Customize toolbar
-> user_pref("browser.compactmode.show", true);
+> user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true); // bật userChrome.css — tắt là CSS chết
+> user_pref("browser.nova.enabled", false);                              // tắt theme Nova, nó đè CSS của bạn
+> user_pref("browser.compactmode.show", true);                          // lộ tùy chọn Density
 > ```
 >
-> Sau khi copy `user.js` + `userChrome.css` vào profile và **restart Firefox**:
+> Còn `browser.tabs.allowTransparentBrowser` thì **không còn dùng** với theme này. Dook97
+> vẽ nền đục, không trong suốt — bật nó chỉ là thừa.
 >
-> 1. **Kiểm tra CSS hoạt động** — mở `about:config`, xác nhận
->    `toolkit.legacyUserProfileCustomizations.stylesheets` = `true` (nếu vẫn `false`,
->    set thủ công rồi restart).
-> 2. **Bật Compact density** (nếu muốn giao diện gọn như thiết kế) — vào
->    **Customize toolbar** (chuột phải thanh tab → Customize), hạ góc phải chọn
->    **Density → Compact**. (Chỉ khi `browser.compactmode.show=true` tùy chọn này mới hiện.)
+> **Restart Firefox** rồi làm hai việc còn lại:
 >
-> Sau đó **restart Firefox**. Màu tab/toolbar sync tự động theo wallpaper
-> (dwmwal ghi `~/.cache/dwmwal/colors.css` mỗi lần đổi ảnh). Hiệu quả: **tab trong suốt**
-> (thấy wallpaper), toolbar + url bar + nội dung vẫn nền đục cho dễ đọc.
+> 1. **Bật Compact density** — chuột phải thanh tab → **Customize toolbar** → góc phải →
+>    **Density → Compact**. Chỉ hiện khi `browser.compactmode.show=true`, nên nếu thấy
+>    mục này biến mất thì đừng tìm, quay lại `about:config` kiểm tra pref.
+> 2. **Xem kỹ nếu Firefox thêm tab "Firefox View"** ở góc trái — gỡ nó trong Customize
+>    toolbar, theme này cố tình giấu hết nút thừa, để lại nó thì mất tinh thần.
+>
+> **Font:** Dook97 dùng `DejaVu Sans Mono`. Máy bạn có sẵn 4 biến thể DejaVu nên không
+> cài gì thêm. Nếu muốn đổi (Iosevka, JetBrains Mono Nerd của Tsuki), sửa hai dòng
+> `--tab-font` và `--urlbar-font` ở đầu file.
+>
+> **Tridactyl — mảnh ghép còn thiếu, và là bắt buộc nếu bạn muốn theme này hết ý nghĩa.**
+>
+> Dook97 giấu hết nút, chỉ còn lại thanh địa chỉ. Chuột thì xong, nhưng để quản lý tab
+> bằng chuột thì hơi điên. Tridactyl lấp đúng lỗ hổng đó: điều khiển Firefox kiểu Vim.
+>
+> ```sh
+> sudo pacman -S firefox-tridactyl
+> ```
+>
+> Restart Firefox **hai lần** (bản pacman là bản beta đông lạnh, lần một chưa chạy).
+> Bản mới nhất tự cập nhật hằng ngày: <https://tridactyl.cmcaine.co.uk/betas/tridactyl-latest.xpi>
+> — mở bằng Firefox, đổi đuôi `.zip` thành `.xpi` nếu nó không tự cài.
+>
+> Dùng thử:
+>
+> - `f` — bật chữ cái lên mọi link, gõ tiếp để nhảy, chạm chuột hoặc Enter để mở
+> - `j` / `k` — cuộn xuống / lên
+> - `H` / `L` — lịch sử ngược / tới
+> - `yy` — copy URL, `/` — tìm nhanh trong trang
+> - `ZZ` — đóng Firefox
+> - `:help` — bảng phím đầy đủ, `:tutor` — bài tập tương tác
+>
+> Config nằm ở `~/.tridactylrc`, sửa như `.vimrc`. Tridactyl **không chạy** trên `about:*`,
+> `view-source:*`, `file:*` — cũng đúng như mọi thứ khác.
+>
+> Ở repo có `tridactyl-guide.md` — cẩm nang tiếng Việt, đầy đủ mấy thứ mà `:help` không
+> giải thích: quickmark, containers, quản lý nhiều tab, tuỳ biến. Đọc khi chán, không
+> đọc ngay cũng được.
+>
+> **Muốn tinh chỉnh:** màu nằm gọn trong khối `:root` đầu file. `--tab-min-height` nâng
+> lên nếu thấy sọc đen dưới thanh tab, `--navbar-height-setting` để thanh cao/thấp tuỳ
+> ý. Tắt favicon thì tìm dòng `/* disable favicons */` rồi comment nó.
+>
+> **Quay lại theme theo wallpaper (nếu đổi ý):**
+>
+> ```sh
+> PROFILE=$(ls -d ~/.config/mozilla/firefox/*.default-release 2>/dev/null | head -1)
+> cd ~/dwm
+> git log --oneline -- .config/firefox/chrome/userChrome.css   # tìm commit trước khi đổi
+> git show <commit>:.config/firefox/chrome/userChrome.css > "$PROFILE/chrome/userChrome.css"
+> cp ~/.cache/dwmwal/colors.css "$PROFILE/chrome/colors.css"
+> ```
+>
+> Bản cũ còn nằm trong git, lấy lại được. Nhưng nhớ câu này: theme theo wallpaper cần
+> `@import colors.css` nằm cạnh nó, và `dwmwal.sh` phải copy file đó vào mỗi profile —
+> hiện đã bỏ, nên quay lại thì phải bật lại. Nói thật thì xem ảnh chụp ở trên rồi tự
+> quyết, tôi không giữ ý kiến.
 
-![Firefox transparent chrome](assets/firefox.png)
+![Firefox minimalist chrome](assets/firefox.png)
 
 ### Chạy session
 
-Thêm dòng này vào `~/.xinitrc`:
+`run.sh` lo từ A-Z: nạp Xresources, trả lại wallpaper cũ, chạy picom, polkit, fcitx5, slstatus (chết tự sống lại), updater và mediacard, rồi cuối cùng là dwm. Có hai cách đăng nhập vào nó.
 
-```sh
-exec ~/dwm/scripts/run.sh
+#### Gói cần thêm trước
+
+```
+sudo pacman -S --needed xorg-server xorg-xwayland xorg-xrdb xorg-xset
 ```
 
-Lần bấm máy tiếp theo `run.sh` sẽ lo từ A-Z: nạp Xresources, trả lại wallpaper cũ, chạy picom, polkit, fcitx5, slstatus (chết tự sống lại), updater và mediacard, rồi cuối cùng là dwm.
+- `xorg-server` — dwm là X11 thuần. Máy chỉ chạy GNOME/Wayland thì **không có binary `Xorg`**, nên mọi session X sẽ chết ngay lúc đăng nhập.
+- `xorg-xrdb`, `xorg-xset` — `run.sh` gọi `xrdb` và `xset`. Danh sách Dependencies ở trên không có hai gói này; thiếu thì dòng đó chết âm thầm.
+- `xorg-xinit` — chỉ cần cho [Cách B](#cách-b--không-display-manager-startx-từ-tty).
+
+Ngoài ra hai tên gói trong danh sách Dependencies không tồn tại trên Arch: `freetype` là `freetype2`, và `nerd-fonts` không có trong repo — dùng `ttf-jetbrains-mono-nerd` (đúng family name mà `config.h` yêu cầu).
+
+#### Cách A — có display manager (GDM / SDDM / LightDM)
+
+Session entry phải nằm ở `/usr/share/xsessions/`:
+
+```sh
+sudo install -d -m 755 /usr/share/xsessions
+sudo tee /usr/share/xsessions/Tsuki.desktop >/dev/null <<'EOF'
+[Desktop Entry]
+Name=Tsuki
+Comment=Tsuki — dwm session (wallpaper-aware)
+Exec=/home/USER/.local/bin/tsuki-session
+Icon=preferences-desktop
+Terminal=false
+Type=Application
+EOF
+sudo chmod 644 /usr/share/xsessions/Tsuki.desktop
+```
+
+Thay `USER` bằng tên user của bạn. Kèm một wrapper, vì `run.sh` kết thúc bằng `while type dwm; do dwm; done` — nó tra `dwm` trong `PATH`:
+
+```sh
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/tsuki-session <<'EOF'
+#!/bin/sh
+export PATH="$PATH:/usr/local/bin"
+exec "$HOME/dwm/scripts/run.sh"
+EOF
+chmod +x ~/.local/bin/tsuki-session
+```
+
+Không có wrapper thì session desktop file chạy bằng `sh` chứ không qua login shell, `PATH` kế thừa từ display manager có thể thiếu `/usr/local/bin` (nơi `make install` đặt `dwm`, `st`, `slock`, `slstatus`, `dmenu`). Hệ quả: vòng lặp thoát ngay và bạn bị đá về màn hình đăng nhập mà không thấy cửa sổ nào.
+
+Sau đó logout, bấm biểu tượng bánh răng ở màn hình đăng nhập, chọn **Tsuki**. Session cũ (GNOME/Wayland) vẫn còn nguyên — muốn bỏ Tsuki thì xoá `/usr/share/xsessions/Tsuki.desktop`.
+
+> **Đừng đặt file ở `~/.xsessions`.** Cái đó là thói quen từ LightDM và chỉ có hiệu lực với một số DM. GDM chỉ quét `/usr/share/xsessions/`, `/usr/share/wayland-sessions/` và `/etc/X11/sessions/` — kiểm bằng `strings /usr/bin/gdm | grep xsessions`. File nằm ở `~/.xsessions` sẽ **không hiện** ở màn hình login, và không có lỗi nào báo ra để bạn biết vì sao.
+
+#### Greeter chạy Wayland, session chạy X11
+
+Greeter của GDM mặc định là **Wayland**. Điều đó không cản session X11: khi bạn chọn Tsuki, GDM khởi động Xorg riêng cho session đó (chính là lý do cần `xorg-server`). Greeter Wayland + session X11 là tổ hợp bình thường, không phải cấu hình lệch.
+
+Nếu display manager của bạn cố tình tắt session X:
+
+- **SDDM** — trong `/etc/sddm.conf`, phần `[Theme]` cần `WaylandSession=false` để buộc greeter X11; session trong `[Autologin]` phải trỏ tên khớp `Name=` của file `.desktop`.
+- **GDM** — không cần cấu hình gì thêm, chỉ cần `xorg-server` và file trong `/usr/share/xsessions/`.
+- **LightDM** — quét `/usr/share/xsessions/` luôn, nên Cách A chạy được nguyên xi.
+
+#### Cách B — không display manager (startx từ TTY)
+
+```sh
+sudo pacman -S --needed xorg-xinit
+echo 'exec ~/dwm/scripts/run.sh' > ~/.xinitrc
+```
+
+Logout, tới TTY (Ctrl+Alt+F2), đăng nhập, rồi `startx`. Cách này không cần file `.desktop` nào — nhưng cũng nghĩa là không có màn hình đăng nhập, và phải cài `xorg-xinit` vì `startx` nằm trong gói đó.
+
+#### XWayland — chạy app Wayland-only trong dwm
+
+Đây là mảnh ghép hay bị sót. Gói `xorg-xwayland` **chỉ cài đúng binary `/usr/bin/Xwayland`**, không kèm hook nào tự bật nó trong X session (`/etc/X11/xinit/xinitrc.d/` không có script nào gọi tới nó). Không bật thì mọi app chỉ hỗ trợ Wayland — Discord, Steam client, Firefox bản Wayland — sẽ không mở được.
+
+Thêm vào `run.sh`, **trước** dòng `while type dwm`:
+
+```sh
+# XWayland — app Wayland-only (Discord, Steam, ...) cần nó
+if ! pgrep -x Xwayland >/dev/null; then
+    Xwayland :1 -rootless -noreset &
+    sleep 0.5
+fi
+export WAYLAND_DISPLAY=wayland-1
+export XDG_CURRENT_DESKTOP=dwm
+```
+
+Quy tắc ánh xạ: `Xwayland :N` sinh socket `wayland-N`. GNOME chạy `Xwayland :0 -rootless -noreset -accessx -core` và tạo `wayland-0`; trong dwm, X display thường rơi vào `:1` nên socket là `wayland-1`. Nếu sau này bạn đăng nhập X ở display khác, số trong `WAYLAND_DISPLAY` phải theo.
+
+Giới hạn cần biết: chia sẻ màn hình và một số tính năng clipboard của app Wayland không hoạt động tốt qua XWayland. Đó là giới hạn của XWayland, không phải của Tsuki.
+
+#### Ảnh nền
+
+`run.sh` đọc `scripts/.wallpaper`, thiếu thì rơi về `~/Pictures/Wallpapers/japanese.jpg` — file này **không có trong repo**. Máy mới sẽ có nền đen vì `feh` fail. Trỏ vào ảnh của bạn:
+
+```sh
+echo "$HOME/Pictures/Wallpapers/<tên-ảnh>.jpg" > ~/dwm/scripts/.wallpaper
+```
 
 ## Tích hợp nổi bật
 

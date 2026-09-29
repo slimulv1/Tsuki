@@ -80,13 +80,6 @@ cat > "$CACHE/colors.css" << EOF
 }
 EOF
 
-# 2c) copy colors.css vào chrome/ của các profile Firefox đang có.
-#     Bỏ qua profile không có userChrome.css (không cài theme này).
-for ffchrome in "$HOME"/.config/mozilla/firefox/*/chrome; do
-    [ -f "$ffchrome/userChrome.css" ] || continue
-    cp -f "$CACHE/colors.css" "$ffchrome/colors.css" 2>/dev/null || true
-done
-
 # ---------------------------------------------------------------------------
 # 3) Đặt wallpaper (feh) + lưu lại cho lần chạy sau
 # ---------------------------------------------------------------------------

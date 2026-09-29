@@ -1,19 +1,11 @@
-/* colors.css nằm cạnh userChrome.css — đường dẫn tương đối 1 cấp này không
- * phụ thuộc vị trí/thứ sâu của profile. Đường dẫn kiểu "../../../../../.cache/"
- * (như README gợi ý) hỏng khi profile là symlink: Firefox resolve theo realpath
- * nên 5 cấp lên rơi vào /run/ thay vì ~, rồi @import fail âm thầm — mọi màu rơi
- * về fallback viết sẵn trong file. File colors.css cạnh bên được
- * scripts/dwmwal.sh copy sang mỗi khi đổi wallpaper. */
-@import url("colors.css");
-
 :root {
-	--tab-active-bg-color: var(--color4, #057);
-	--tab-inactive-bg-color: var(--color0, #333);
-	--tab-active-fg-fallback-color: var(--color0, #eee);		/* color of text in an active tab without a container */
-	--tab-inactive-fg-fallback-color: var(--color8, #888);		/* color of text in an inactive tab without a container */
-	--urlbar-focused-bg-color: var(--color8, #41404c);
-	--urlbar-not-focused-bg-color: var(--color0, #1c1b22);
-	--toolbar-bgcolor: var(--color0, #2b2a33) !important;
+	--tab-active-bg-color: #057;
+	--tab-inactive-bg-color: #333;
+	--tab-active-fg-fallback-color: #eee;		/* color of text in an active tab without a container */
+	--tab-inactive-fg-fallback-color: #888;		/* color of text in an inactive tab without a container */
+	--urlbar-focused-bg-color: #41404c;
+	--urlbar-not-focused-bg-color: #1c1b22;
+	--toolbar-bgcolor: #2b2a33 !important;
 	--tab-font: 'DejaVu Sans Mono';
 	--urlbar-font: 'DejaVu Sans Mono';
 
@@ -33,6 +25,7 @@
 	--urlbar-border-radius: 0 !important;
 	--panel-box-shadow-margin: 0 !important;
 	--toolbarbutton-padding-inner: 0.3em !important;
+	--urlbarview-border-radius: 0 !important;
 }
 
 /* --- GENERAL DEBLOAT ---------------------------------- */
@@ -86,7 +79,7 @@ toolbar .toolbarbutton-1 { padding: 0 0 !important; }
 }
 
 #urlbar {
-	padding-left: 0.5em !important;
+	padding-left: 0.3em !important;
 	--urlbar-height: var(--navbar-height-setting) !important;
 	--urlbar-toolbar-height: var(--navbar-height-setting) !important;
 	min-height: var(--navbar-height-setting) !important;
@@ -94,7 +87,7 @@ toolbar .toolbarbutton-1 { padding: 0 0 !important; }
 
 .urlbar {
 	overflow: hidden !important;
-	background-color: var(--color0, #1c1b22);
+	background-color: #1c1b22;
 }
 
 #urlbar-input {
@@ -420,73 +413,4 @@ tab {
 /* Move up the content view */
 :root[sessionrestored]:not([chromehidden~="toolbar"]) > body > #browser {
 	margin-top: var(--uc-navbar-transform);
-}
-
-/* ======================================================
-   TRANSPARENT CHROME (giao diện trong suốt + content đục)
-   Cần: browser.tabs.allowTransparentBrowser=true (user.js)
-   ====================================================== */
-:root:has(#navigator-toolbox) {
-	--toolbar-bgcolor: transparent !important;
-	--toolbar-bgimage: none !important;
-	--tab-active-bg-color: color-mix(in srgb, var(--color4, #057) 55%, transparent) !important;
-	--tab-inactive-bg-color: color-mix(in srgb, var(--color0, #333) 40%, transparent) !important;
-	--urlbar-not-focused-bg-color: var(--color0, #1c1b22) !important;
-	--urlbar-focused-bg-color: var(--color8, #41404c) !important;
-	--tab-text: var(--color15, #fff);
-	--urlbar-fg: var(--color15, #fff);
-	--tab-selected-textcolor: var(--color15, #fff) !important;
-	--lwt-accent-color: transparent !important;
-	--lwt-accent-color-inactive: transparent !important;
-	--lwt-text-color: var(--color15, #fff) !important;
-	--lwt-tab-text: var(--color15, #fff) !important;
-}
-
-/* Khung + tab strip trong suốt (để tab thấy wallpaper) */
-#navigator-toolbox,
-#titlebar,
-#TabsToolbar,
-.tabbrowser-tab,
-.tab-background {
-	background-color: transparent !important;
-	background-image: none !important;
-}
-
-/* Toolbar (địa chỉ) + bookmark bar đục */
-#nav-bar,
-#PersonalToolbar {
-	background-color: var(--color0, #1c1b22) !important;
-	background-image: none !important;
-}
-
-/* Keep active tab clearly distinguishable (semi-transparent accent bar) */
-.tabbrowser-tab[selected="true"] .tab-background {
-	background-color: color-mix(in srgb, var(--color4, #057) 65%, transparent) !important;
-	box-shadow: inset 0 2px 0 var(--color4, #057) !important;
-}
-
-/* Text legible over wallpaper */
-#TabsToolbar,
-#nav-bar,
-#urlbar-input,
-.tab-text,
-.tabbrowser-tab {
-	color: var(--color15, #f0f0f0) !important;
-}
-
-.toolbarbutton-1 > .toolbarbutton-icon,
-.urlbar-icon,
-#unified-extensions-button .toolbarbutton-badge-stack {
-	fill: currentColor !important;
-}
-
-/* Keep webpage content fully opaque (never transparent) */
-#tabbrowser-tabbox,
-.browserContainer,
-.browserStack,
-#tabbrowser-tabpanels,
-.browser-tabpanels {
-	background-color: #1e1e28 !important;
-	background: #1e1e28 !important;
-	opacity: 1 !important;
 }

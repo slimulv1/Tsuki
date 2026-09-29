@@ -1,12 +1,12 @@
 #!/bin/dash
 
 # dwmwal bar colors (tự sinh từ wallpaper)
-black=#1a1a1a
-green=#2c468e
-white=#d3cfcf
-grey=#635454
-blue=#d76642
-red=#84293f
-orange=#97952f
-teal=#e98da3
-darkblue=#b3b138
+black=#1a1d16
+green=#2b8f39
+white=#d1d8ca
+grey=#5c6354
+blue=#42d757
+red=#578528
+orange=#2e5898
+teal=#bbe98c
+darkblue=#3769b4

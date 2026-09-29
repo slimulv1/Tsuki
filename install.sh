@@ -295,7 +295,6 @@ Exec=$1/scripts/run.sh
 Icon=preferences-desktop
 Terminal=false
 Type=Application
-DesktopNames=dwm
 EOF
         chmod 644 "$d/Tsuki.desktop"
         echo "  + $d/Tsuki.desktop"
@@ -360,13 +359,72 @@ xlibre_add_key() {
     ok "khoá đã được trust"
 }
 
+# Liệt kê mọi mục [xlibre*] mà pacman đang dùng, kèm file khai báo.
+# Định dạng: [xlibre-beta]<TAB>/etc/pacman.conf
+#
+# Chỉ grep pacman.conf là thiếu — người dùng thường tự thêm [xlibre-beta]
+# thẳng vào pacman.conf, không qua file Include của ta, nên ta sẽ không thấy
+# và sẽ bật thêm kênh thứ hai. Hai kênh cùng bật thì pacman lấy version cao
+# nhất: bạn định dùng stable vẫn nhận beta.
+xlibre_active_channels() {
+    local conf f sec
+    conf=/etc/pacman.conf
+    [[ -r $conf ]] || return 0
+
+    while IFS= read -r sec; do
+        [[ -n $sec ]] && printf '%s\t%s\n' "$sec" "$conf"
+    done < <(grep -hoE '^\[xlibre[^]]*\]' "$conf" 2>/dev/null || true)
+
+    while read -r f; do
+        [[ -r $f ]] || continue
+        while IFS= read -r sec; do
+            [[ -n $sec ]] && printf '%s\t%s\n' "$sec" "$f"
+        done < <(grep -hoE '^\[xlibre[^]]*\]' "$f" 2>/dev/null || true)
+    done < <(
+        grep -hoE '^[[:space:]]*Include[[:space:]]*=[[:space:]]*.*' "$conf" 2>/dev/null \
+            | sed -E 's/^[^=]*=[[:space:]]*//' | tr -d '"'
+    )
+}
+
+readonly XLIBRE_OWN_CONF=/etc/pacman.d/xlibre.conf
+
 xlibre_add_repo() {
     local repo=$1
-    step "thêm repo [$repo] vào /etc/pacman.conf"
-    if grep -qF "[$repo]" /etc/pacman.conf; then
-        ok "đã có sẵn"
-        return 0
+    step "repo [$repo]"
+
+    local -a active=()
+    local sec src
+    while IFS=$'\t' read -r sec src; do
+        [[ -n $sec ]] && active+=("$sec"$'\t'"$src")
+    done < <(xlibre_active_channels)
+
+    if ((${#active[@]} > 1)); then
+        local list="" a
+        for a in "${active[@]}"; do
+            list+="        ${a%%$'\t'*}  (trong ${a##*$'\t'})
+"
+        done
+        die "đang bật nhiều kênh XLibre — pacman chỉ được dùng một:
+$list     Gỡ bớt rồi chạy lại. Xoá cả dòng [xlibre-...] lẫn file Include của nó."
     fi
+
+    if ((${#active[@]} == 1)); then
+        sec=${active[0]%%$'\t'*}
+        src=${active[0]##*$'\t'}
+        if [[ $sec == "[$repo]" ]]; then
+            ok "đã bật sẵn, không làm gì"
+            return 0
+        fi
+        # Kênh khác đang bật, khai báo trong file CỦA TA -> ghi đè được an toàn.
+        if [[ $src == "$XLIBRE_OWN_CONF" ]]; then
+            warn "đổi kênh: ${sec} -> [$repo] (trong $XLIBRE_OWN_CONF)"
+        else
+            die "$sec đang bật trong $src — không phải file Tsuki tạo, nên tôi không tự xoá.
+     Muốn dùng [$repo] thì hãy comment dòng $sec trong $src rồi chạy lại.
+     Còn muốn giữ $sec thì bỏ qua lệnh này."
+        fi
+    fi
+
     # Ghi vào /etc/pacman.d/xlibre.conf rồi Include — sạch hơn là đụng vào
     # pacman.conf của distro, và gỡ được chỉ bằng cách xoá 1 file.
     #
@@ -376,6 +434,7 @@ xlibre_add_repo() {
     root_sh -c '
         set -e
         f=/etc/pacman.d/xlibre.conf
+        install -d -m 755 /etc/pacman.d
         cat > "$f" <<EOF
 # XLibre — https://xlibre-arch.github.io/
 # Do Tsuki install.sh tạo. Muốn đổi kênh: ./install.sh xlibre <stable|beta|oldstable>
@@ -387,7 +446,7 @@ EOF
             printf "\nInclude = /etc/pacman.d/xlibre.conf\n" >> /etc/pacman.conf
         echo "  + $f"
     ' _ "$repo"
-    ok "repo [$repo]"
+    ok "đã bật [$repo]"
 }
 
 cmd_xlibre() {

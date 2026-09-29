@@ -5,14 +5,20 @@
 </p>
 
 <p align="center"><i>
-— good evening —<br><br>
-One window opens,<br>
-the pale moon comes in and stays —<br>
-nothing at all moves.<br><br>
-Each tile finds its place;<br>
-the keyboard speaks, not the hand —<br>
-and a color lands.
+— good evening —
 </i></p>
+
+<table>
+<tr><td colspan="2"><sub>English &nbsp;/&nbsp; 日本語（縦書き）</sub></td></tr>
+<tr>
+  <td><i>One window opens,<br>the pale moon comes in and stays<br>nothing at all moves.</i></td>
+  <td>ま<br>ど<br>ひ<br>と<br>つ<br><br>つ<br>き<br>の<br>し<br>ず<br>け<br>さ<br><br>な<br>に<br>も<br>な<br>し</td>
+</tr>
+<tr>
+  <td><i>Each tile finds its place;<br>the keyboard speaks, not the hand<br>and a color lands.</i></td>
+  <td>片<br>ひ<br>と<br>つ<br><br>夜<br>に<br>こ<br>た<br>へ<br>ぬ<br><br>色<br>お<br>ち<br>て</td>
+</tr>
+</table>
 
 <p align="center"><sub>月 &nbsp;·&nbsp; <a href="https://dwm.suckless.org/">dwm</a> rice for Arch/CachyOS</sub></p>
 

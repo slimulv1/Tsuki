@@ -54,9 +54,10 @@ Xong thì gõ `dwm`. Thoát về TTY bằng `Super+Ctrl+Q`.
 echo "$HOME/Pictures/Wallpapers/<tên>.jpg" > ~/dwm/scripts/.wallpaper
 ```
 
-XLibre thay X.Org được `install.sh` cài tự động, không phải làm gì thêm. Muốn
-đổi kênh (mặc định `stable`) thì `./install.sh xlibre beta`. Muốn có màn hình đăng
-nhập (GDM/SDDM/LightDM) thì `./install.sh session --dm`.
+XLibre thay X.Org được `install.sh` cài tự động ở bản **stable**, không phải làm
+gì thêm. Muốn thử bản beta thì chạy thêm `./install.sh xlibre beta` (lệnh này nâng
+cấp cả hệ thống). Muốn có màn hình đăng nhập (GDM/SDDM/LightDM) thì
+`./install.sh session --dm`.
 
 ## Cài tay phần còn lại
 

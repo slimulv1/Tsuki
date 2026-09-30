@@ -3,7 +3,7 @@
 # install.sh — cài Tsuki (dwm rice) trên Arch/CachyOS.
 #
 #   ./install.sh              # cài đầy đủ: deps -> build -> dotfiles -> session
-#   ./install.sh deps         # chỉ gói phụ thuộc (XLibre thay X.Org, tự hỏi)
+#   ./install.sh deps         # chỉ gói phụ thuộc (hỏi rồi cài XLibre stable)
 #   ./install.sh arisa        # hỏi rồi thêm kho arisa (Super+C, Super+D)
 #   ./install.sh paru         # cài paru để dùng AUR
 #   ./install.sh pty          # bộ gõ Lotus (tiếng Việt) — cần paru
@@ -12,11 +12,13 @@
 #   ./install.sh session      # chỉ cấu hình chạy từ TTY (.xinitrc)
 #   ./install.sh session --dm # cài thêm .desktop cho display manager
 #   ./install.sh uninstall    # gỡ binary Tsuki đã cài
-#   ./install.sh xlibre [kênh]  # đổi kênh: stable | beta | oldstable
+#   ./install.sh xlibre beta      # thử XLibre beta (25.2) — nâng cấp cả hệ thống
+#   ./install.sh xlibre oldstable # kênh cũ (25.0)
 #
-# XLibre thay X.Org: `deps` tự hỏi rồi cài, không cần làm gì thêm. Lệnh `xlibre`
-# ở trên KHÔNG phải để "chuyển sang XLibre" — phần đó đã tự động rồi. Nó chỉ
-# dùng để đổi kênh, và sẽ nâng cấp toàn hệ thống (`pacman -Syyu`).
+# XLibre thay X.Org: `deps` tự hỏi rồi cài bản STABLE, không cần làm gì thêm.
+# Muốn beta thì thêm lệnh `xlibre beta` vào sau. Lệnh `xlibre` ở trên không
+# phải để "chuyển sang XLibre" — việc đó đã tự động rồi; nó chỉ để đổi kênh,
+# và sẽ nâng cấp toàn hệ thống (`pacman -Syyu`).
 #
 # Không chạy `make clean` ở đâu cả: config.h là cấu hình thật của máy, đã được
 #
@@ -523,22 +525,6 @@ xlibre_repo_name() {
     esac
 }
 
-# Ngược của xlibre_repo_name: "[xlibre-beta]" -> "beta".
-# Trả về 1 và im lặng nếu tên mục không phải kênh nào ta biết. Quan trọng:
-# cmd_xlibre_auto gọi hàm này giữa lúc cài gói, mà xlibre_repo_name lại
-# `die` với kênh lạ — die ở giữa chừng thì người dùng bị bỏ lại với hệ thống
-# nửa vời nửa không. Ở đây trả về 1 để caller tự lo và rơi về mặc định.
-xlibre_channel_of() {
-    local name=${1#[}
-    name=${name%]}
-    case $name in
-        xlibre|xlibre-stable)  printf 'stable\n'    ;;
-        xlibre-beta)           printf 'beta\n'      ;;
-        xlibre-oldstable)      printf 'oldstable\n' ;;
-        *)                     return 1            ;;
-    esac
-}
-
 xlibre_add_key() {
     step "thêm khoá ký XLibre ($XLIBRE_KEY_FPR)"
     if pacman-key --finger "$XLIBRE_KEY_FPR" >/dev/null 2>&1; then
@@ -595,6 +581,44 @@ xlibre_active_channels() {
 }
 
 readonly XLIBRE_OWN_CONF=/etc/pacman.d/xlibre.conf
+
+# Được bật kênh $1 mà không cần tự xoá mục nào của người dùng không?
+#   0 = được
+#   1 = không — và hàm đã in lý do.
+#
+# Vì sao cần: XLibre mặc định là stable, nhưng người dùng có thể cố ý bật
+# beta để dùng thử (thường thêm thẳng vào /etc/pacman.conf). Xoá mục đó để
+# ép stable là hủy một lựa chọn có chủ đích mà không ai hỏi. Ở đường cài TỰ
+# ĐỘNG thì bỏ qua và nói rõ; lệnh `xlibre` tường minh thì vẫn `die` trong
+# xlibre_add_repo — gọi tường minh thì phải biết là không làm được.
+xlibre_repo_writable() {
+    local want=$1
+
+    # mapfile chứ không `| head -n1`: xlibre_active_channels chạy grep, head đóng
+    # sớm pipe thì grep nhận SIGPIPE (141) và pipefail hoá lỗi — đúng cái bẫy
+    # đã dính hai lần trong script này.
+    local -a lines=()
+    mapfile -t lines < <(xlibre_active_channels | grep -v '^$')
+
+    ((${#lines[@]} == 0)) && return 0
+
+    if ((${#lines[@]} > 1)); then
+        warn "đang bật ${#lines[@]} kênh XLibre cùng lúc — tôi không tự xoá mục nào:"
+        printf '    %s\n' "${lines[@]}"
+        warn "gộp còn một kênh rồi chạy lại."
+        return 1
+    fi
+
+    local sec=${lines[0]%%$'\t'*} src=${lines[0]##*$'\t'}
+    # Đúng kênh cần, dù khai báo ở đâu: xlibre_add_repo sẽ báo "đã bật sẵn".
+    [[ $sec == "[$want]" ]] && return 0
+    # Kênh khác nhưng nằm trong file TA tạo: ghi đè được, an toàn.
+    [[ $src == "$XLIBRE_OWN_CONF" ]] && return 0
+
+    warn "$sec đang bật trong $src — đó là lựa chọn của bạn, tôi không tự xoá."
+    warn "Muốn về [$want]: bỏ mục $sec khỏi $src rồi chạy lại."
+    return 1
+}
 
 xlibre_add_repo() {
     local repo=$1
@@ -657,18 +681,17 @@ EOF
     ok "đã bật [$repo]"
 }
 
-# Cài XLibre thay X.Org — chạy TỰ ĐỘNG trong `deps`, trước PKG_SESSION.
+# Cài XLibre stable thay X.Org — chạy TỰ ĐỘNG trong `deps`, trước PKG_SESSION.
 #
-# Vì sao phải trước: xlibre-xserver khai báo `Provides: xorg-server`. Đặt
-# cmd_xlibre_auto trước install_pkgs PKG_SESSION thì `missing_pkgs` thấy
-# xorg-server đã được đáp ứng và không kéo X.Org xuống. Đảo thứ tự thì X.Org
-# cài trước, xlibre-meta gỡ nó sau — tốn hai vòng cài/gỡ và để lại
-# /etc/X11/xorg.conf đọc sai.
+# Mặc định LUÔN là stable, không dò kênh đang bật rồi đi theo. Nếu âm thầm
+# dùng beta chỉ vì còn sót mục [xlibre-beta] từ lần cài trước thì "mặc định"
+# sẽ không còn là stable — và không ai hỏi. Muốn beta thì gọi tường minh:
+#     ./install.sh xlibre beta
 #
-# Vì sao phải dò kênh đang bật: người dùng có thể đã tự thêm [xlibre-beta]
-# thẳng vào /etc/pacman.conf. Nếu ta cứ chọn `stable` rồi đưa vào
-# xlibre_add_repo, hàm đó sẽ `die` vì thấy hai kênh cùng bật — và chết đúng
-# lúc đang cài. Dò trước, dùng luôn kênh đang có.
+# Vì sao phải trước PKG_SESSION: xlibre-xserver khai báo `Provides:
+# xorg-server`. Đặt cmd_xlibre_auto trước install_pkgs PKG_SESSION thì
+# `missing_pkgs` thấy xorg-server đã được đáp ứng và không kéo X.Org xuống.
+# Đảo thứ tự thì X.Org cài trước, xlibre-meta gỡ nó sau — tốn hai vòng cài/gỡ.
 cmd_xlibre_auto() {
     detect_sudo
 
@@ -677,47 +700,22 @@ cmd_xlibre_auto() {
         return 0
     fi
 
-    # mapfile, KHÔNG `| head -n1`: xlibre_active_channels chạy grep, head đóng
-    # sớm pipe thì grep nhận SIGPIPE (141) và pipefail biến nó thành lỗi —
-    # đúng cái bẫy đã dính hai lần trong script này.
-    local -a sections=()
-    mapfile -t sections < <(xlibre_active_channels)
-    local -a lines=()
-    mapfile -t lines < <(printf '%s\n' "${sections[@]}" | grep -v '^$')
-
-    local channel=stable sec detected
-    if ((${#lines[@]} > 1)); then
-        # Nhiều kênh cùng bật: lỗi cấu hình của người dùng, không phải của ta.
-        # Báo rõ rồi bỏ qua — còn hơn tự ý chọn một kênh rồi cài.
-        warn "đang bật ${#lines[@]} kênh XLibre cùng lúc — bỏ qua, hãy tự gộp còn một:"
-        printf '    %s\n' "${lines[@]}"
+    # Xem có gì đang bật không, và có xoá được không. Không xoá được thì bỏ
+    # qua phần XLibre — cài nốt X.Org vẫn cho Tsuki chạy bình thường.
+    local repo
+    repo="$(xlibre_repo_name stable)"
+    xlibre_repo_writable "$repo" || {
+        warn "bỏ qua phần XLibre — Tsuki vẫn chạy, chỉ dùng X.Org thay XLibre."
         return 0
-    fi
-    if ((${#lines[@]} == 1)); then
-        sec=${lines[0]%%$'\t'*}
-        if detected="$(xlibre_channel_of "$sec")"; then
-            channel=$detected
-            info "pacman.conf đang bật $sec — dùng kênh $channel"
-        else
-            warn "có mục $sec trong pacman.conf nhưng không phải kênh nào tôi biết — bỏ qua"
-            return 0
-        fi
-    fi
+    }
 
-    if ! confirm "Thêm kho XLibre và thay xorg-server bằng XLibre?" n \
-                 "Câu trả lời: y = dùng XLibre, n = giữ X.Org"; then
+    if ! confirm "Cài XLibre stable ($repo) thay cho xorg-server?" n \
+                 "Câu trả lời: y = XLibre, n = giữ X.Org"; then
         warn "giữ X.Org — Tsuki vẫn chạy bình thường, chỉ khác nhà cung cấp X server"
         return 0
     fi
 
-    local repo
-    repo="$(xlibre_repo_name "$channel")"
-    printf '%sXLibre — kênh %s%s\n' "$C_B" "$channel" "$C_RST"
-    case $channel in
-        beta)      warn "beta = series 25.2, chưa coi là ổn định. Cài xong nhớ đọc README." ;;
-        oldstable) warn "oldstable = series 25.0, kênh cũ." ;;
-    esac
-
+    printf '%sXLibre — kênh stable%s\n' "$C_B" "$C_RST"
     xlibre_add_key
     xlibre_add_repo "$repo"
 
@@ -735,6 +733,7 @@ cmd_xlibre_auto() {
     # việc gỡ X.Org vào cùng một transaction — không phải partial upgrade.
     as_root pacman -S --needed --noconfirm xlibre-meta
     ok "XLibre: xong. Đăng xuất rồi đăng nhập lại để X server mới có hiệu lực"
+    info "muốn thử bản beta thì chạy: ./install.sh xlibre beta"
 }
 
 # ĐỔI KÊNH — không phải "cài XLibre" nữa, phần đó giờ tự chạy trong `deps`.

@@ -13,6 +13,25 @@
 
 set -u
 
+# Tạo/thục file mà KHÔNG để lỗi chuyển hướng giết shell.
+#
+# `: >file 2>/dev/null || thu_thay` TRONG DASH KHÔNG HOẠT ĐỘNG. Lỗi chuyển
+# hướng là lỗi CHÍ TỬ với script không tương tác: shell thoát ngay, `||` không
+# bao giờ chạy. Đo trực tiếp:
+#     $ dash -c ': >/proc/khong/ghi/x.log 2>/dev/null || echo tiep tuc; echo vao day'
+#     dash: 2: cannot create /proc/khong/ghi/x.log: Directory nonexistent
+#     (không có dòng "vao day" — shell đã chết)
+#     $ bash -c '...cùng lệnh...'
+#     tiep tuc
+#     vao day
+# Tức là máy này (/bin/sh -> bash) che giấu lỗi, còn hệ thống có /bin/sh là
+# dash thì run.sh chết. Bọc trong subshell thì lỗi chỉ giết subshell:
+#     $ dash -c 'if ! ( : >/proc/khong/x.log ) 2>/dev/null; then L=/dev/null; ...'
+#     L=/dev/null
+#
+# PHẢI ĐỊNH NGHĨA TRƯỚC mọi chỗ dùng — hàm bash/dash phải có trước lệnh gọi.
+safe_touch() { ( : >"$1" ) 2>/dev/null; }
+
 # --- nhật ký phiên -----------------------------------------------------------
 # Trước đây run.sh không ghi gì cả. Mọi thứ đều `2>/dev/null` hoặc `>/dev/null
 # 2>&1`, nên khi session có vấn đề (con trỏ không đổi, dunst không hiện OSD,
@@ -26,21 +45,39 @@ TSUKI_LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tsuki"
 # Rơi về $TMPDIR thì đặt tên kèm uid — nếu không, hai user cùng lỗi sẽ tranh
 # nhau một file /tmp/tsuki/session.log và ghi đè lẫn nhau.
 mkdir -p "$TSUKI_LOG_DIR" 2>/dev/null || TSUKI_LOG_DIR="${TMPDIR:-/tmp}/tsuki-$(id -u)"
-TSUKI_LOG="$TSUKI_LOG_DIR/session.log"
-: >"$TSUKI_LOG" 2>/dev/null || TSUKI_LOG=/dev/null
+# PHẢI mkdir CẢ nhánh fallback. Bản trước chỉ mkdir nhánh chính rồi đổi tên
+# biến, nên khi XDG_CACHE_HOME không ghi được thì thư mục fallback chưa tồn tại
+# và dòng `: >"$TSUKI_LOG"` ngay sau đó thất bại:
+#     run.sh: 30: cannot create /tmp/tsuki-1000/session.log: Directory nonexistent
+# rc=2, script chết trước khi làm được gì. Do test-run-matrix.sh dò ra.
+mkdir -p "$TSUKI_LOG_DIR" 2>/dev/null || TSUKI_LOG_DIR=""
+if [ -n "$TSUKI_LOG_DIR" ]; then
+    TSUKI_LOG="$TSUKI_LOG_DIR/session.log"
+    safe_touch "$TSUKI_LOG" || TSUKI_LOG=/dev/null
+else
+    # Không tạo được chỗ nào để ghi nhật ký thì dùng /dev/null cho chắc, thay
+    # vì để `: >""` làm chết cả phiên.
+    TSUKI_LOG=/dev/null
+fi
 # Nhật ký ghi tên các tiến trình, phiên, đường dẫn profile — thông tin riêng
 # của máy. Đặt mode 600 tường minh thay vì dựa vào `umask` toàn cục, xem
 # khối "quyền mặc định" bên dưới để biết vì sao không dùng cách đó.
 chmod 600 "$TSUKI_LOG" 2>/dev/null || true
 export TSUKI_LOG
 
-log()  { printf '%s\n' "$*" >>"$TSUKI_LOG" 2>/dev/null || :; }
+log() {
+    # `[ -w ]` là stat, không fork, nên rẻ. Nó giữ cho lỗi chuyển hướng ở dòng
+    # sau không bao giờ thành lỗi chí tử (xem safe_touch): nếu TSUKI_LOG bị xoá,
+    # mount mất, hay đổi quyền giữa phiên thì chuyển hằng sang /dev/null.
+    # /dev/null luôn ghi được nên từ đó log() không còn đường để chết.
+    [ -w "$TSUKI_LOG" ] 2>/dev/null || TSUKI_LOG=/dev/null
+    printf '%s\n' "$*" >>"$TSUKI_LOG" 2>/dev/null || :
+}
 say()  { printf '%s\n' "$*"; log "$*"; }
 warn() { printf 'tsuki: %s\n' "$*" >&2; log "WARN  $*"; }
 info() { log "INFO  $*"; }
 fail() { printf 'tsuki: %s\n' "$*" >&2; log "FAIL  $*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
-
 # Khi run.sh bị giết (SIGTERM/SIGHUP từ logout, hoặc đóng terminal), các daemon
 # nó spawn sẽ thành mồ côi và tiếp tục chạy tới lần đăng nhập sau. Lần sau
 # start_daemon sẽ phát hiện khoá vẫn bị giữ nên bỏ qua — nên session mới có
@@ -275,7 +312,7 @@ stop_daemons() {
     # Cờ "đang tắt" đặt TRƯỚC mọi thứ khác. Watchdog thấy cờ là thoát
     # ngay, nên không có trường hợp nó hồi sinh daemon trong lúc ta đang dọn
     # (race thật: watchdog đang ngủ 15s, thức dậy giữa lúc dọn).
-    : >"$XDG_RUNTIME_DIR/tsuki-stopping" 2>/dev/null || true
+    safe_touch "$XDG_RUNTIME_DIR/tsuki-stopping" || true
     # Dừng watchdog trước, rồi mới giết daemon — nếu ngược lại watchdog có
     # thể kịp chạy một vòng nữa.
     if [ -f "$XDG_RUNTIME_DIR/tsuki-watchdog.pid" ]; then
@@ -369,7 +406,7 @@ _start_watchdog() {
                     # vẫn không ai giữ khoá = lệnh không chạy được, hoặc chết
                     # ngay. Báo MỘT lần rồi bỏ hẳn.
                     warn "watchdog: không khởi động được $_d (thiếu binary?) — bỏ qua"
-                    : >"$XDG_RUNTIME_DIR/tsuki-gaveup-$_d"
+                    safe_touch "$XDG_RUNTIME_DIR/tsuki-gaveup-$_d" || true
                     continue
                 fi
                 # Lần này nó thật sự chạy được, nên mới tính là một lần thử.
@@ -380,7 +417,7 @@ _start_watchdog() {
                 printf '%s\n' "$_c" >"$_cntf"
                 if [ "$_c" -ge "$WD_MAX_RETRY" ]; then
                     warn "watchdog: $_d đã thử lại $_c lần vẫn chết — bỏ qua, xem nhật ký phiên"
-                    : >"$XDG_RUNTIME_DIR/tsuki-gaveup-$_d"
+                    safe_touch "$XDG_RUNTIME_DIR/tsuki-gaveup-$_d" || true
                 else
                     warn "watchdog: $_d đã chết — khởi động lại (lần $_c/$WD_MAX_RETRY)"
                 fi
@@ -772,6 +809,16 @@ if [ -s "$_wf" ] && have fc-match; then
             *" $_lfam "*) continue ;;
         esac
         _got=$(fc-match -f '%{family}' "$_fam" 2>/dev/null)
+        # RỖNG = fontconfig KHÔNG TRẢ LỜI ĐƯỢC, KHÔNG phải font thiếu. Thiếu
+        # font thì fontconfig vẫn trả về font thay thế (DejaVu, Noto...).
+        # Rỗng xảy ra khi cache fontconfig hỏng, fc-match bị giới hạn, hoặc
+        # hệ thống tối giản không có fontconfig.
+        #
+        # Bản trước coi rỗng là "lệch" -> báo SẼ CHẾT NGAY cho font hoàn toàn
+        # bình thường. Đó là BÁO ĐỘNG GIẢ, tệ hơn hẳn sót: bảo người dùng cài
+        # gói họ đã có. Do test-run-matrix.sh dò ra, vì fc-match bị stub thành
+        # exit 0 nên không in gì.
+        [ -n "$_got" ] || continue
         # family fontconfig chọn là trường đầu tiên, phần còn lại là fallback
         _got=${_got%%,*}
         case "$_got" in
@@ -841,7 +888,7 @@ while type dwm >/dev/null 2>&1; do
             printf 'dwm: %s\n' "$_l" >&2
             log "dwm: $_l"
         done <"$_dwm_err"
-        : >"$_dwm_err"
+        safe_touch "$_dwm_err" || true
     fi
 
     if [ "$_rc" -eq 0 ]; then

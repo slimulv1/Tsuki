@@ -23,7 +23,9 @@ set -u
 # mới phải bắt đầu sạch, không trộn log của phiên hôm qua). `tee -a` cho cả
 # màn hình lẫn file: người dùng thấy ngay, và vẫn còn dấu vết sau.
 TSUKI_LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tsuki"
-mkdir -p "$TSUKI_LOG_DIR" 2>/dev/null || TSUKI_LOG_DIR="${TMPDIR:-/tmp}"
+# Rơi về $TMPDIR thì đặt tên kèm uid — nếu không, hai user cùng lỗi sẽ tranh
+# nhau một file /tmp/tsuki/session.log và ghi đè lẫn nhau.
+mkdir -p "$TSUKI_LOG_DIR" 2>/dev/null || TSUKI_LOG_DIR="${TMPDIR:-/tmp}/tsuki-$(id -u)"
 TSUKI_LOG="$TSUKI_LOG_DIR/session.log"
 : >"$TSUKI_LOG" 2>/dev/null || TSUKI_LOG=/dev/null
 # Nhật ký ghi tên các tiến trình, phiên, đường dẫn profile — thông tin riêng
@@ -147,11 +149,26 @@ export DESKTOP_SESSION=dwm
 
 # startx có thể khởi động với XDG_RUNTIME_DIR trỏ vào thư mục không tồn tại
 # (user cũ còn sót). Các app dùng nó sẽ lỗi âm thầm.
+#
+# Khi rơi về $TMPDIR, thư mục nằm trong /tmp nên PHẢI khoá quyền. Không có
+# chmod thì `mkdir -p` tạo ra 755 (đo thật), và mọi file tao sau trong đó —
+# tsuki-*.lock, tsuki-*.pid — ra 644: user khác trên máy đọc được, biết tên
+# tiến trình và pid. Tệ hơn: user khác tạo trước thư mục cùng tên thì ta dùng
+# nhầm thư mục của họ. 700 chặn cả hai.
 if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "${XDG_RUNTIME_DIR:-/nonexistent}" ]; then
     XDG_RUNTIME_DIR="/run/user/$(id -u)"
-    [ -d "$XDG_RUNTIME_DIR" ] || XDG_RUNTIME_DIR="${TMPDIR:-/tmp}/tsuki-$(id -u)"
+    if [ ! -d "$XDG_RUNTIME_DIR" ]; then
+        XDG_RUNTIME_DIR="${TMPDIR:-/tmp}/tsuki-$(id -u)"
+        # Nếu thư mục do user khác tạo sẵn, mkdir -p vẫn "thành công" — nên
+        # kiểm tra chủ sở hữu trước khi dùng, không tin kết quả của mkdir.
+        if [ -d "$XDG_RUNTIME_DIR" ] && [ "$(stat -c %u "$XDG_RUNTIME_DIR" 2>/dev/null)" != "$(id -u)" ]; then
+            XDG_RUNTIME_DIR="${TMPDIR:-/tmp}/tsuki-$(id -u)-$$"
+        fi
+    fi
     mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
+    chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
     export XDG_RUNTIME_DIR
+    info "XDG_RUNTIME_DIR dựng lại: $XDG_RUNTIME_DIR"
 fi
 
 # --- XWayland: KHÔNG dùng ---------------------------------------------------
@@ -245,6 +262,16 @@ start_daemon() {
 # không, lần đăng nhập sau thấy khoá vẫn "bị giữ" bởi tiến trình đã chết (chỉ
 # xảy ra nếu tiến trình bị SIGKILL, nhưng vẫn nên dọn).
 stop_daemons() {
+    # Cờ "đang tắt" đặt TRƯỚC mọi thứ khác. Watchdog thấy cờ là thoát
+    # ngay, nên không có trường hợp nó hồi sinh daemon trong lúc ta đang dọn
+    # (race thật: watchdog đang ngủ 15s, thức dậy giữa lúc dọn).
+    : >"$XDG_RUNTIME_DIR/tsuki-stopping" 2>/dev/null || true
+    # Dừng watchdog trước, rồi mới giết daemon — nếu ngược lại watchdog có
+    # thể kịp chạy một vòng nữa.
+    if [ -f "$XDG_RUNTIME_DIR/tsuki-watchdog.pid" ]; then
+        _wp=$(head -1 "$XDG_RUNTIME_DIR/tsuki-watchdog.pid" 2>/dev/null)
+        case ${_wp:-} in ''|*[!0-9]*) ;; *) kill "$_wp" 2>/dev/null || true ;; esac
+    fi
     # KHÔNG để dòng `_f` trần ở đây: shell hiểu nó là lệnh cần thực thi ->
     # "_f: command not found" mỗi lần dọn. Đã mắc bằng test tích hợp.
     for _f in "$XDG_RUNTIME_DIR"/tsuki-*.pid "$XDG_RUNTIME_DIR"/tsuki-*.lock; do
@@ -263,6 +290,94 @@ stop_daemons() {
     rm -f "$XDG_RUNTIME_DIR/nowplaying-art" \
           "$XDG_RUNTIME_DIR/nowplaying-last" \
           "$XDG_RUNTIME_DIR/pulse" 2>/dev/null || true
+    # Cờ tắt và bộ đếm thử lại chỉ có ý nghĩa trong phiên này.
+    rm -f "$XDG_RUNTIME_DIR/tsuki-stopping" \
+          "$XDG_RUNTIME_DIR"/tsuki-retry-* \
+          "$XDG_RUNTIME_DIR"/tsuki-gaveup-* 2>/dev/null || true
+}
+
+# --- watchdog: daemon chết giữa phiên ----------------------------------------
+#
+# VẤN ĐỀ ĐO ĐƯỢC: giết `xsettingsd` giữa phiên, chờ 11 giây — không ai khởi
+# động lại. Khoá `tsuki-xsettingsd.lock` báo TRONG (kernel tự thả khi tiến
+# trình chết) nhưng KHÔNG có gì gọi start_daemon lần nữa, nên nó nằm chết
+# tới lúc logout. Daemon chết âm thầm kiểu này còn tệ hơn không có: keybind
+# vẫn còn, bấm không ra gì, không có gì báo lỗi.
+#
+# PHẠM VI CỐ Ý HẸP — chỉ daemon KHÔNG tự phục hồi:
+#   - slstatus, updates, mediacard  → đã có vòng lặp bọc trong chính nó
+#   - dunst, xdg-desktop-portal     → systemd --user tự restart (Type=dbus)
+#   - fcitx, xsettingsd, tumblerd, polkit, picom → exec thẳng, chết là chết
+# Nếu không có systemd user bus thì dunst/portal cũng vào danh sách.
+#
+# CÓ TRẦN, KHÔNG LẶP VÔ TẠN, VÀ KHÔNG PHÍ RETRY LÊN THỨ KHÔNG BAO GIỜ CHẠY
+# ĐƯỢC. Xem vòng lặp bên dưới: hồi sinh TRƯỚC, đếm SAU. Lệnh không giữ được
+# khoá (thiếu binary, hoặc chết ngay) thì báo MỘT lần rồi bỏ hẳn — không đốt 5
+# lần retry. Daemon đã từng chạy rồi mới chết mới tính từng lần, tối đa 5.
+# Bản đầu đếm trước nên daemon-stub trong test đốt hết 5 lần mỗi cái, đo được
+# 25 dòng WARN ngay lúc mới đăng nhập — thừa.
+#
+# AN TOÀN KHI TẮT: stop_daemons tạo cờ `tsuki-stopping` TRƯỚC khi dọn, watchdog
+# thấy cờ là thoát ngay — không có trường hợp nó hồi sinh daemon trong lúc
+# đang tắt. Cờ cũng nằm trong $XDG_RUNTIME_DIR nên tự biến mất khi logout.
+#
+# Watchdog giữ khoá riêng (fd 7) nên chạy hai bản chỉ một bản sống, và nó là
+# tiến trình con của run.sh nên chết cùng session.
+# Để ${VAR:-} chứ không gán thẳng: vừa để người dùng chỉnh được, vừa để test
+# tăng tốc được. Bản đầu gán thẳng `WD_INTERVAL=15` nên ghi đè mọi giá trị từ
+# môi trường — test truyền WD_INTERVAL=1 vẫn bị ép về 15, watchdog ngủ 15s
+# trong khi test chỉ chờ 12s, và T13c fail oan. Đã mắc đúng lỗi này.
+WD_INTERVAL="${WD_INTERVAL:-15}"
+WD_MAX_RETRY="${WD_MAX_RETRY:-5}"
+
+_start_watchdog() {
+    (
+        exec 7>"$XDG_RUNTIME_DIR/tsuki-watchdog.lock"
+        flock -n 7 || exit 0
+        # Vòng đầu chỉ để chờ: daemon vừa spawn có thể chưa kịp giữ khoá. Dù
+        # chưa kịp thì cũng vô hại — trong start_daemon, subshell tự `flock -n 8
+        # || exit 0` nên bản thứ hai tự thoát, không sinh trùng thật.
+        _first=1
+        while :; do
+            sleep "$WD_INTERVAL"
+            [ -e "$XDG_RUNTIME_DIR/tsuki-stopping" ] && exit 0
+            if [ "$_first" = 1 ]; then _first=0; continue; fi
+
+            for _d in ${WATCH_LIST:-}; do
+                _lock="$XDG_RUNTIME_DIR/tsuki-$_d.lock"
+                flock -n "$_lock" -c true 2>/dev/null || continue
+                # khoá trống = daemon đã chết (kernel đã thả khi tiến trình chết)
+                [ -e "$XDG_RUNTIME_DIR/tsuki-gaveup-$_d" ] && continue
+
+                # THỬ HỒI SINH TRƯỚC, ĐẾM SAU. Nếu đếm trước thì daemon vốn
+                # không bao giờ chạy được (binary thiếu, hoặc lệnh chết ngay)
+                # sống thiệt 5 lần retry rồi mới bỏ — mỗi daemon 5 dòng WARN
+                # trong nhật ký lúc mới đăng nhập, vô nghĩa. Đo được: 25 dòng.
+                supervise_one "$_d"
+                sleep 1
+                if flock -n "$_lock" -c true 2>/dev/null; then
+                    # vẫn không ai giữ khoá = lệnh không chạy được, hoặc chết
+                    # ngay. Báo MỘT lần rồi bỏ hẳn.
+                    warn "watchdog: không khởi động được $_d (thiếu binary?) — bỏ qua"
+                    : >"$XDG_RUNTIME_DIR/tsuki-gaveup-$_d"
+                    continue
+                fi
+                # Lần này nó thật sự chạy được, nên mới tính là một lần thử.
+                _cntf="$XDG_RUNTIME_DIR/tsuki-retry-$_d"
+                _c=$(cat "$_cntf" 2>/dev/null) || _c=0
+                case ${_c:-0} in ''|*[!0-9]*) _c=0 ;; esac
+                _c=$((_c + 1))
+                printf '%s\n' "$_c" >"$_cntf"
+                if [ "$_c" -ge "$WD_MAX_RETRY" ]; then
+                    warn "watchdog: $_d đã thử lại $_c lần vẫn chết — bỏ qua, xem nhật ký phiên"
+                    : >"$XDG_RUNTIME_DIR/tsuki-gaveup-$_d"
+                else
+                    warn "watchdog: $_d đã chết — khởi động lại (lần $_c/$WD_MAX_RETRY)"
+                fi
+            done
+        done
+    ) >/dev/null 2>&1 &
+    printf '%s\n' "$!" >"$XDG_RUNTIME_DIR/tsuki-watchdog.pid"
 }
 
 # --- systemd user manager: đưa DISPLAY/XAUTHORITY vào môi trường -------------
@@ -373,7 +488,11 @@ if have xset; then
 else
     warn "thiếu xorg-xset — bỏ qua tốc độ lặp phím"
 fi
-have picom && picom &
+# Qua start_daemon chứ không phải `picom &`: bản cũ không khoá, nên chạy
+# run.sh lần thứ hai (rebuild, hoặc ai đó chạy tay) sẽ sinh picom thứ hai —
+# hai picom tranh cùng X server, hiệu năng tệ và log đầy lỗi. Giờ có khoá
+# nên lần sau bỏ qua, và watchdog hồi sinh được nếu nó chết.
+have picom && start_daemon picom picom
 
 # --- cursor: Bibata Modern Ice -----------------------------------------------
 # X11 không có khái niệm "cursor theme" sẵn như GNOME/KDE. Xcursor spec quy định
@@ -568,6 +687,41 @@ elif [ -x /usr/libexec/tumblerd ]; then
     _tumblerd=/usr/libexec/tumblerd
 fi
 [ -n "$_tumblerd" ] && start_daemon tumbler "$_tumblerd"
+
+# --- watchdog: định nghĩa lệnh hồi sinh + danh sách giám sát -----------------
+#
+# PHẢI KHỚP CHÍNH XÁC với lệnh spawn ở trên. Lệch một chỗ thì watchdog hồi
+# sinh thứ KHÁC với thứ đang chạy — ví dụ gọi `fcitx5` không kèm `-d` sẽ tạo
+# một tiến trình chạy tiền cảnh treo vĩnh viện thay vì daemon hoá.
+supervise_one() {
+    case $1 in
+        polkit)   [ -x /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ] &&
+                      start_daemon polkit /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ;;
+        fcitx)    command -v fcitx5 >/dev/null 2>&1 && start_daemon fcitx fcitx5 -d ;;
+        xsettingsd) command -v xsettingsd >/dev/null 2>&1 &&
+                      start_daemon xsettingsd xsettingsd -c "$TSUKI_DIR/.config/xsettingsd/xsettingsd.conf" ;;
+        picom)    have picom && start_daemon picom picom ;;
+        tumbler)  [ -n "$_tumblerd" ] && start_daemon tumbler "$_tumblerd" ;;
+        dunst)    [ "$_have_user_bus" = 0 ] && have dunst && start_daemon dunst dunst ;;
+        portal)   [ "$_have_user_bus" = 0 ] && {
+                      for _p in /usr/libexec/xdg-desktop-portal /usr/lib/xdg-desktop-portal; do
+                          [ -x "$_p" ] && { start_daemon portal "$_p"; break; }
+                      done; } ;;
+        portal-gtk) [ "$_have_user_bus" = 0 ] && {
+                      for _p in /usr/libexec/xdg-desktop-portal-gtk /usr/lib/xdg-desktop-portal-gtk; do
+                          [ -x "$_p" ] && { start_daemon portal-gtk "$_p"; break; }
+                      done; } ;;
+        *)        warn "watchdog: không biết hồi sinh '$1' — bỏ qua" ;;
+    esac
+}
+
+# Danh sách giám sát. KHÔNG gồm slstatus/updates/mediacard (đã có vòng lặp tự
+# phục hồi) và dunst/portal khi đã có systemd user bus (systemd lo).
+WATCH_LIST="picom fcitx xsettingsd tumbler polkit"
+[ "$_have_user_bus" = 0 ] && WATCH_LIST="$WATCH_LIST dunst portal portal-gtk"
+export WATCH_LIST WD_INTERVAL WD_MAX_RETRY
+
+_start_watchdog
 
 # Thư mục cache thumbnail phải có mode 0700 — đúng quy định freedesktop,
 # còn Thunar/tumbler tự tạo thì đặt 0755 và bị coi là không hợp lệ.

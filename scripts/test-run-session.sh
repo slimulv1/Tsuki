@@ -19,10 +19,19 @@ trap cleanup EXIT INT TERM
 
 # --- sandbox: mọi lệnh chạm X đều thành stub không-op ----------------------
 mkdir -p "$T/bin" "$T/run" "$T/home"
-for c in feh picom xset xsetroot xrdb notify-send dunst flock; do
+# KHÔNG stub `flock`. Bản đầu của file này có flock trong danh sách stub, và
+# điều đó TẮT ÂM THẦM toàn bộ cơ chế khoá của run.sh: `flock -n 8` trả 0 mà
+# không khoá gì, `flock -n file -c true` luôn báo "trống". Hậu quả đo được:
+#   - watchdog thấy mọi khoá đều trống nên hồi sinh liên tục
+#   - bước xác nhận "sau supervise_one" luôn thấy trống -> ghi nhầm
+#     "không khởi động được", và T13d fail oan dù watchdog chạy đúng
+#   - T2/T5/T13b "pass" nhưng không thật sự kiểm khoá gì cả
+# Dùng flock thật (/usr/bin/flock). Nó chỉ khoá file trong $T/run nên vô hại.
+for c in feh picom xset xsetroot xrdb notify-send dunst; do
     printf '#!/bin/sh\nexit 0\n' > "$T/bin/$c"
     chmod +x "$T/bin/$c"
 done
+command -v flock >/dev/null 2>&1 || { echo "FAIL: cần flock thật để test"; exit 1; }
 # `type dwm` trong run.sh phải thấy dwm giả
 cat > "$T/bin/dwm" <<'EOF'
 #!/bin/sh
@@ -312,7 +321,103 @@ if [ -n "$hpid" ] && kill -0 "$hpid" 2>/dev/null; then
 else
     ok "T12b dwm không còn sống sau SIGHUP"
 fi
-unset FAKE_DWM_LINGER FAKE_DWM_PID
+# --- T13: watchdog hồi sinh daemon chết giữa phiên --------------------------
+# Đo thật trước khi có watchdog: giết xsettingsd, chờ 11s — không ai khởi
+# động lại, khoá báo TRONG, daemon nằm chết tới logout. Nay watchdog phải
+# đưa nó về sống.
+mkdir -p "$T/repo/.config/xsettingsd"
+: > "$T/repo/.config/xsettingsd/xsettingsd.conf"
+cat > "$T/bin/xsettingsd" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$$" > "$XS_PID_FILE"
+while :; do sleep 0.3; done
+EOF
+chmod +x "$T/bin/xsettingsd"
+export WD_INTERVAL=1
+export WD_MAX_RETRY=5
+export XS_PID_FILE="$T/xs.pid"
+export FAKE_DWM_LINGER=1
+export FAKE_DWM_PID="$T/dwm_wd.pid"
+: > "$FAKE_DWM_COUNT"; rm -f "$FAKE_DWM_PID" "$XS_PID_FILE"
+( cd "$R" && sh scripts/run.sh >/dev/null 2>&1 ) &
+RUNPID=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ -s "$XS_PID_FILE" ] && break
+    sleep 0.5
+done
+xs1=$(cat "$XS_PID_FILE" 2>/dev/null)
+if [ -n "$xs1" ] && kill -0 "$xs1" 2>/dev/null; then
+    ok "T13 xsettingsd chạy, pid $xs1"
+else
+    bad "T13 xsettingsd không lên" "pid='$xs1'"
+fi
+kill -9 "$xs1" 2>/dev/null
+sleep 0.5
+[ -e "$T/run/tsuki-xsettingsd.lock" ] && \
+  flock -n "$T/run/tsuki-xsettingsd.lock" -c true 2>/dev/null && \
+  ok "T13b sau khi giết, khoá được thả (kernel tự thả)" || true
+xs2=""
+for _ in $(seq 1 24); do
+    xs2=$(cat "$XS_PID_FILE" 2>/dev/null)
+    [ -n "$xs2" ] && [ "$xs2" != "$xs1" ] && kill -0 "$xs2" 2>/dev/null && break
+    xs2=""
+    sleep 0.5
+done
+if [ -n "$xs2" ] && kill -0 "$xs2" 2>/dev/null; then
+    ok "T13c watchdog hồi sinh xsettingsd: pid $xs1 -> $xs2"
+else
+    bad "T13c watchdog không hồi sinh" "vẫn là pid cũ '$xs1' sau 12s"
+fi
+# Dòng nhật ký chỉ ghi SAU khi watchdog chờ 1s xác nhận daemon giữ được khoá
+# (xem run.sh). Nên phải chờ dòng log, không grep ngay lúc pid vừa đổi — làm
+# vậy thì test fail oan dù watchdog chạy đúng. Đã mắc đúng lỗi này.
+logged=""
+for _ in $(seq 1 20); do
+    if grep -q 'watchdog: xsettingsd đã chết' "$XDG_CACHE_HOME/tsuki/session.log" 2>/dev/null; then
+        logged=1; break
+    fi
+    sleep 0.5
+done
+if [ -n "$logged" ]; then
+    ok "T13d watchdog ghi vào nhật ký phiên"
+else
+    bad "T13d không có dấu vết trong nhật ký" "thiếu dòng 'watchdog: ... đã chết'"
+fi
+
+# --- T14: watchdog CÓ TRẦN, không lặp vô tận --------------------------------
+# Giết liên tục. Sau WD_MAX_RETRY lần watchdog phải bỏ qua và ghi rõ, thay
+# vì thử vô tạn. Thử vô tạn tệ hơn lúc đầu: log đầy, CPU quay, nguyên nhân
+# gốc bị chôn.
+for _ in 1 2 3 4 5 6 7 8; do
+    kill -9 "$(cat "$XS_PID_FILE" 2>/dev/null)" 2>/dev/null
+    sleep 1.2
+done
+sleep 3
+trials=$(grep -c 'watchdog: xsettingsd đã chết' "$XDG_CACHE_HOME/tsuki/session.log" 2>/dev/null)
+trials=${trials:-0}
+if [ "$trials" -le 6 ] && grep -q 'bỏ qua' "$XDG_CACHE_HOME/tsuki/session.log" 2>/dev/null; then
+    ok "T14 watchdog trần ${trials} lần rồi bỏ qua (không lặp vô tận)"
+else
+    bad "T14 watchdog không có trần" "thử $trials lần, 'bỏ qua' trong log: $(grep -c 'bỏ qua' "$XDG_CACHE_HOME/tsuki/session.log" 2>/dev/null)"
+fi
+
+# --- T15: lúc đang tắt thì watchdog KHÔNG hồi sinh gì ------------------------
+# Race thật: watchdog đang ngủ, run.sh bắt đầu dọn. Nếu watchdog thức dậy
+# giữa chừng và hồi sinh daemon, ta thoát với một đám tiến trình mồ côi.
+kill -TERM "$RUNPID" 2>/dev/null
+wait "$RUNPID" 2>/dev/null
+sleep 1
+before=$(grep -c 'watchdog: .* đã chết' "$XDG_CACHE_HOME/tsuki/session.log" 2>/dev/null)
+sleep 20
+after=$(grep -c 'watchdog: .* đã chết' "$XDG_CACHE_HOME/tsuki/session.log" 2>/dev/null)
+if [ "$before" = "$after" ]; then
+    ok "T15 sau khi tắt, watchdog không hồi sinh thêm gì (vẫn $after dòng)"
+else
+    bad "T15 watchdog hồi sinh sau khi tắt" "$before -> $after dòng"
+fi
+leftover=$(ls "$T/run"/tsuki-xsettingsd.lock 2>/dev/null | wc -l)
+[ "$leftover" -eq 0 ] && ok "T15b khoá đã dọn sạch" || bad "T15b còn khoá sót" "$leftover"
+unset FAKE_DWM_LINGER FAKE_DWM_PID XS_PID_FILE WD_INTERVAL WD_MAX_RETRY
 wait 2>/dev/null || true
 
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"

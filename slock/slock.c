@@ -9,10 +9,38 @@
 #include <grp.h>
 #include <pwd.h>
 #include <stdarg.h>
+#include <stdbool.h>
+#include <stdckdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
+/* Xóa MẬT KHẨU — dùng memset_explicit() của C23 thay cho explicit_bzero().
+ *
+ * VÌ SAO KHÔNG GỌI explicit_bzero() (dù file explicit_bzero.c nằm ngay đây):
+ * build với -D_FORTIFY_SOURCE=2 nên preprocessor đổi mọi lời gọi
+ * explicit_bzero() thành __explicit_bzero_chk — hàm CỦA GLIBC, KHÔNG phải hàm
+ * trong explicit_bzero.c. Đã kiểm bằng `nm -u slock.o`: chỉ thấy
+ * "U __explicit_bzero_chk", không thấy explicit_bzero. Nên sửa
+ * explicit_bzero.c là sửa code chết.
+ *
+ * Nhánh của glibc gọi memset() + compiler barrier, cũng chống tối ưu mất, nhưng
+ * memset_explicit() được chuẩn BẢO ĐẢM byte thực sự bị ghi đè nên đúng tinh
+ * thần hơn, và C23 thì có sẵn.
+ *
+ * memset_explicit() trả void* trong glibc, ta chỉ dùng để ghi nên bỏ qua —
+ * khác với việc ép khai báo hàm.
+ */
+static void
+wipe_secret(void *buf, size_t len)
+{
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+	memset_explicit(buf, 0, len);
+#else
+	explicit_bzero(buf, len);
+#endif
+}
 #include <spawn.h>
 #include <sys/types.h>
 #include <X11/extensions/Xrandr.h>
@@ -143,7 +171,7 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 
 	while (running && !XNextEvent(dpy, &ev)) {
 		if (ev.type == KeyPress) {
-			explicit_bzero(&buf, sizeof(buf));
+			wipe_secret(&buf, sizeof(buf));
 			num = XLookupString(&ev.xkey, buf, sizeof(buf), &ksym, 0);
 			if (IsKeypadKey(ksym)) {
 				if (ksym == XK_KP_Enter)
@@ -169,11 +197,11 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 					XBell(dpy, 100);
 					failure = 1;
 				}
-				explicit_bzero(&passwd, sizeof(passwd));
+				wipe_secret(&passwd, sizeof(passwd));
 				len = 0;
 				break;
 			case XK_Escape:
-				explicit_bzero(&passwd, sizeof(passwd));
+				wipe_secret(&passwd, sizeof(passwd));
 				len = 0;
 				break;
 			case XK_BackSpace:
@@ -181,13 +209,27 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 					passwd[--len] = '\0';
 				break;
 			default:
-				if (num && !iscntrl((int)buf[0]) &&
-				    (len + num < sizeof(passwd))) {
-					memcpy(passwd + len, buf, num);
-					len += num;
-				} else if (buf[0] == '\025') { /* ctrl-u clears input */
-					explicit_bzero(&passwd, sizeof(passwd));
-					len = 0;
+				/* ckd_add() (C23) thay cho `len + num < sizeof(passwd)`:
+				 * phép cộng thuần có thể tràn — len là unsigned int,
+				 * num là int trả về từ XLookupString; nếu len + num vòng
+				 * quanh 2^32 thì phép so sánh trở thành ĐÚNG và
+				 * memcpy() ghi ra ngoài `passwd`. Ở đây bị chặn cứng ở
+				 * sizeof(passwd) nên không kích hoạt được, nhưng guard
+				 * sai về hình thức thì không nên giữ: sau một đợt sửa
+				 * nào đó nó sẽ thành lỗ hổng thật mà không ai thấy.
+				 * `sum` là tổng đã kiểm tra, dùng lại cho cả memcpy. */
+				{
+					unsigned int sum;
+					bool fits = !ckd_add(&sum, len, (unsigned int)num) &&
+					            sum < sizeof(passwd);
+					if (num && !iscntrl((int)buf[0]) && fits) {
+						memcpy(passwd + len, buf, num);
+						len = sum;
+					} else if (buf[0] == '\025') { /* ctrl-u clears input */
+						wipe_secret(&passwd, sizeof(passwd));
+						len = 0;
+					}
+					break;
 				}
 				break;
 			}

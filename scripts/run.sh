@@ -238,20 +238,28 @@ fi
 # ffmpegthumbnailer cho video, poppler cho PDF) rồi ghi vào
 # ~/.cache/thumbnails/ theo freedesktop.org Thumbnail Management Specification.
 #
-# Tumbler CÓ tự khởi động qua D-Bus activation
-# (/usr/share/dbus-1/services/org.freedesktop.Tumbler.service). Khởi động tay
-# ở đây vì hai lý do:
-#   1. Phiên này khởi động bằng `startx` từ TTY — không có systemd user
-#      session, nên activation của D-Bus không luôn bật.
-#   2. start_daemon tự kiểm pidfile, không spawn trùng mỗi lần login.
-command -v tumblerd >/dev/null 2>&1 && start_daemon tumbler tumblerd
+# Tumbler CÓ tự khởi động qua D-Bus activation. Khởi động tay ở đây vì phiên
+# này khởi động bằng `startx` từ TTY — không có systemd user session, nên
+# activation không luôn bật. start_daemon tự kiểm pidfile, không spawn trùng.
+#
+# QUAN TRỌNG: binary KHÔNG nằm trong PATH. Gói `tumbler` đặt nó ở
+# /usr/lib/tumbler-1/tumblerd, KHÔNG phải /usr/bin/tumblerd. Dùng
+# `command -v tumblerd` là luôn false dù đã cài — đã mắc đúng lỗi này, nên
+# phải thử cả hai đường dẫn.
+_tumblerd=""
+if command -v tumblerd >/dev/null 2>&1; then
+    _tumblerd=$(command -v tumblerd)
+elif [ -x /usr/lib/tumbler-1/tumblerd ]; then
+    _tumblerd=/usr/lib/tumbler-1/tumblerd
+elif [ -x /usr/libexec/tumblerd ]; then
+    _tumblerd=/usr/libexec/tumblerd
+fi
+[ -n "$_tumblerd" ] && start_daemon tumbler "$_tumblerd"
 
 # Thư mục cache thumbnail phải có mode 0700 — đúng quy định freedesktop,
 # còn Thunar/tumbler tự tạo thì đặt 0755 và bị coi là không hợp lệ.
 _thumb_dir="${XDG_CACHE_HOME:-$HOME/.cache}/thumbnails"
-if [ -d "$_thumb_dir" ]; then
-    chmod 700 "$_thumb_dir" 2>/dev/null
-fi
+mkdir -p "$_thumb_dir" 2>/dev/null && chmod 700 "$_thumb_dir" 2>/dev/null
 
 # --- dwm --------------------------------------------------------------------
 # Vòng lặp, không exec. Super+Shift+R -> scripts/rebuild.sh -> killall dwm:

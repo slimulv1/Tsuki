@@ -1,17 +1,42 @@
 #!/usr/bin/env dash
 #
-# check-thumbs — kiểm tra chuỗi sinh thumbnail của trình quản lý file.
+# check-thumbs — kiểm tra chuỗi sinh thumbnail cho trình quản lý file.
 #
-# Chạy sau khi cài:
-#   ./scripts/check-thumbs.sh
+#   ./scripts/check-thumbs.sh          # kiểm tra, tự sinh thử ảnh + video
+#   ./scripts/check-thumbs.sh --clean  # xoá sạch cache thumbnail trước khi thử
 #
-# Kiểm tra từng mắt xích: gói đã cài, daemon sống, thư mục cache đúng quyền,
-# và — quan trọng nhất — tự sinh một thumbnail rồi xem có ra file không.
-# Không sửa gì ngoài thư mục cache.
+# Không cần root, không mở Thunar.
 #
-# Không có root, không cần mở Thunar.
+# Ghi chú kỹ thuật — những chỗ dễ sai:
+#
+#  1. Binary KHÔNG nằm trong PATH. Gói `tumbler` cài daemon ở
+#     /usr/lib/tumbler-1/tumblerd, không phải /usr/bin/tumblerd. Dùng
+#     `command -v tumblerd` là luôn báo thiếu dù đã cài. Đã mắc đúng lỗi này.
+#
+#  2. Tên D-Bus KHÔNG phải org.freedesktop.Tumbler. File đăng ký D-Bus tên là
+#     org.xfce.Tumbler.*.service, nhưng bus name thật mà daemon nắm là
+#     org.freedesktop.thumbnails.{Thumbnailer1,Manager1,Cache1} — xem
+#     /usr/share/dbus-1/services/org.xfce.Tumbler.Thumbnailer1.service.
+#
+#  3. Method KHÔNG phải CreateThumbnail. Đó là API tumbler 1.x. API hiện tại
+#     theo Thumbnailer Specification:
+#       bus name   : org.freedesktop.thumbnails.Thumbnailer1
+#       object path: /org/freedesktop/thumbnails/Thumbnailer1
+#       method     : Queue(as uris, as mime_types, s flavor, s scheduler,
+#                          u handle_to_unqueue) -> u handle
+#       signals    : Ready(u handle, as uris) | Error(u handle, as failed, ...)
+#     flavor: normal | large | x-large | xx-large
+#     scheduler: default | foreground | background
+#
+#  4. Phải kiểm tra daemon KHỎE trước khi thử. Nếu còn một tumblerd cũ giữ
+#     bus name rồi chết, daemon mới thoát ngay với "Name ... lost on the
+#     message dbus, exiting" — lúc đó mọi lệnh đều trả về handle hợp lệ
+#     nhưng không sinh thumbnail nào. Đã gặp đúng tình huống này.
 
 set -u
+
+CLEAN=0
+[ "${1:-}" = --clean ] && CLEAN=1
 
 C_RST=; C_B=; C_G=; C_Y=; C_R=
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -19,109 +44,147 @@ if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
     C_G=$(printf '\033[1;32m');  C_Y=$(printf '\033[1;33m')
     C_R=$(printf '\033[1;31m')
 fi
+FAIL=0
 ok()   { printf '  %s✓%s %s\n' "$C_G" "$C_RST" "$*"; }
+info() { printf '  %s·%s %s\n' "$C_B" "$C_RST" "$*"; }
 bad()  { printf '  %s✗%s %s\n' "$C_R" "$C_RST" "$*"; FAIL=$((FAIL + 1)); }
 warn() { printf '  %s!%s %s\n' "$C_Y" "$C_RST" "$*"; }
 step() { printf '%s==>%s %s%s\n' "$C_B" "$C_RST" "$*" "$C_RST"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-FAIL=0
+BUS=org.freedesktop.thumbnails.Thumbnailer1
+OBJ=/org/freedesktop/thumbnails/Thumbnailer1
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/thumbnails
 
-# --- 1. gói ------------------------------------------------------------------
-step "1. gói đã cài"
-have tumblerd && ok "tumblerd" || bad "thiếu tumblerd — cài: sudo pacman -S tumbler"
-have ffmpegthumbnailer \
-    && ok "ffmpegthumbnailer (video)" \
-    || bad "thiếu ffmpegthumbnailer — cài: sudo pacman -S ffmpegthumbnailer"
-if have pacman; then
-    for p in tumbler ffmpegthumbnailer poppler-glib; do
-        pacman -Qq "$p" >/dev/null 2>&1 || warn "$p chưa cài (không bắt buộc)"
+# Binary có thể nằm ở PATH (bản cũ) hoặc /usr/lib/tumbler-1/ (bản hiện tại).
+find_tumblerd() {
+    if have tumblerd; then
+        command -v tumblerd
+        return 0
+    fi
+    local p
+    for p in /usr/lib/tumbler-1/tumblerd /usr/libexec/tumblerd /usr/bin/tumblerd; do
+        [ -x "$p" ] && { printf '%s\n' "$p"; return 0; }
     done
+    return 1
+}
+
+bus_alive() {
+    have busctl || return 1
+    busctl --user --no-pager list 2>/dev/null | grep -q "^$BUS"
+}
+
+# --- 1. gói ------------------------------------------------------------------
+step "1. gói"
+if TUMBLERD=$(find_tumblerd); then
+    ok "tumblerd: $TUMBLERD"
+    inpath=no
+    have tumblerd && inpath=yes
+    [ "$inpath" = no ] && info "nằm ngoài PATH — gọi bằng đường dẫn đầy đủ"
+else
+    bad "không thấy tumblerd — cài: sudo pacman -S tumbler"
+    TUMBLERD=
 fi
+for p in ffmpegthumbnailer poppler-glib libopenraw freetype2; do
+    if have pacman; then
+        pacman -Qq "$p" >/dev/null 2>&1 \
+            && ok "$p" || warn "$p chưa cài (plugin tương ứng sẽ không hoạt động)"
+    fi
+done
+# Plugin video phải nằm trong thư mục plugin của tumbler, không chỉ có binary.
+for so in tumbler-pixbuf-thumbnailer.so tumbler-ffmpeg-thumbnailer.so; do
+    if [ -n "$TUMBLERD" ]; then
+        d=${TUMBLERD%/*}
+        if [ -f "$d/plugins/$so" ]; then
+            ok "plugin $so"
+        else
+            bad "thiếu plugin $so (thư mục $d/plugins)"
+        fi
+    fi
+done
 
 # --- 2. daemon ---------------------------------------------------------------
 step "2. daemon"
-if pgrep -x tumblerd >/dev/null 2>&1; then
-    ok "tumblerd đang chạy (pid $(pgrep -x tumblerd | tr '\n' ' '))"
-elif have busctl; then
-    # Tumbler tự khởi động qua D-Bus activation; chưa chạy cũng bình thường
-    # cho tới lúc Thunar thật sự hỏi. Kiểm tra service có được đăng ký không.
-    if busctl --user list 2>/dev/null | grep -q 'org.freedesktop.Tumbler'; then
-        ok "tumblerd đăng ký trên session bus (sẽ tự chạy khi Thunar hỏi)"
-    else
-        warn "chưa thấy tumblerd; nếu Thunar không hiện thumbnail thì đăng nhập lại"
-        warn "  (scripts/run.sh sẽ tự khởi động nó: start_daemon tumbler tumblerd)"
-    fi
+if bus_alive; then
+    ok "$BUS đang được giữ (pid $(pgrep -x tumblerd | tr '\n' ' '))"
 else
-    warn "không kiểm được D-Bus; nếu không hiện thumbnail thì đăng nhập lại"
+    warn "daemon chưa chạy — sẽ khởi động thử"
+    if [ -n "$TUMBLERD" ]; then
+        setsid "$TUMBLERD" >/dev/null 2>&1 </dev/null &
+        # Chờ bus name xuất hiện; một instance cũ còn giữ tên sẽ làm daemon
+        # mới chết ngay, nên kiểm tra nhiều lần thay vì một lần.
+        i=0
+        while [ $i -lt 10 ]; do
+            sleep 1
+            bus_alive && break
+            i=$((i + 1))
+        done
+        if bus_alive; then
+            ok "đã khởi động, bus name OK"
+        else
+            bad "khởi động không được. Có thể còn tumblerd cũ giữ bus name:"
+            warn "  pkill -x tumblerd; $TUMBLERD"
+        fi
+    fi
 fi
 
 # --- 3. thư mục cache --------------------------------------------------------
 step "3. thư mục cache"
-if [ -d "$CACHE" ]; then
-    perms=$(stat -c '%a' "$CACHE" 2>/dev/null)
-    # freedesktop.org yêu cầu 0700
-    if [ "$perms" = 700 ]; then
-        ok "$CACHE (mode $perms)"
-    else
-        warn "$CACHE đang mode $perms, freedesktop yêu cầu 700"
-        warn "  sửa:  chmod 700 \"$CACHE\""
-    fi
+if [ "$CLEAN" = 1 ]; then
+    rm -rf "$CACHE"
+    ok "đã xoá cache (--clean)"
+fi
+mkdir -p "$CACHE/normal" "$CACHE/large" "$CACHE/x-large" "$CACHE/xx-large" "$CACHE/fail"
+chmod 700 "$CACHE"
+perms=$(stat -c '%a' "$CACHE" 2>/dev/null)
+if [ "$perms" = 700 ]; then
+    ok "$CACHE (mode 700 — đúng spec freedesktop)"
 else
-    warn "$CACHE chưa có (sẽ tự tạo khi Thunar sinh thumbnail lần đầu)"
+    bad "$CACHE mode $perms, spec yêu cầu 700"
 fi
 
-# --- 4. tự sinh thử ----------------------------------------------------------
-step "4. thử sinh thumbnail thật"
-TD=$(mktemp -d 2>/dev/null) || { echo "  không tạo được thư mục tạm"; exit 1; }
-trap 'rm -rf "$TD"' EXIT INT TERM
-
-# a) ảnh
-if have convert; then
-    convert -size 240x180 gradient:'#203040'-#90c0f0 "$TD/t.png" 2>/dev/null
+# --- 4. thử sinh thật --------------------------------------------------------
+step "4. thử sinh thumbnail (ảnh + video)"
+if ! bus_alive || ! have gdbus; then
+    warn "bỏ qua: cần daemon sống và gdbus"
 else
-    : > "$TD/t.png"
-fi
-have convert || warn "không có ImageMagick, bỏ qua phần ảnh"
+    TD=$(mktemp -d) || { warn "không tạo được thư mục tạm"; exit 1; }
+    trap 'rm -rf "$TD"' EXIT INT TERM
 
-# b) video
-if have ffmpeg; then
-    ffmpeg -v error -f lavfi -i testsrc=size=240x180:rate=8:duration=2 \
-           -c:v libx264 -pix_fmt yuv420p -an -y "$TD/t.mp4" 2>/dev/null \
-        || : > "$TD/t.mp4"
-else
-    : > "$TD/t.mp4"
-fi
+    convert -size 320x240 gradient:'#204080'-#f0a020 "$TD/anh.png" 2>/dev/null \
+        || warn "không có ImageMagick, bỏ qua phần ảnh"
+    ffmpeg -v error -f lavfi -i "testsrc=size=320x240:rate=8:duration=2" \
+        -c:v libx264 -pix_fmt yuv420p -an -y "$TD/vid.mp4" 2>/dev/null \
+        || warn "không có ffmpeg, bỏ qua phần video"
 
-# Nếu có tumblerd, hỏi nó qua đúng D-Bus API của Thumbnailer Specification.
-# Đây là bài kiểm tra thật: không có daemon thì không có gì trả lời.
-if have gdbus && pgrep -x tumblerd >/dev/null 2>&1; then
-    for f in "$TD/t.png" "$TD/t.mp4"; do
-        [ -s "$f" ] || continue
-        uri="file://$f"
-        w=$([ "${f##*.}" = png ] && echo 128 || echo 128)
-        h=$([ "${f##*.}" = png ] && echo 128 || echo 96)
-        # org.freedesktop.Tumbler.CreateThumbnail
-        if gdbus call --session --dest org.freedesktop.Tumbler \
-             --object-path /org/freedesktop/Tumbler \
-             --method org.freedesktop.Tumbler.CreateThumbnail \
-             "$uri" "normal" "$w" "$h" "desktop" "tsuki-check" \
+    try_one() { # file, mime, nhãn
+        f=$1; mime=$2; label=$3
+        [ -s "$f" ] || return 0
+        u="file://$f"
+        key=$(printf '%s' "$u" | md5sum | cut -d' ' -f1)
+        rm -f "$CACHE/normal/$key.png"
+        if ! gdbus call --session --dest "$BUS" --object-path "$OBJ" \
+             --method "$BUS.Queue" "['$u']" "['$mime']" normal default 0 \
              >/dev/null 2>&1; then
-            sleep 2
-            key=$(printf '%s' "$uri" | md5sum | cut -d' ' -f1)
-            if [ -f "$CACHE/normal/$key.png" ]; then
-                ok "sinh được: ${f##*/} -> normal/$key.png ($(stat -c%s "$CACHE/normal/$key.png") bytes)"
-            else
-                bad "${f##*/}: tumblerd nhận lệnh nhưng không ra file"
-            fi
-        else
-            bad "${f##*/}: tumblerd từ chối lệnh (thiếu plugin cho loại này?)"
+            bad "$label: Queue() bị từ chối"
+            return 0
         fi
-    done
-else
-    warn "chưa có tumblerd hoặc gdbus — bỏ qua bước thử sinh thật"
-    warn "  cài xong rồi đăng nhập lại (hoặc: tumblerd &) rồi chạy lại script này"
+        i=0
+        while [ $i -lt 12 ]; do
+            [ -f "$CACHE/normal/$key.png" ] && break
+            sleep 1
+            i=$((i + 1))
+        done
+        if [ -f "$CACHE/normal/$key.png" ]; then
+            ok "$label: $(identify -format '%wx%h' "$CACHE/normal/$key.png" 2>/dev/null), $(stat -c%s "$CACHE/normal/$key.png") bytes"
+        else
+            bad "$label: Queue() trả handle nhưng không sinh ra file"
+        fi
+    }
+
+    try_one "$TD/anh.png" image/png "ảnh png"
+    try_one "$TD/vid.mp4" video/mp4 "video mp4"
+    rm -rf "$TD"
 fi
 
 printf '\n'
@@ -129,4 +192,4 @@ if [ "$FAIL" -gt 0 ]; then
     printf '  %d mục lỗi\n' "$FAIL"
     exit 1
 fi
-printf '  xong, thumbnail sẽ hiện trong Thunar\n'
+printf '  xong — Thunar sẽ hiện thumbnail\n'

@@ -26,9 +26,14 @@ vào `~/.cache/thumbnails/` theo chuẩn freedesktop.
 
 | Loại file | Plugin | Gói cài |
 |---|---|---|
-| Ảnh (png/jpg/gif/webp/bmp/tiff/avif/jxl/svg) | gdk-pixbuf | `tumbler` |
-| Video (mp4/mkv/webm/avi/mov/m4v) | ffmpegthumbnailer | `ffmpegthumbnailer` |
-| PDF | poppler-glib | `poppler-glib` |
+| Ảnh (png/jpg/gif/webp/bmp/tiff/avif/jxl/svg) | `tumbler-pixbuf-thumbnailer` | `tumbler` |
+| JPEG (tốc độ riêng) | `tumbler-jpeg-thumbnailer` | `tumbler` |
+| Video (mp4/mkv/webm/avi/mov/m4v) | `tumbler-ffmpeg-thumbnailer` | `ffmpegthumbnailer` |
+| PDF | `tumbler-poppler-thumbnailer` | `poppler-glib` |
+| Ảnh RAW máy ảnh | `tumbler-raw-thumbnailer` | `libopenraw` |
+| Phông chữ | `tumbler-font-thumbnailer` | `freetype2` |
+| ODF (odt/ods/odp) | `tumbler-odf-thumbnailer` | `libgsf` |
+| Bìa sách, desktop, EPUB | `cover` / `desktop` / `gepub` | `libgepub` (tùy chọn) |
 
 Lần đầu mở một thư mục, thumbnail sẽ trống rồi mới có sau vài giây — đó là
 tumbler đang sinh. Lần sau tải từ cache, tức thì.
@@ -36,11 +41,16 @@ tumbler đang sinh. Lần sau tải từ cache, tức thì.
 Kiểm tra chuỗi này còn sống hay không:
 
 ```sh
-./scripts/check-thumbs.sh
+./scripts/check-thumbs.sh           # kiểm tra + tự sinh thử ảnh và video
+./scripts/check-thumbs.sh --clean   # xoá sạch cache rồi thử lại
 ```
 
-Nếu Thunar vẫn chỉ hiện icon, chạy `tumblerd &` hoặc đăng nhập lại —
-`scripts/run.sh` sẽ tự khởi động daemon này.
+Nếu Thunar vẫn chỉ hiện icon, chạy `/usr/lib/tumbler-1/tumblerd &` hoặc đăng
+nhập lại — `scripts/run.sh` sẽ tự khởi động daemon này.
+
+> Binary `tumblerd` **không có trong `PATH`**: gói `tumbler` đặt nó ở
+> `/usr/lib/tumbler-1/tumblerd`. Gõ `tumblerd &` sẽ báo *command not found* —
+> phải dùng đường dẫn đầy đủ.
 
 ## Tiling / window management
 

@@ -18,6 +18,30 @@
 | Super + /     | Bảng keybinds này         |
 | Super + w     | Đổi wallpaper + màu theme |
 
+### Thumbnail trong Thunar
+
+`Super + e` mở Thunar. Thunar **không tự** vẽ ảnh nhỏ — nó hỏi daemon
+`tumblerd` qua D-Bus (Thumbnailer Specification), tumbler gọi plugin rồi ghi
+vào `~/.cache/thumbnails/` theo chuẩn freedesktop.
+
+| Loại file | Plugin | Gói cài |
+|---|---|---|
+| Ảnh (png/jpg/gif/webp/bmp/tiff/avif/jxl/svg) | gdk-pixbuf | `tumbler` |
+| Video (mp4/mkv/webm/avi/mov/m4v) | ffmpegthumbnailer | `ffmpegthumbnailer` |
+| PDF | poppler-glib | `poppler-glib` |
+
+Lần đầu mở một thư mục, thumbnail sẽ trống rồi mới có sau vài giây — đó là
+tumbler đang sinh. Lần sau tải từ cache, tức thì.
+
+Kiểm tra chuỗi này còn sống hay không:
+
+```sh
+./scripts/check-thumbs.sh
+```
+
+Nếu Thunar vẫn chỉ hiện icon, chạy `tumblerd &` hoặc đăng nhập lại —
+`scripts/run.sh` sẽ tự khởi động daemon này.
+
 ## Tiling / window management
 
 | Keybinding            | Action               |

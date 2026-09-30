@@ -232,6 +232,27 @@ fi
 [ -f "$TSUKI_DIR/scripts/mediacard.sh" ] &&
     start_daemon mediacard dash "$TSUKI_DIR/scripts/mediacard.sh" daemon
 
+# --- thumbnail cho trình quản lý file --------------------------------------
+# Thunar không tự sinh ảnh nhỏ. Nó hỏi `tumblerd` qua D-Bus theo Thumbnailer
+# Specification, tumbler mới gọi plugin (gdk-pixbuf cho ảnh,
+# ffmpegthumbnailer cho video, poppler cho PDF) rồi ghi vào
+# ~/.cache/thumbnails/ theo freedesktop.org Thumbnail Management Specification.
+#
+# Tumbler CÓ tự khởi động qua D-Bus activation
+# (/usr/share/dbus-1/services/org.freedesktop.Tumbler.service). Khởi động tay
+# ở đây vì hai lý do:
+#   1. Phiên này khởi động bằng `startx` từ TTY — không có systemd user
+#      session, nên activation của D-Bus không luôn bật.
+#   2. start_daemon tự kiểm pidfile, không spawn trùng mỗi lần login.
+command -v tumblerd >/dev/null 2>&1 && start_daemon tumbler tumblerd
+
+# Thư mục cache thumbnail phải có mode 0700 — đúng quy định freedesktop,
+# còn Thunar/tumbler tự tạo thì đặt 0755 và bị coi là không hợp lệ.
+_thumb_dir="${XDG_CACHE_HOME:-$HOME/.cache}/thumbnails"
+if [ -d "$_thumb_dir" ]; then
+    chmod 700 "$_thumb_dir" 2>/dev/null
+fi
+
 # --- dwm --------------------------------------------------------------------
 # Vòng lặp, không exec. Super+Shift+R -> scripts/rebuild.sh -> killall dwm:
 # không có vòng lặp thì dwm chết là X session chết theo, ta bị đá về TTY giữa

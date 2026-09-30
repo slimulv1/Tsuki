@@ -376,6 +376,24 @@ readonly PKG_SESSION=(
     # dwm/.config nên không thuộc PKG_CONFIG; nhưng nó là app dwm spawn
     # thẳng, cùng kiểu với feh ở trên, nên để ở đây.
     thunar
+    # Thumbnail cho Thunar. Tumbler là daemon theo Thumbnailer Specification;
+    # Thunar hỏi nó qua D-Bus rồi mới vẽ ảnh nhỏ. KHÔNG có tumbler thì
+    # Thunar mở lên toàn icon chữ cái — đúng triệu chứng "không có thumbnail".
+    #   - tumbler kéo gdk-pixbuf: ảnh png/jpg/gif/webp/bmp/tiff/svg/…
+    #   - tumbler-kde-thumbnailer: chỉ làm việc với KDE, thừa ở đây, không
+    #     cài. ffmpegthumbnailer đã nằm trong gói tumbler? Không — phải cài
+    #     riêng, xem dòng dưới.
+    tumbler
+    # Plugin thumbnail cho VIDEO. ffmpegthumbnailer đọc được hầu hết codec
+    # (mp4/mkv/webm/avi/mov/m4v) nên Thunar hiện được khung hình thay vì
+    # icon. Nó là Optional Dep chính thức của tumbler: `Optional Deps:
+    # ffmpegthumbnailer: audio and video thumbnails`. Cài cả `ffmpeg` lẫn
+    # `ffmpegthumbnailer`: cái sau cần cái trước để giải mã, và `ffmpeg` còn
+    # dùng cho scripts/mediacard.sh (lyrics).
+    ffmpegthumbnailer
+    # Optional Dep còn lại của tumbler: trang đầu PDF. Trình quản lý file
+    # duyệt PDF nhiều, mà không có cái này thì PDF hiện icon trắng.
+    poppler-glib
     # scripts/run.sh:98 `start_daemon fcitx fcitx5 -d` — daemon bộ gõ. Thiếu
     # thì vẫn có bàn phím, mất gõ tiếng Việt. Engine Lotus tới từ AUR nên
     # nằm ở PKG_PTY, xem cmd_pty.

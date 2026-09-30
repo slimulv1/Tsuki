@@ -114,8 +114,20 @@ grep -q 'ARCHFLAGS' config.mk && ok "8.x -march=native override được (ARCHFL
 
 # ───────────────────────── §9 Coding standards ─────────────────────────
 sec "§9  CODING STANDARDS"
-[ -f .github/workflows/ci.yml ] && ok "10.3 có CI workflow ($(grep -c 'name:' .github/workflows/ci.yml) bước)" \
-                                 || no "10.3 chưa có CI"
+# 10.3 — CI KHÔNG áp dụng ở đây: audit chỉ chạy trên máy local.
+#
+# CI từng có rồi bị gỡ có chủ ý ở 58ac9c7: đây là rice cá nhân, chỉ máy được
+# build mới dùng, nên workflow chỉ tốn thời gian chạy. Thiếu
+# .github/workflows/ci.yml VẬY LÀ ĐÚNG, không phải lỗi.
+#
+# Bản này báo FAIL, tức báo động giả vĩnh viễn. Một báo động giả đứng
+# mãi sẽ dạy tay đọc bỏ qua cả những báo động giả khác — nên bỏ đi.
+#
+# Dòng PASS giữ nguyên có chủ ý: nếu sau này repo thành của người khác dùng
+# và cần CI, thêm file trở lại là mục này tự động bắt, không phải sửa script.
+[ -f .github/workflows/ci.yml ] \
+  && ok "10.3 có CI workflow ($(grep -c 'name:' .github/workflows/ci.yml) bước)" \
+  || na "10.3 CI: không áp dụng — audit chỉ chạy local, CI đã gỡ ở 58ac9c7"
 # Đường dẫn phải khớp chỗ fuzz-status.sh thật sự nằm. Nếu chuyển file mà
 # quên sửa dòng này, mục 10.2 sẽ báo "chưa có fuzz" trong khi file nằm ngay
 # đó — báo động giả.

@@ -22,24 +22,20 @@ tách riêng cho khỏi nhầm với 5 file trên.
 
 | File | Việc | Ghi chú |
 |---|---|---|
-| `audit-c23.sh` | Ma trận checklist C23, in PASS/FAIL/SKIP kèm bằng chứng | Mục **10.3 báo FAIL vĩnh viễn**: nó đòi `.github/workflows/ci.yml`, mà CI đã bị gỡ có chủ ý ở `58ac9c7` (rice cá nhân, chỉ máy này dùng). Xem mục "Mục 10.3" bên dưới. |
+| `audit-c23.sh` | Ma trận checklist C23, in PASS/FAIL/SKIP kèm bằng chứng | Mục 10.3 (CI) nay là **SKIP** — audit chỉ chạy local, CI đã gỡ có chủ ý ở `58ac9c7`. Xem mục "Mục 10.3 của audit" bên dưới. |
 | `fuzz-status.sh` | Regression test parser escape `status2d` của dwm | Input đến từ WM_NAME — tức **bất kỳ X client nào** trong session đều ghi được. Đã từng giết dwm 3 lần. Cần `Xvfb` để chạy tự động, không có thì bỏ qua gọn. |
 | `check-thumbs.sh` | Kiểm chuỗi sinh thumbnail, tự sinh ảnh + video thử | **Ghi vào `~/.cache/thumbnails` thật**, `--clean` xoá sạch trước. Cần thumbnailer + D-Bus. Chạy tay — cố ý không nằm trong vòng lặp ở đầu file. |
 
 ## Mục 10.3 của audit
 
-`audit-c23.sh` kiểm có `.github/workflows/ci.yml` không, và báo FAIL khi thiếu.
-CI đã bị gỡ ở `58ac9c7` với lý do "rice cá nhân, chỉ máy nó được build mới dùng;
-sửa được kiểm tại chỗ bằng `audit-c23.sh` và `fuzz-status.sh`".
+`audit-c23.sh` kiểm có `.github/workflows/ci.yml` không. CI **đã bị gỡ có chủ ý**
+ở `58ac9c7` — đây là rice cá nhân, chỉ máy được build mới dùng, workflow chỉ tốn
+thời gian chạy. Audit cũng chỉ chạy trên máy local, nên mục này **không áp dụng**.
 
-Nên 10.3 hiện là FAIL vĩnh viễn — báo động giả. Có ba cách xử lý, chọn một:
-
-1. **Sửa thành SKIP** kèm lý do, nếu không có ý định thêm CI nữa.
-2. **Xoá hẳn mục 10.3** khỏi checklist.
-3. **Giữ nguyên FAIL** như một lời nhắc: nếu repo sau này thành của người khác
-   dùng, thiếu CI là thiếu thật, và con số FAIL buộc phải nhìn.
-
-Hiện tại để nguyên FAIL — đổi cần bạn quyết, tôi không tự đổi tiêu chí kiểm.
+Đã đổi từ FAIL sang SKIP kèm lý do (`na "10.3 CI: không áp dụng..."`). Bản cũ báo
+FAIL vĩnh viễn: một báo động giả đứng mãi sẽ dạy tay đọc bỏ qua cả những báo
+động giả khác. Nhánh PASS vẫn giữ nguyên — nếu sau này repo có người khác dùng
+và cần CI, thêm file trở lại là mục này tự động bắt, không phải sửa script.
 
 ## Nguyên tắc khi thêm ca mới
 

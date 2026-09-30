@@ -18,7 +18,10 @@ INCS = -I$(X11INC) \
        `$(PKG_CONFIG) --cflags fontconfig` \
        `$(PKG_CONFIG) --cflags freetype2` \
        `$(PKG_CONFIG) --cflags harfbuzz`
+# -lXcursor: x.c tự nạp con trỏ trong Xcursor theme (từ Xresources "Xcursor").
+# Thiếu thì st rơi về XCreateFontCursor — mũi tên xám, không sao theme.
 LIBS = -L$(X11LIB) -lm -lrt -lX11 -lutil -lXft -lXrender \
+       -lXcursor \
        `$(PKG_CONFIG) --libs imlib2` \
        `$(PKG_CONFIG) --libs zlib` \
        `$(PKG_CONFIG) --libs fontconfig` \

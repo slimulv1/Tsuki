@@ -17,6 +17,7 @@
 #include <X11/Xft/Xft.h>
 #include <X11/XKBlib.h>
 #include <X11/Xresource.h>
+#include <X11/Xcursor/Xcursor.h>
 
 char *argv0;
 #include "arg.h"
@@ -1284,6 +1285,109 @@ xunloadfonts(void)
 	xunloadfont(&dc.ibfont);
 }
 
+/* --- con tro theo Xcursor theme -------------------------------------------
+ *
+ * X11 khong co khai niem "cursor theme" san. Theo Xcursor spec, theme chi duoc
+ * dung khi anh cua no duoc nap vao CORE CURSOR FONT cua X server — va X11 hien
+ * dai da BO do phan (do thuc te: sau XcursorImagesLoadCursors() thi so do font
+ * "cursor" cua X server y nguyen). Vi vay app nao goi XCreateFontCursor() —
+ * nhu st, nhu dwm — se LUON thay bitmap mac dinh, du theme dep co cai dat.
+ * Cach duy la doc truc tiep file <theme>/cursors/<ten> roi tao cursor rieng.
+ *
+ * Ten theme + kich thuoc lay tu Xresources "Xcursor" / "Xcursor.size".
+ * Thu muc: tu do cac thu muc icon chuan. KHONG dung XcursorLibraryLoadImages() vi
+ * libXcursor 1.2 tra NULL cho no voi moi duong dan (da kiem), con
+ * XcursorFilenameLoadImages() tai duoc file .xc.
+ */
+
+/* co Xcursor trong Xresources va file .xc ton tai khong */
+static int
+XcursorThemeAvailable(Display *dpy)
+{
+	char *resman, *theme;
+	XrmDatabase db;
+	XrmValue val;
+	char *type = NULL;
+	static const char *dirs[] = {
+		"/usr/share/icons", "/usr/local/share/icons", "/usr/share/pixmaps"
+	};
+	char path[PATH_MAX];
+	size_t i;
+
+	if (!(resman = XResourceManagerString(dpy)) || !*resman)
+		return 0;
+	if (!(db = XrmGetStringDatabase(resman)))
+		return 0;
+	if (!XrmGetResource(db, "Xcursor", "XTerm", &type, &val) &&
+	    !XrmGetResource(db, "Xcursor", "*", &type, &val))
+		return 0;
+	theme = val.addr;
+	if (!theme || !*theme)
+		return 0;
+	for (i = 0; i < sizeof(dirs) / sizeof(*dirs); i++) {
+		snprintf(path, sizeof(path), "%s/%s/cursors/default", dirs[i], theme);
+		if (access(path, R_OK) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/* tra cursor trong theme, hoac XCreateFontCursor(shape) neu khong co theme */
+static Cursor
+load_themed_cursor(Display *dpy, unsigned int shape, const char *name)
+{
+	char *resman, *theme, *sizestr;
+	XrmDatabase db;
+	XrmValue val;
+	char *type = NULL;
+	static const char *dirs[] = {
+		"/usr/share/icons", "/usr/local/share/icons", "/usr/share/pixmaps"
+	};
+	char path[PATH_MAX];
+	unsigned int size = 24;
+	long n;
+	size_t i;
+	XcursorImages *images;
+	Cursor themed;
+
+	if (!(resman = XResourceManagerString(dpy)) || !*resman ||
+	    !(db = XrmGetStringDatabase(resman)))
+		goto fallback;
+	if (!XrmGetResource(db, "Xcursor", "XTerm", &type, &val) &&
+	    !XrmGetResource(db, "Xcursor", "*", &type, &val))
+		goto fallback;
+	theme = val.addr;
+	if (!theme || !*theme)
+		goto fallback;
+	type = NULL;
+	if (XrmGetResource(db, "Xcursor.size", "XTerm", &type, &val) ||
+	    XrmGetResource(db, "Xcursor.size", "*", &type, &val)) {
+		sizestr = val.addr;
+		if (sizestr && *sizestr) {
+			n = strtol(sizestr, NULL, 10);
+			if (n > 0 && n <= 512)
+				size = (unsigned int)n;
+		}
+	}
+	for (i = 0; i < sizeof(dirs) / sizeof(*dirs); i++) {
+		snprintf(path, sizeof(path), "%s/%s/cursors/%s", dirs[i], theme, name);
+		if (access(path, R_OK) != 0)
+			continue;
+		if (!(images = XcursorFilenameLoadImages(path, (int)size)))
+			continue;
+		/* cursor tinh co 1 anh; cursor dong nhieu frame — lay frame dau,
+		 * dung nhu XCreateFontCursor cung chi cho mot hinh duy nhat. */
+		themed = images->nimage > 0
+		         ? XcursorImageLoadCursor(dpy, images->images[0]) : None;
+		XcursorImagesDestroy(images);
+		if (themed != None)
+			return themed;
+	}
+
+fallback:
+	return XCreateFontCursor(dpy, shape);
+}
+
 int
 ximopen([[maybe_unused]] Display *dpy)
 {
@@ -1422,8 +1526,16 @@ xinit(int cols, int rows)
 	                                       ximinstantiate, nullptr);
 	}
 
-	/* white cursor, black outline */
-	cursor = XCreateFontCursor(xw.dpy, mouseshape);
+	/* white cursor, black outline
+	 *
+	 * Ưu tiên cursor trong Xcursor theme (Bibata Modern Ice...). st gọi
+	 * XCreateFontCursor() nên mặc định con trỏ trong terminal là bitmap 8-bit
+	 * cũ của X, không bao giờ đổi theo theme. Theme + kích thước đọc từ
+	 * Xresources "Xcursor" / "Xcursor.size" (mà ~/.Xresources cung cấp).
+	 * Tự dò thư mục thay vì gọi XcursorLibraryLoadImages(): libXcursor 1.2 ở
+	 * đây trả NULL cho hàm đó với mọi đường dẫn, còn tải file .xc trực tiếp
+	 * thì tốt (đã kiểm). Không có theme -> rơi về font cursor như cũ. */
+	cursor = load_themed_cursor(xw.dpy, mouseshape, "xterm");
 	XDefineCursor(xw.dpy, xw.win, cursor);
 
 	if (XParseColor(xw.dpy, xw.cmap, colorname[mousefg], &xmousefg) == 0) {
@@ -1438,7 +1550,10 @@ xinit(int cols, int rows)
 		xmousebg.blue  = 0x0000;
 	}
 
-	XRecolorCursor(xw.dpy, cursor, &xmousefg, &xmousebg);
+	/* XRecolorCursor chỉ có tác dụng với cursor thuộc core cursor font. Cursor
+	 * lấy từ theme là ảnh cố định nên tô màu vô nghĩa — bỏ qua cho sạch. */
+	if (XcursorThemeAvailable(xw.dpy))
+		XRecolorCursor(xw.dpy, cursor, &xmousefg, &xmousebg);
 
 	xw.xembed = XInternAtom(xw.dpy, "_XEMBED", False);
 	xw.wmdeletewin = XInternAtom(xw.dpy, "WM_DELETE_WINDOW", False);

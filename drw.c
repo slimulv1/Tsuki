@@ -2,8 +2,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <limits.h>
 #include <X11/Xlib.h>
 #include <X11/Xft/Xft.h>
+#include <X11/Xresource.h>
+#include <X11/Xcursor/Xcursor.h>
 #include <Imlib2.h>
 
 #include "drw.h"
@@ -534,6 +538,93 @@ drw_cur_create(Drw *drw, int shape)
 
 	cur->cursor = XCreateFontCursor(drw->dpy, shape);
 
+	return cur;
+}
+
+/* Nạp con trỏ theo TÊN trong Xcursor theme (Bibata Modern Ice, ...).
+ *
+ * VÌ SAO CẦN: drw_cur_create() dùng XCreateFontCursor(), tức cursor font mặc
+ * định của X (mũi tên 8-bit đen trắng) — KHÔNG BAO GIỜ đổi theo theme. Thanh
+ * dwm vì thế dùng cài theme cursor tốt đến mấy cũng không thấy gì đổi.
+ *
+ * Cơ chế: tên theme + kích thước đọc từ Xresources "Xcursor" / "Xcursor.size"
+ * (file ~/.Xresources mà run.sh `xrdb -merge` nạp trước khi exec dwm), rồi nạp
+ * trực tiếp file <theme>/cursors/<name>.
+ *
+ * VÌ SAO TỰ TÌM THƯ MỤC chứ không gọi XcursorLibraryLoadImages():
+ * libXcursor 1.2 trên máy này trả NULL cho XcursorLibraryLoadImages() với MỌI
+ * đường dẫn (đã thử cả /usr/share/icons, có và không có dấu '/'), trong khi
+ * XcursorFilenameLoadImages() tải file .xc thì tốt. Nên ta tự dò thư mục rồi
+ * đưa đường dẫn tuyệt đối vào XcursorFilenameLoadImages().
+ *
+ * Không tìm thấy theme / file / size sai: trả về cursor của XCreateFontCursor()
+ * — luôn có con trỏ đúng, chỉ ít đẹp hơn, còn hơn là mất con trỏ.
+ */
+static const char *drw_cursor_dirs[] = {
+	"/usr/share/icons",
+	"/usr/local/share/icons",
+	"/usr/share/pixmaps",
+};
+
+Cur *
+drw_cur_load(Drw *drw, const char *name, int shape)
+{
+	Cur *cur;
+	char *resman, *theme, *sizestr;
+	XrmDatabase db;
+	XrmValue val;
+	char *type = NULL;
+	char path[PATH_MAX];
+	unsigned int size = 24;
+	long n;
+	size_t i;
+	XcursorImages *images;
+	Cursor themed;
+
+	if (!drw || !(cur = ecalloc(1, sizeof(Cur))))
+		return nullptr;
+
+	theme = NULL;
+	sizestr = NULL;
+	if ((resman = XResourceManagerString(drw->dpy)) && *resman &&
+	    (db = XrmGetStringDatabase(resman))) {
+		if (XrmGetResource(db, "Xcursor", "XTerm", &type, &val) && val.addr)
+			theme = val.addr;
+		if (!theme && XrmGetResource(db, "Xcursor", "*", &type, &val) && val.addr)
+			theme = val.addr;
+		type = NULL;
+		if (XrmGetResource(db, "Xcursor.size", "XTerm", &type, &val) && val.addr)
+			sizestr = val.addr;
+		if (!sizestr && XrmGetResource(db, "Xcursor.size", "*", &type, &val) && val.addr)
+			sizestr = val.addr;
+	}
+	if (theme && *theme) {
+		if (sizestr && *sizestr) {
+			n = strtol(sizestr, NULL, 10);
+			if (n > 0 && n <= 512)
+				size = (unsigned int)n;
+		}
+		for (i = 0; i < sizeof(drw_cursor_dirs) / sizeof(*drw_cursor_dirs); i++) {
+			snprintf(path, sizeof(path), "%s/%s/cursors/%s",
+			         drw_cursor_dirs[i], theme, name);
+			if (access(path, R_OK) != 0)
+				continue;
+			if (!(images = XcursorFilenameLoadImages(path, (int)size)))
+				continue;
+			/* Cursor tĩnh có 1 ảnh; cursor động có nhiều frame — lấy
+			 * frame đầu, đúng như XCreateFontCursor chỉ cho 1 hình. */
+			themed = images->nimage > 0
+			         ? XcursorImageLoadCursor(drw->dpy, images->images[0])
+			         : None;
+			XcursorImagesDestroy(images);
+			if (themed != None) {
+				cur->cursor = themed;
+				return cur;
+			}
+		}
+	}
+
+	cur->cursor = XCreateFontCursor(drw->dpy, shape);
 	return cur;
 }
 

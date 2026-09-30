@@ -23,7 +23,9 @@ FREETYPEINC = /usr/include/freetype2
 
 # includes and libs
 INCS = -I${X11INC} -I${FREETYPEINC}
-LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lXrender -lImlib2
+# -lXcursor: drw_cur_load() nạp cursor theo theme từ Xresources "Xcursor".
+# Thiếu thì dwm rơi về XCreateFontCursor — mũi tên xám mặc định, không sao theme.
+LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS} -lXrender -lImlib2 -lXcursor
 
 # flags
 # -Wundef: bắt lỗi gõ sai tên macro trong #if (dễ xảy ra với các patch

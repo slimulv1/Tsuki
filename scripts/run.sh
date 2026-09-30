@@ -133,23 +133,14 @@ picom &
 #      nhất xsetroot 1.1.4 nhận theme là -xcf <file .xc> <size>.
 #
 #   3) dwm và st thì KHÔNG nằm trong 2 tầng trên: cả hai đều tự tạo cursor bằng
-#      XCreateFontCursor() (dwm.c:3141-3145 -> XDefineCursor ở 3522 cho
-#      bar/tab/tag; st/x.c:1426 cho vùng text), nên chúng đọc core cursor font
-#      chứ không kế thừa con trỏ của root. Muốn chúng đổi theo theme thì phải có
-#      tiến trình nạp theme vào core font — thường là app GTK3 (xsettingsd, hoặc
-#      chính Firefox khi mở) làm việc đó. Nên thanh dwm và con trỏ trong st có
-#      thể vẫn là mũi tên xám mặc định ngay cả khi app khác đã đổi theme.
-#      Muốn chắc chắn thì bật xsettingsd (đã có .config trong repo) hoặc thêm một
-#      helper C nhỏ gọi XcursorLibraryLoadImages + XcursorImagesLoadCursors.
-# Báo lỗi cursor MỘT lần. run.sh chạy mỗi lần đăng nhập nên nếu im lặng thì
-# không ai biết vì sao con trỏ không đổi — đúng kiểu lỗi im lặng mà repo này
-# hay mắc. Không dùng `set -e` nên chỉ cần trả về 0.
-warn_cursor() {
-    notify-send "tsuki" "$1" 2>/dev/null || \
-        printf 'tsuki: %s\n' "$1" >&2
-    return 0
-}
-
+#      XCreateFontCursor() (dwm.c -> XDefineCursor cho bar/tab/tag; st/x.c cho vùng
+#      text), mà X11 hiện đại ĐÃ BỎ đường nạp theme vào core cursor font. Đo thực
+#      tế: sau XcursorImagesLoadCursors() thì số đo font "cursor" của X server y
+#      nguyên, nên XCreateFontCursor vẫn trả về bitmap mặc định. Vì vậy
+#      drw_cur_load() (drw.c) và load_themed_cursor() (st/x.c) tự đọc file
+#      <theme>/cursors/<tên> theo Xresources "Xcursor" rồi tạo cursor riêng cho
+#      dwm và st. Không có hai hàm đó thì đây là 2 mũi tên xám giữa desktop đã
+#      theme — cùng kiểu "cài xong nhìn không thấy gì đổi".
 CURSOR_THEME=Bibata-Modern-Ice
 CURSOR_SIZE=24
 # Ưu tiên bản hệ thống (libXcursor chỉ tìm /usr/share/icons); bản ~/.local/share

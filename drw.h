@@ -51,6 +51,11 @@ void drw_scm_free(Drw *drw, Clr *scm, size_t clrcount);
 
 /* Cursor abstraction */
 Cur *drw_cur_create(Drw *drw, int shape);
+/* Nạp cursor theo TÊN trong Xcursor theme, đọc tên/kích thước từ Xresources
+ * "Xcursor"/"Xcursor.size"; rơi về XCreateFontCursor(shape) nếu không có theme.
+ * `name` là tên cursor kiểu theme ("left_ptr", "sb_h_double_arrow"),
+ * KHÔNG phải "XC_left_ptr". */
+Cur *drw_cur_load(Drw *drw, const char *name, int shape);
 void drw_cur_free(Drw *drw, Cur *cursor);
 
 /* Drawing context manipulation */

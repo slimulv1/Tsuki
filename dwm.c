@@ -3137,12 +3137,18 @@ void setup(void) {
   netatom[NetCurrentDesktop] = XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False);
   netatom[NetDesktopNames] = XInternAtom(dpy, "_NET_DESKTOP_NAMES", False);
   netatom[NetClientInfo] = XInternAtom(dpy, "_NET_CLIENT_INFO", False);
-  /* init cursors */
-  cursor[CurNormal] = drw_cur_create(drw, XC_left_ptr);
-  cursor[CurResize] = drw_cur_create(drw, XC_sizing);
-  cursor[CurMove] = drw_cur_create(drw, XC_fleur);
-  cursor[CurResizeHorzArrow] = drw_cur_create(drw, XC_sb_h_double_arrow);
-  cursor[CurResizeVertArrow] = drw_cur_create(drw, XC_sb_v_double_arrow);
+  /* init cursors
+   *
+   * drw_cur_load() nạp theo TÊN trong Xcursor theme (Xresources "Xcursor"), nên
+   * con trỏ trên thanh/tab/tag đổi theo theme. Tên phải là tên trong theme
+   * ("left_ptr", "sb_h_double_arrow"), không phải "XC_left_ptr". Tham số thứ hai
+   * là shape của XCreateFontCursor, dùng làm dự phòng khi không có theme —
+   * X11 không cho nạp theme vào core cursor font nên không thể chỉ dựa vào nó. */
+  cursor[CurNormal] = drw_cur_load(drw, "left_ptr", XC_left_ptr);
+  cursor[CurResize] = drw_cur_load(drw, "sb_h_double_arrow", XC_sizing);
+  cursor[CurMove] = drw_cur_load(drw, "fleur", XC_fleur);
+  cursor[CurResizeHorzArrow] = drw_cur_load(drw, "sb_h_double_arrow", XC_sb_h_double_arrow);
+  cursor[CurResizeVertArrow] = drw_cur_load(drw, "sb_v_double_arrow", XC_sb_v_double_arrow);
   /* init appearance */
   unsigned int alphas[] = {borderalpha, baralpha, OPAQUE};
   scheme = ecalloc(LENGTH(colors) + 1, sizeof(Clr *));

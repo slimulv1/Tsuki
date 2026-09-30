@@ -2,8 +2,8 @@
 #
 # check-thumbs — kiểm tra chuỗi sinh thumbnail cho trình quản lý file.
 #
-#   ./scripts/check-thumbs.sh          # kiểm tra, tự sinh thử ảnh + video
-#   ./scripts/check-thumbs.sh --clean  # xoá sạch cache thumbnail trước khi thử
+#   ./test/check-thumbs.sh          # kiểm tra, tự sinh thử ảnh + video
+#   ./test/check-thumbs.sh --clean  # xoá sạch cache thumbnail trước khi thử
 #
 # Không cần root, không mở Thunar.
 #

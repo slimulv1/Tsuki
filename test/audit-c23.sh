@@ -1,6 +1,6 @@
 #!/bin/bash
 # audit-c23.sh — ma trận tuân thủ checklist C23, kiểm bằng MÁY, không suy đoán.
-# Mỗi mục in PASS/FAIL/SKIP + bằng chứng. Chạy: ./scripts/audit-c23.sh
+# Mỗi mục in PASS/FAIL/SKIP + bằng chứng. Chạy: ./test/audit-c23.sh
 cd "$(dirname "$0")/.." || exit 1
 ROOT=$(pwd)
 PASS=0; FAIL=0
@@ -116,8 +116,11 @@ grep -q 'ARCHFLAGS' config.mk && ok "8.x -march=native override được (ARCHFL
 sec "§9  CODING STANDARDS"
 [ -f .github/workflows/ci.yml ] && ok "10.3 có CI workflow ($(grep -c 'name:' .github/workflows/ci.yml) bước)" \
                                  || no "10.3 chưa có CI"
-[ -f scripts/fuzz-status.sh ] && ok "10.2 có fuzz target cho parser không tin cậy" \
-                              || no "10.2 chưa có fuzz"
+# Đường dẫn phải khớp chỗ fuzz-status.sh thật sự nằm. Nếu chuyển file mà
+# quên sửa dòng này, mục 10.2 sẽ báo "chưa có fuzz" trong khi file nằm ngay
+# đó — báo động giả.
+[ -f test/fuzz-status.sh ] && ok "10.2 có fuzz target cho parser không tin cậy" \
+                           || no "10.2 chưa có fuzz"
 CC=$(awk '/^dragmfact/{print 1;exit}' dwm.c >/dev/null && \
      awk 'BEGIN{c=0;L=0;n=""} /^[a-zA-Z_].*\)$/{if(n!=""){print c, L, n; exit} n=$0; c=1; L=0} \
          {L++}' dwm.c)

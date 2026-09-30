@@ -13,7 +13,7 @@
 # Cách chạy: dựng dwm dưới ASan trên Xvfb riêng, bắn payload, đòi dwm phải
 # sống. Chạy được cả trong CI lẫn tay, không đụng session thật.
 #
-#   ./scripts/fuzz-status.sh [so_payload] [do_dai_max]
+#   ./test/fuzz-status.sh [so_payload] [do_dai_max]
 #
 # Exit 0 = dwm sống sót toàn bộ payload (PASS).
 

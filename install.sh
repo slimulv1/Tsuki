@@ -607,6 +607,32 @@ xlibre_repo_name() {
     esac
 }
 
+# ĐƯỜNG DẪN trên server KHÁC TÊN MỤC trong pacman.conf. Theo tài liệu chính thức
+# (https://xlibre-arch.github.io/):
+#
+#     [xlibre-stable]
+#     Server = https://packages.xlibre.net/arch/stable/$arch
+#                tên mục xlibre-stable ^^^^   path là stable, KHÁC
+#
+# BUG ĐÃ DÍNH Ở ĐÂY: xlibre_add_repo nhận tên mục rồi dùng luôn nó làm path,
+# sinh /arch/xlibre-stable/$arch -> HTTP 404:
+#     error: failed retrieving file 'xlibre-stable.db' ... The requested URL
+#     returned error: 404
+#
+# Suy ra path bằng cách bỏ tiền tố, KHÔNG truyền thêm tham số: cả hai chỗ gọi
+# đều chỉ có `xlibre_repo_name`, mà hàm đó trả về tên mục. Thêm tham số thứ
+# hai nghĩa là phải sửa cả hai chỗ gọi và hai chỗ có thể lệch nhau.
+xlibre_url_path() {
+    local repo=$1 p
+    p=${repo#xlibre-}
+    # Bỏ tiền tố xong ra rỗng, hoặc không thấy tiền tố nào, nghĩa là tên mục
+    # sai hình dạng. Chặn ở đây — còn hơn ghi file hỏng rồi mới biết lúc
+    # pacman -Syy, lúc ấy pacman.conf đã hỏng rồi.
+    [[ -n $p && $p != "$repo" ]] ||
+        die "tên repo lạ: '$repo' (phải có dạng xlibre-<kênh>, vd xlibre-stable)"
+    printf '%s' "$p"
+}
+
 xlibre_add_key() {
     step "thêm khoá ký XLibre ($XLIBRE_KEY_FPR)"
     if pacman-key --finger "$XLIBRE_KEY_FPR" >/dev/null 2>&1; then
@@ -742,9 +768,36 @@ $list     Gỡ bớt rồi chạy lại. Xoá cả dòng [xlibre-...] lẫn file
     # Ghi vào /etc/pacman.d/xlibre.conf rồi Include — sạch hơn là đụng vào
     # pacman.conf của distro, và gỡ được chỉ bằng cách xoá 1 file.
     #
-    # Dùng $1 chứ không dùng $repo: biến `repo` là local của hàm ngoài, không
-    # nằm trong môi trường của bash con — tham chiếu tới nó sẽ ra rỗng và file
-    # ghi ra sẽ là `[]` + URL không có kênh.
+    # KHÔNG ghi trước khi biết URL còn sống. Một Include hỏng làm HỎNG MỌI lệnh
+    # pacman — kể cả `pacman -Syu` để gỡ nó ra. Bốn bước sau nó sẽ hỏng
+    # không phụ thuộc bước nào trước, nên phải kiểm trước khi đụng pacman.conf.
+    local path url code
+    path="$(xlibre_url_path "$repo")"
+    url="https://packages.xlibre.net/arch/$path/$(uname -m)"
+
+    step "kiểm tra $repo trên server"
+    # -fsS: -f làm curl trả 22 khi HTTP >= 400, -S giữ body lỗi để đọc được.
+    #
+    # KHÔNG viết `|| code=000`: curl đã in ra http_code rồi mới trả 22, nên `||`
+    # sẽ xoá mất mã thật và thay bằng 000. Mất đúng thông tin cần nhất — 404
+    # (sai tên kênh) và 000 (không nối được) là hai lỗi hoàn toàn khác, phải
+    # đưa ra thông điệp khác nhau. Chỉ khi curl không in gì mới coi là 000.
+    code="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 20 "$url/$repo.db" 2>/dev/null)" || :
+    [[ -n $code ]] || code=000
+    if [[ $code != 200 ]]; then
+        die "server XLibre không phục vụ $repo.db (HTTP ${code:-no-route})
+     URL: $url/$repo.db
+     Có thể kênh '$path' đã đổi tên, hoặc server tạm lỗi.
+     Trang chính thức: https://xlibre-arch.github.io/
+     pacman.conf CHƯA bị đụng — thử lại sau, hoặc giữ X.Org (Tsuki vẫn chạy)."
+    fi
+    ok "server phục vụ $repo.db"
+
+    # Dùng $2 cho path chứ không dùng $1: `$1` là tên mục pacman, đưa thẳng
+    # vào URL là ra /arch/xlibre-stable/ — chính là 404 ở trên. Biến `repo`
+    # là local của hàm ngoài, không có trong môi trường của bash con, nên
+    # tham chiếu `repo` bên trong khối này sẽ ra rỗng; phải truyền qua
+    # positional parameter.
     root_sh -c '
         set -e
         f=/etc/pacman.d/xlibre.conf
@@ -752,14 +805,20 @@ $list     Gỡ bớt rồi chạy lại. Xoá cả dòng [xlibre-...] lẫn file
         cat > "$f" <<EOF
 # XLibre — https://xlibre-arch.github.io/
 # Do Tsuki install.sh tạo. Muốn đổi kênh: ./install.sh xlibre <stable|beta|oldstable>
+#
+# SigLevel: kho KHÔNG đăng .db.sig và .files.sig (đã kiểm: HTTP 404), chỉ ký
+# từng gói. DatabaseOptional là cấu hình duy nhất vừa xác minh package vẫn
+# được kiểm chữ ký, vừa không đòi file mà server không có. Pin tại đây thay
+# vì kế thừa global, vì global của một số distro là DatabaseRequired.
 [$1]
-Server = https://packages.xlibre.net/arch/$1/\$arch
+SigLevel = Required DatabaseOptional
+Server = https://packages.xlibre.net/arch/$2/\$arch
 EOF
         chmod 644 "$f"
         grep -qF "Include = /etc/pacman.d/xlibre.conf" /etc/pacman.conf || \
             printf "\nInclude = /etc/pacman.d/xlibre.conf\n" >> /etc/pacman.conf
         echo "  + $f"
-    ' _ "$repo"
+    ' _ "$repo" "$path"
     ok "đã bật [$repo]"
 }
 

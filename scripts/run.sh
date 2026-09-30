@@ -13,6 +13,47 @@
 
 set -u
 
+# --- nhật ký phiên -----------------------------------------------------------
+# Trước đây run.sh không ghi gì cả. Mọi thứ đều `2>/dev/null` hoặc `>/dev/null
+# 2>&1`, nên khi session có vấn đề (con trỏ không đổi, dunst không hiện OSD,
+# daemon chết ngay) thì KHÔNG còn dấu vết để tra. Đây là loại lỗi hay gặp
+# nhất trên rice và cũng khó nhất để tái hiện.
+#
+# Ghi vào $XDG_CACHE_HOME/tsuki/session.log, ghi đè mỗi lần đăng nhập (phiên
+# mới phải bắt đầu sạch, không trộn log của phiên hôm qua). `tee -a` cho cả
+# màn hình lẫn file: người dùng thấy ngay, và vẫn còn dấu vết sau.
+TSUKI_LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tsuki"
+mkdir -p "$TSUKI_LOG_DIR" 2>/dev/null || TSUKI_LOG_DIR="${TMPDIR:-/tmp}"
+TSUKI_LOG="$TSUKI_LOG_DIR/session.log"
+: >"$TSUKI_LOG" 2>/dev/null || TSUKI_LOG=/dev/null
+export TSUKI_LOG
+
+log()  { printf '%s\n' "$*" >>"$TSUKI_LOG" 2>/dev/null || :; }
+say()  { printf '%s\n' "$*"; log "$*"; }
+warn() { printf 'tsuki: %s\n' "$*" >&2; log "WARN  $*"; }
+info() { log "INFO  $*"; }
+fail() { printf 'tsuki: %s\n' "$*" >&2; log "FAIL  $*"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Khi run.sh bị giết (SIGTERM/SIGHUP từ logout, hoặc đóng terminal), các daemon
+# nó spawn sẽ thành mồ côi và tiếp tục chạy tới lần đăng nhập sau. Lần sau
+# start_daemon sẽ phát hiện khoá vẫn bị giữ nên bỏ qua — nên session mới có
+# daemon CŨ, có tuổi, thuộc phiên trước. trap ở đây dọn cả khoá lẫn tiến
+# trình.
+#
+# `exit 0` trong vòng lặp dwm cũng đi qua trap EXIT, nên nhánh thoát chủ động
+# vẫn dọn đúng (không cần gọi stop_daemons thủ công, nhưng gọi vẫn vô hại).
+trap 'stop_daemons 2>/dev/null; :' EXIT
+trap 'info "run.sh nhận SIGTERM — dọn daemon"; stop_daemons 2>/dev/null; exit 143' TERM
+trap 'info "run.sh nhận SIGHUP (logout) — dọn daemon"; stop_daemons 2>/dev/null; exit 129' HUP
+trap 'info "run.sh nhận SIGINT"; stop_daemons 2>/dev/null; exit 130' INT
+
+# `warn_cursor` từng được gọi 3 lần ở khối con trỏ mà KHÔNG ĐỊNH NGHĨA ở đâu
+# cả. Trong sh, gọi lệnh chưa định nghĩa chỉ in "command not found" rồi đi
+# tiếp — nên đúng những thông báo phải cảnh báo người dùng cài theme cursor
+# lại không bao giờ hiện. Giữ tên hàm cũ như một alias trỏ về warn.
+warn_cursor() { warn "$*"; }
+
 # --- vị trí repo: suy ra từ chính script, không hardcode $HOME/dwm -----------
 # Đặt sau $HOME để người dùng clone ở đường dẫn khác vẫn chạy được.
 TSUKI_DIR="${TSUKI_DIR:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)}"
@@ -71,14 +112,78 @@ fi
 # --- phụ đơn vị: chạy nền, chết thì session vẫn sống --------------------------
 # Mỗi thứ một hàm + pidfile: không thêm process group mới, nên khi dwm chết
 # (rebuild) các daemon này vẫn sống và không bị nhân bản.
+# Mỗi thứ một hàm + khoá: không thêm process group mới, nên khi dwm chết
+# (rebuild) các daemon này vẫn sống và không bị nhân bản.
+#
+# VÌ SAO DÙNG flock THAY VÌ PIDFILE (bản cũ chỉ `kill -0 $(cat pidfile)`):
+#
+#   1) PID REUSE. Nếu daemon chết mà pidfile còn, Linux sớm cấp lại PID đó
+#      cho tiến trình khác. `kill -0` vẫn thành công -> start_daemon tưởng
+#      daemon đang chạy -> BỎ QUA, không spawn. Triệu chứng thật trên máy này:
+#      tsuki-fcitx.pid trỏ 3223 đã chết, trong khi fcitx5 thật đang chạy với
+#      pid 185142 — pidfile sai hoàn toàn. Nếu 3223 được cấp lại, lần đăng
+#      nhập sau sẽ không khởi động fcitx5 mà không in lỗi nào.
+#
+#   2) PIDFILE CŨ KHÔNG TỰ XOÁ. Nó nằm lại trong /run/user/1000 tới lần
+#      đăng nhập sau; không ai dọn.
+#
+#   3) SO TÊN KHÔNG CHẮC CHẮN. Thử so /proc/<pid>/comm với tên daemon
+#      không ăn: `start_daemon fcitx fcitx5 -d` cho comm="fcitx5" chứ không
+#      phải "fcitx". Nếu tiến trình bị thu hồi mà tình cờ trùng tên thì vẫn
+#      không phân biệt được.
+#
+# flock giải quyết cả ba: KERNEL tự thả khoá khi tiến trình chết, kể cả khi
+# bị kill -9, nên trạng thái "daemon đang chạy" không bao giờ thành sai lệch.
+# Cùng cách updates-loop.sh tự khoá (dòng 18-19 của file đó).
+#
+# pidfile vẫn ghi lại, nhưng chỉ để TIỆN TRA: xem pid trong log, kill tay.
+# Tính đúng đắn không dựa vào nó nữa.
 start_daemon() {
     _name=$1; shift
-    _pid="$XDG_RUNTIME_DIR/tsuki-$_name.pid"
-    if [ -f "$_pid" ] && kill -0 "$(cat "$_pid" 2>/dev/null)" 2>/dev/null; then
-        return 0                      # đã chạy, không spawn lần hai
+    _lock="$XDG_RUNTIME_DIR/tsuki-$_name.lock"
+    _pidf="$XDG_RUNTIME_DIR/tsuki-$_name.pid"
+
+    # Nếu không probe được (không có flock, không cấp quyền ghi) thì vẫn
+    # spawn: cũ hơn là chạy, thiếu daemon mới là hỏng.
+    if have flock; then
+        if flock -n "$_lock" -c true 2>/dev/null; then
+            :                                   # khoá trống -> chưa có daemon
+        else
+            info "$_name: đã chạy (đang giữ khoá)"
+            return 0
+        fi
+    elif [ -f "$_pidf" ] && kill -0 "$(head -1 "$_pidf" 2>/dev/null)" 2>/dev/null; then
+        return 0                              # không có flock: lùi về pidfile
     fi
-    "$@" >/dev/null 2>&1 &
-    echo $! >"$_pid"
+
+    # Subshell giữ FD 9 rồi exec — `exec` GIỮ NGUYÊN PID nên pid ta ghi ra
+    # đúng là pid của daemon. `flock -n 9 || exit 0` chặn trường hợp có
+    # tiến trình khác giành khoá giữa lúc probe và lúc spawn.
+    (
+        exec 9>"$_lock"
+        flock -n 9 || exit 0
+        exec "$@"
+    ) >/dev/null 2>&1 &
+    printf '%s\n' "$!" >"$_pidf"
+    info "$_name: pid $!"
+}
+
+# Dừng daemon do phiên này khởi động. Gọi khi thoát session để không để lại
+# tiến trình mồ côi — nhất là sau khi rebuild nhiều lần. Xoá cả khoá: nếu
+# không, lần đăng nhập sau thấy khoá vẫn "bị giữ" bởi tiến trình đã chết (chỉ
+# xảy ra nếu tiến trình bị SIGKILL, nhưng vẫn nên dọn).
+stop_daemons() {
+    # KHÔNG để dòng `_f` trần ở đây: shell hiểu nó là lệnh cần thực thi ->
+    # "_f: command not found" mỗi lần dọn. Đã mắc bằng test tích hợp.
+    for _f in "$XDG_RUNTIME_DIR"/tsuki-*.pid "$XDG_RUNTIME_DIR"/tsuki-*.lock; do
+        [ -f "$_f" ] || continue
+        case $_f in *.pid)
+            _p=$(head -1 "$_f" 2>/dev/null)
+            case ${_p:-} in ''|*[!0-9]*) ;; *) kill "$_p" 2>/dev/null || true ;; esac
+            ;;
+        esac
+        rm -f "$_f"
+    done
 }
 
 # --- systemd user manager: đưa DISPLAY/XAUTHORITY vào môi trường -------------
@@ -95,12 +200,38 @@ start_daemon() {
 #
 # `systemctl --user import-environment` là đường đúng: đẩy biến của ta vào
 # môi trường của systemd user manager, để unit đọc được DISPLAY thật.
-systemctl --user import-environment DISPLAY XAUTHORITY 2>/dev/null || true
+# (Lệnh này nằm ở khối "thông báo + portal" bên dưới, ngay sau khi biết mình
+# CÓ user bus hay không — gọi ở đây thì vô nghĩa khi không có bus.)
+
+# --- D-Bus session bus: điều kiện tiên quyết của cả session -------------------
+# Mọi thứ sau đây đi qua D-Bus: dunst (org.freedesktop.Notifications),
+# xdg-desktop-portal (FileChooser cho Firefox), tumblerd (thumbnail Thunar),
+# fcitx5, và PipeWire. KHÔNG có bus thì tất cả chết cùng lúc, mà trước đây
+# run.sh không hề kiểm tra — chỉ có `systemctl --user ... || true` nuốt mất
+# mọi dấu vết.
+if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    info "D-Bus: $DBUS_SESSION_BUS_ADDRESS"
+else
+    warn "KHÔNG có DBUS_SESSION_BUS_ADDRESS"
+    warn "  dunst, hộp thoại lưu file của Firefox, thumbnail Thunar, fcitx5 và âm thanh"
+    warn "  đều cần nó. Nếu bạn thấy các thứ đó im lặng, đây là nguyên nhân."
+    warn "  Thử: unset DBUS_SESSION_BUS_ADDRESS; eval \$(dbus-launch --sh-syntax)"
+    if have dbus-run-session; then
+        warn "  hoặc đăng nhập lại (cần có 'dbus-broker' hoặc 'dbus' đã cài)"
+    fi
+fi
+
+# Quyền mặc định. Không đặt thì file app tạo mang quyền tuỳ ý của umask cha
+# (systemd hay đặt 0022, nhưng không bảo đảm), và ~/.cache/thumbnails cần
+# 0700 đúng spec — run.sh tự chmod ở khối thumbnail, nhưng các file khác
+# (cache, log) vẫn cần một umask đoán trước.
+umask 077 2>/dev/null || true
 
 # --- nền desktop ------------------------------------------------------------
 [ -f "$HOME/.Xresources" ] && xrdb -merge "$HOME/.Xresources" &
 
 WALLPAPER=$(cat "$TSUKI_DIR/scripts/.wallpaper" 2>/dev/null)
+_needs_wallpaper_msg=0
 if [ -n "${WALLPAPER:-}" ] && [ -f "$WALLPAPER" ]; then
     feh --bg-fill "$WALLPAPER" &
 elif [ -f "$HOME/Pictures/Wallpapers/japanese.jpg" ]; then
@@ -108,11 +239,22 @@ elif [ -f "$HOME/Pictures/Wallpapers/japanese.jpg" ]; then
 else
     # Không có ảnh nào: vẽ nền đen bằng feh thay vì để X màu xám xịt.
     feh --bg-solid '#1a1a1a' &
-    notify-send "tsuki" "Chưa có ảnh nền — đặt ảnh vào scripts/.wallpaper" 2>/dev/null || true
+    # KHÔNG gọi notify-send ở đây. Bản cũ gọi ngay tại chỗ này, tức là TRƯỚC
+    # khi dunst được khởi động (dunst chạy ở khối "thông báo + portal" phía
+    # dưới) -> không ai nhận org.freedesktop.Notifications -> thông báo mất
+    # im lặng. Đặt cờ, phát sau khi dunst sẵn sàng.
+    _needs_wallpaper_msg=1
 fi
 
-xset r rate 200 50 &
-picom &
+# `xset r rate` đặt tốc độ lặp phím. Không có `&`: xrdb/`xset` chạy nhanh,
+# chạy đồng bộ để không tranh X server với phần cursor phía dưới, và để lỗi
+# (thiếu xorg-xset) được ghi vào nhật ký thay vì biến mất trong /dev/null.
+if have xset; then
+    xset r rate 200 50 2>/dev/null || warn "xset r rate thất bại — tốc độ lặp phím không đổi"
+else
+    warn "thiếu xorg-xset — bỏ qua tốc độ lặp phím"
+fi
+have picom && picom &
 
 # --- cursor: Bibata Modern Ice -----------------------------------------------
 # X11 không có khái niệm "cursor theme" sẵn như GNOME/KDE. Xcursor spec quy định
@@ -170,14 +312,61 @@ fi
 #      Không có portal-gtk thì app nhận lệnh nhưng không dựng được cửa sổ.
 #
 # `systemctl --user start` (không phải chạy tay) để dunst đi đúng con đường
-# D-Bus mà app gọi tới. Vẫn cần bọc `|| true`: nếu không có systemd user bus
-# (session rất cũ) thì bỏ qua, đừng làm hỏng cả session.
-systemctl --user start xdg-desktop-portal.service xdg-desktop-portal-gtk.service 2>/dev/null || true
-systemctl --user start dunst.service 2>/dev/null || true
+# D-Bus mà app gọi tới.
+#
+# NHƯNG `systemctl --user` chỉ chạy được khi có systemd user manager. Phiên
+# startx từ TTY không đi qua logind nên thường KHÔNG có user bus -> mọi lệnh
+# dưới đây im lặng thất bại, dunst không chạy, phím volume không hiện OSD,
+# hộp thoại "Lưu ảnh" của Firefox không dựng được. Trước đây lỗi này hoàn
+# toàn im lặng vì có `2>/dev/null || true`.
+#
+# Nên: thử systemd trước, thấy không có thì chạy binary tay. Cả hai đều đi
+# qua cùng session bus nên app vẫn tìm thấy.
+_have_user_bus=0
+if have systemctl && systemctl --user is-system-running >/dev/null 2>&1; then
+    _have_user_bus=1
+fi
+# `is-system-running` trả "degraded" cũng là bus dùng được; nên thử thêm
+# một cách trực tiếp: busctl có nói chuyện được không.
+[ "$_have_user_bus" = 0 ] && have busctl && \
+    busctl --user list >/dev/null 2>&1 && _have_user_bus=1
+
+if [ "$_have_user_bus" = 1 ]; then
+    systemctl --user import-environment DISPLAY XAUTHORITY 2>/dev/null || true
+    systemctl --user start xdg-desktop-portal.service \
+                        xdg-desktop-portal-gtk.service 2>/dev/null || true
+    systemctl --user start dunst.service 2>/dev/null || true
+    info "dunst/portal: qua systemd --user"
+else
+    warn "không có systemd user bus — chạy dunst/portal trực tiếp"
+    have dunst && start_daemon dunst dunst
+    for _p in /usr/libexec/xdg-desktop-portal /usr/lib/xdg-desktop-portal; do
+        [ -x "$_p" ] && { start_daemon portal "$_p"; break; }
+    done
+    for _p in /usr/libexec/xdg-desktop-portal-gtk \
+             /usr/lib/xdg-desktop-portal-gtk; do
+        [ -x "$_p" ] && { start_daemon portal-gtk "$_p"; break; }
+    done
+fi
+
+# Thông báo tường trễ: chỉ gửi được SAU khi dunst đã có mặt trên bus. Xem
+# khối wallpaper — thông báo "chưa có ảnh nền" bản cũ gửi trước khi dunst
+# chạy nên mất im lặng.
+if [ "${_needs_wallpaper_msg:-0}" = 1 ] && have notify-send; then
+    ( _i=0
+      while [ $_i -lt 20 ] && ! busctl --user list 2>/dev/null | grep -q org.freedesktop.Notifications; do
+          sleep 0.25; _i=$((_i + 1))
+      done
+      notify-send "tsuki" "Chưa có ảnh nền — đặt ảnh vào scripts/.wallpaper" 2>/dev/null || : ) &
+fi
 
 # polkit-gnome authentication agent (cần cho popup mật khẩu của pkexec/sudo)
-[ -x /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ] &&
-    /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
+if [ -x /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ]; then
+    start_daemon polkit \
+        /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+else
+    have pkexec && warn "thiếu polkit-gnome — sudo/pkexec sẽ không có hộp thoại"
+fi
 
 # --- fcitx5 -----------------------------------------------------------------
 # 5 biến, khớp với khối `if status is-login` trong .config/fish/config.fish.
@@ -216,13 +405,18 @@ SLSTATUS="$TSUKI_DIR/slstatus/slstatus"
 [ -x "$SLSTATUS" ] || SLSTATUS="$(command -v slstatus 2>/dev/null || true)"
 
 if [ -n "$SLSTATUS" ]; then
-    (
+    # Dùng start_daemon + khoá thay vì `( ... ) &` + `echo $!`. Bản cũ ghi
+    # pid của SUBSHELL wrapper, không phải của slstatus — nên
+    # `kill $(cat tsuki-slstatus.pid)` giết wrapper còn slstatus vẫn chạy, và
+    # lần đăng nhập sau thấy pidfile "còn sống" nên không spawn lại.
+    start_daemon slstatus dash -c "
         while :; do
-            "$SLSTATUS"
+            '$SLSTATUS'
             sleep 0.5
         done
-    ) >/dev/null 2>&1 &
-    echo $! >"$XDG_RUNTIME_DIR/tsuki-slstatus.pid"
+    "
+else
+    warn "không tìm thấy slstatus — thanh trạng thái sẽ trống (chạy ./install.sh build)"
 fi
 
 # --- daemon nền -------------------------------------------------------------
@@ -268,13 +462,53 @@ mkdir -p "$_thumb_dir" 2>/dev/null && chmod 700 "$_thumb_dir" 2>/dev/null
 #
 # exit 0 = người dùng chủ động thoát (Super+Ctrl+Q trong config.h) -> kết thúc
 # hẳn session, quay về TTY. Mọi exit code khác (crash, bị signal) -> nạp lại.
+#
+# VÌ SAO THÊM BACKOFF: bản cũ `sleep 0.3` rồi thử lại vô hạn. Nếu dwm hỏng
+# nghiêm trọng — config.h sai cú pháp, thiếu font, X hết chỗ — nó crash ngay
+# lập tức, và 3 lần/giây × cả buổi là hàng trăm nghìn lần ghi log, đầy đĩa,
+# vẫn không bao giờ lên được. Nay:
+#   - crash liên tiếp nhanh (<10s) -> nghỉ tăng dần: 0.3 → 0.6 → 1.2 → … cap 5s
+#   - chạy được >10s rồi mới chết -> coi là bình thường, nghỉ 0.3s như cũ
+#   - liên tục 20 lần mà vẫn không lên -> dừng hẳn, in nguyên nhân ra
+#     cuối log thay vì quay vòng vô tận
+_crash_count=0
+_dwm_up=""
 while type dwm >/dev/null 2>&1; do
+    _t0=$(date +%s 2>/dev/null || echo 0)
     dwm
     _rc=$?
-    [ "$_rc" -eq 0 ] && exit 0
-    sleep 0.3
+
+    if [ "$_rc" -eq 0 ]; then
+        info "dwm thoát bình thường (exit 0) — kết thúc session"
+        stop_daemons
+        exit 0
+    fi
+
+    _t1=$(date +%s 2>/dev/null || echo 0)
+    _ran=$(( _t1 - _t0 ))
+    if [ "$_ran" -ge 10 ]; then
+        _crash_count=0            # đã chạy tốt rồi mới chết -> không phải lỗi cấu hình
+        _delay=0.3
+        info "dwm chết sau ${_ran}s (exit $_rc) — nạp lại"
+    else
+        _crash_count=$((_crash_count + 1))
+        _delay=$(awk -v n="$_crash_count" -v t=0.3 'BEGIN{
+            d = t; for (i = 1; i < n; i++) { d *= 2; if (d > 5) { d = 5; break } }
+            printf "%.1f", d }')
+        log "dwm crash lần $_crash_count sau ${_ran}s (exit $_rc), nghỉ ${_delay}s"
+    fi
+
+    if [ "$_crash_count" -ge 20 ]; then
+        fail "dwm crash liên tục $_crash_count lần, không dậy nổi — DỪNG"
+        fail "Nhật ký phiên: $TSUKI_LOG"
+        fail "Nếu vừa sửa config.h: git restore config.h && make && sudo make install"
+        stop_daemons
+        exit 1
+    fi
+    sleep "$_delay" 2>/dev/null || sleep 1
 done
 
 # Không có `dwm` trong PATH: binary chưa build hoặc startx không nạp profile.
-echo "tsuki: không tìm thấy 'dwm' trong PATH — chạy ./install.sh build" >&2
+fail "không tìm thấy 'dwm' trong PATH — chạy ./install.sh build"
+stop_daemons
 exit 127

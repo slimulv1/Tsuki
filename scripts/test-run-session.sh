@@ -386,6 +386,32 @@ else
     bad "T13d không có dấu vết trong nhật ký" "thiếu dòng 'watchdog: ... đã chết'"
 fi
 
+# --- T13e: daemon hồi sinh KHÔNG được cầm khoá của watchdog ------------------
+# fd 7 là khoá riêng của watchdog. Watchdog gọi start_daemon khi hồi sinh, nên
+# bản chưa sửa cho mọi daemon kế thừa fd 7 — tức daemon cầm khoá watchdog.
+# Hệ quả: watchdog chết là khoá vẫn bị giữ, watchdog mới `flock -n 7` thất
+# bại, KHÔNG BAO GIỜ chạy lại được trong phần đời còn lại của phiên.
+# Đọc thẳng /proc/<pid>/fd, không suy từ hành vi.
+_xs2=$(cat "$XS_PID_FILE" 2>/dev/null)
+_wdfd=""
+for _fd in /proc/$_xs2/fd/*; do
+    _t=$(readlink "$_fd" 2>/dev/null) || continue
+    case "$_t" in *tsuki-watchdog.lock) _wdfd="$_wdfd ${_fd##*/}";; esac
+done
+if [ -z "$_wdfd" ]; then
+    ok "T13e daemon hồi sinh không cầm khoá watchdog (fd sạch)"
+else
+    bad "T13e daemon hồi sinh cầm khoá watchdog" "fd:$_wdfd -> tsuki-watchdog.lock"
+fi
+# Và watchdog phải VẪN giữ khoá của chính nó (không đóng nhầm fd 7)
+_wdp=$(cat "$T/run/tsuki-watchdog.pid" 2>/dev/null)
+if [ -n "$_wdp" ] && [ -e "/proc/$_wdp/fd/7" ] && \
+   ! flock -n "$T/run/tsuki-watchdog.lock" -c true 2>/dev/null; then
+    ok "T13f watchdog vẫn giữ khoá riêng (đóng fd 7 không ảnh hưởng nó)"
+else
+    bad "T13f watchdog mất khoá" "pid=$_wdp fd7=$([ -e /proc/$_wdp/fd/7 ] && echo co || echo khong) khoá=$(flock -n "$T/run/tsuki-watchdog.lock" -c true 2>/dev/null && echo TRONG || echo 'DA GIU')"
+fi
+
 # --- T14: watchdog CÓ TRẦN, không lặp vô tận --------------------------------
 # Giết liên tục. Sau WD_MAX_RETRY lần watchdog phải bỏ qua và ghi rõ, thay
 # vì thử vô tạn. Thử vô tạn tệ hơn lúc đầu: log đầy, CPU quay, nguyên nhân

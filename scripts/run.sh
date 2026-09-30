@@ -251,6 +251,16 @@ start_daemon() {
     (
         exec 8>"$_lock"
         flock -n 8 || exit 0
+        # ĐÓNG fd 7 trước khi exec. fd 7 là khoá RIÊNG của watchdog
+        # (_start_watchdog mở nó), và watchdog gọi start_daemon khi hồi sinh
+        # daemon nên mọi daemon nó sinh đều kế thừa fd 7 — tức là cầm khoá
+        # của watchdog. Do đo trong test: daemon hồi sinh có
+        # `fd 7 -> tsuki-watchdog.lock`. Hệ quả: watchdog chết thì khoá vẫn
+        # bị giữ bởi con, `flock -n 7` của watchdog mới thất bại, và watchdog
+        # KHÔNG BAO GIỜ khởi động lại được trong phần đời còn lại của phiên.
+        # Đóng ở đây chỉ ảnh hưởng con; watchdog giữ fd 7 của riêng nó.
+        # `exec 7>&-` khi fd 7 không mở thì không báo lỗi.
+        exec 7>&-
         exec "$@"
     ) >/dev/null 2>&1 &
     printf '%s\n' "$!" >"$_pidf"

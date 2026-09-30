@@ -21,8 +21,6 @@
 # và sẽ nâng cấp toàn hệ thống (`pacman -Syyu`).
 #
 # Không chạy `make clean` ở đâu cả: config.h là cấu hình thật của máy, đã được
-#
-# Không chạy `make clean` ở đâu cả: config.h là cấu hình thật của máy, đã được
 # git track; `make clean` ở các Makefile cũ từng xoá nó rồi cp lại từ
 # config.def.h, âm thầm thay hết tùy chỉnh. Xem scripts/rebuild.sh.
 #
@@ -76,6 +74,50 @@ detect_sudo() {
 # Phải là `bash -c 'script' _ args`: ở đây -c là chế độ, "_" là $0, args là $1...
 root_sh() {
     as_root env TSUKI_PREFIX="$PREFIX" bash -c "$@"
+}
+
+# ------------------------------------------------- người dùng và thư mục nhà ---
+# Cả hai hàm này phải đúng khi chạy `sudo ./install.sh` (EUID=0) lẫn khi chạy
+# trong shell root thật. `tsuki_user` chỉ cần tên cho tên unit systemd;
+# `tsuki_home` cần đường dẫn tuyệt đối để đặt dotfiles.
+#
+# Vì sao không dùng thẳng $HOME: sudo mặc định GIỮ $HOME của người gọi
+# (always_set_home tắt), nên `sudo ./install.sh` ra đúng. Nhưng trong shell
+# root thật thì $HOME=/root, và dotfiles sẽ rơi vào /root/.config — cài xong
+# tưởng không có gì xảy ra. SUDO_USER thì đúng cả hai đường.
+tsuki_user() {
+    printf '%s\n' "${SUDO_USER:-${USER:-$(id -un)}}"
+}
+
+tsuki_home() {
+    local h=""
+    if [[ -n ${SUDO_USER:-} ]]; then
+        h=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6) || h=""
+    fi
+    printf '%s\n' "${h:-$HOME}"
+}
+# SC2155: `readonly X=$(...)` để readonly nuốt luôn exit code của lệnh, nên
+# tsuki_home hỏng thì TSUKI_HOME vẫn được set và ta không biết. Tách ra.
+TSUKI_HOME=$(tsuki_home)
+readonly TSUKI_HOME
+
+# ------------------------------------------------------------------ backup ---
+# Đường dẫn backup CHƯA TỪNG dùng, cùng họ với $1. Chặn cả hai kiểu trùng:
+#
+#   - `date +%Y%m%d%H%M%S` chỉ chính xác tới GIÂY. Chạy `./install.sh dotfiles`
+#     rồi `./install.sh session` trong cùng một giây thì lần hai ghi đè đúng
+#     file backup của lần một — mất bản cũ mà không có dấu vết. Đã tái hiện.
+#   - Nếu $bak đã tồn tại và là THƯ MỤC thì `mv -- $1 $bak` đặt $1 BÊN TRONG
+#     $bak chứ không thay thế nó: /x.tsuki-bak-…/x. Backup cũ bị dính rác và
+#     `cp` sau đó tạo lại $1 từ đầu. Đã tái hiện.
+backup_path() {
+    local p=$1 ts bak n
+    ts=$(date +%Y%m%d%H%M%S)
+    for n in 0 1 2 3 4 5 6 7 8 9; do
+        if (( n == 0 )); then bak="$p.tsuki-bak-$ts"; else bak="$p.tsuki-bak-$ts-$n"; fi
+        [[ -e $bak || -L $bak ]] || { printf '%s\n' "$bak"; return 0; }
+    done
+    die "không tìm được tên backup trống cho $p (thử $ts-0 đến $ts-9, hết chỗ)"
 }
 
 # --------------------------------------------------------------- packages ---
@@ -236,30 +278,66 @@ readonly PKG_KEYBINDS=(
     ttc-iosevka ttf-jetbrains-mono-nerd
 )
 
-missing_pkgs() {
-    local -n ref=$1
-    local p
-    for p in "${ref[@]}"; do
-        pacman -Qq "$p" >/dev/null 2>&1 || printf '%s\n' "$p"
-    done
+# Số tiến trình song song cho các vòng hỏi pacman. `pacman -Qq` chỉ đọc cơ sở
+# dữ liệu cục bộ nên chạy song song được, không cần khoá.
+readonly JOBS=${JOBS:-8}
+
+# Hỏi pacman về từng gói trong "$@", CHẠY SONG SONG, in ra gói nào không có.
+#
+# CỐ Ý vẫn hỏi TỪNG gói, chỉ chạy song song — không gộp thành
+# `pacman -Qq p1 p2 …`. Bản liệt kê không kèm `Provides`, nên XLibre sẽ bị
+# coi là thiếu rồi cài đè. Đã kiểm trên máy đang chạy XLibre:
+#
+#     pacman -Qq | grep -cx xorg-server   ->  0            (không trong danh sách)
+#     pacman -Qq xorg-server              ->  xlibre-xserver
+#
+# Gộp lại là mất đúng thứ mà cmd_xlibre_auto sinh ra để tránh. Nếu sau này ai
+# tối ưu tiếp chỗ này thì đọc lại đoạn này trước đã.
+#
+# `sort` chỉ để thứ tự ổn định giữa các lần chạy, không phải để sắp xếp.
+# -0 để tên gói có ký tự lạ cũng an toàn; -r để "$@" rỗng thì không gọi sh.
+pkgs_absent_in_db() {
+    (($#)) || return 0
+    printf '%s\0' "$@" |
+        xargs -0 -P"$JOBS" -r -I{} \
+            sh -c 'pacman -Qq "$1" >/dev/null 2>&1 || printf "%s\n" "$1"' _ {} |
+        sort
 }
 
-# Có tồn tại trong kho nào đang bật không. Cần vì `pacman -S a b c` huỷ CẢ LÔ
-# khi chỉ một gói không tìm thấy ("target not found") — đã kiểm: cho
-# `pacman -Sp less fake-pkg-xyz` thì cả `less` cũng không được nạp, exit 1.
+missing_pkgs() {
+    local -n ref=$1
+    ((${#ref[@]})) || return 0
+    pkgs_absent_in_db "${ref[@]}"
+}
+
+# Trong "$@", in ra gói KHÔNG có trong kho nào đang bật. Cần vì `pacman -S a b
+# c` huỷ CẢ LÔ khi chỉ một gói không tìm thấy ("target not found") — đã kiểm:
+# cho `pacman -Sp less fake-pkg-xyz` thì cả `less` cũng không được nạp, exit 1.
 # Mấy gói như visual-studio-code-bin hay discord-ptb nằm ở repo thứ ba, thiếu
 # repo đó là toàn bộ nhóm hỏng theo.
+pkgs_absent_in_repos() {
+    (($#)) || return 0
+    printf '%s\0' "$@" |
+        xargs -0 -P"$JOBS" -r -I{} \
+            sh -c 'pacman -Sddp "$1" >/dev/null 2>&1 || printf "%s\n" "$1"' _ {} |
+        sort
+}
+
 available_pkgs() {
-    local -a missing=("$@")
-    local -a ok=() bad=()
-    local p
-    for p in "${missing[@]}"; do
-        if pacman -Sddp "$p" >/dev/null 2>&1; then ok+=("$p"); else bad+=("$p"); fi
-    done
-    if (( ${#bad[@]} )); then
+    (($#)) || return 0
+    local -a bad=() ok=()
+    mapfile -t bad < <(pkgs_absent_in_repos "$@")
+    if ((${#bad[@]})); then
         warn "không có trong kho nào đang bật, bỏ qua: ${bad[*]}"
+        # Tập tra O(1) thay vì lồng hai vòng O(n·m).
+        local -A gone=()
+        local p
+        for p in "${bad[@]}"; do gone[$p]=1; done
+        for p in "$@"; do [[ -n ${gone[$p]:-} ]] || ok+=("$p"); done
+    else
+        ok=("$@")
     fi
-    (( ${#ok[@]} )) || return 0
+    ((${#ok[@]})) || return 0
     root_sh -c 'pacman -S --needed --noconfirm "$@"' _ "${ok[@]}"
 }
 
@@ -280,7 +358,9 @@ install_pkgs() {
         return 0
     fi
     step "cài gói ($label): ${#missing[@]} thiếu"
-    printf '    %s\n' "${missing[*]}"
+    # Một gói mỗi dòng, không phải "${missing[*]}" gộp cả nhóm lên một dòng:
+    # PKG_KEYBINDS hơn 20 gói, một dòng dài sẽ vỡ khung terminal.
+    printf '    %s\n' "${missing[@]}"
     available_pkgs "${missing[@]}"
     ok "$label: xong"
 }
@@ -388,8 +468,10 @@ install_dotfile() {
         if same_content "$src" "$dst"; then
             return 0   # giống hệt, không đụng
         fi
+        # backup_path bảo đảm $bak CHƯA tồn tại. Không có nó thì `mv` đặt $dst
+        # vào BÊN TRONG $bak nếu $bak đã là thư mục, thay vì thay thế nó.
         local bak
-        bak="$dst.tsuki-bak-$(date +%Y%m%d%H%M%S)"
+        bak=$(backup_path "$dst")
         mv -- "$dst" "$bak"
         warn "$(basename -- "$dst") khác nội dung -> backup: ${bak##*/}"
     fi
@@ -407,7 +489,7 @@ cmd_dotfiles() {
     for d in "${items[@]}"; do
         # starship.toml là file, còn lại là thư mục — install_dotfile nhận cả hai
         if [[ -e "$REPO_DIR/.config/$d" ]]; then
-            install_dotfile "$REPO_DIR/.config/$d" "$HOME/.config/$d"
+            install_dotfile "$REPO_DIR/.config/$d" "$TSUKI_HOME/.config/$d"
             n=$((n + 1))
         else
             warn "thiếu .config/$d trong repo — bỏ qua"
@@ -422,7 +504,7 @@ cmd_firefox() {
     # `|| true` là bắt buộc: dưới `set -o pipefail`, khi head lấy đủ dòng rồi
     # thoát, find bị SIGPIPE và trả 141; lệnh gán cũng nhận luôn 141 -> set -e
     # kết thúc script ngay. Đã kiểm chứng: exit=141.
-    profile="$(find "$HOME/.config/mozilla/firefox" -maxdepth 1 -name '*.default-release' 2>/dev/null | head -1 || true)"
+    profile="$(find "$TSUKI_HOME/.config/mozilla/firefox" -maxdepth 1 -name '*.default-release' 2>/dev/null | head -1 || true)"
     [[ -n $profile ]] || {
         warn "không tìm thấy Firefox profile — bỏ qua (mở Firefox một lần rồi chạy lại)"
         return 0
@@ -440,13 +522,13 @@ write_xinitrc() {
     step "ghi ~/.xinitrc"
     # Backup nếu đã có .xinitrc: `cat >` xoá trắng file cũ mà không để lại dấu
     # vết, và người dùng rất dễ đã có .xinitrc riêng từ trước.
-    if [[ -f $HOME/.xinitrc ]] && ! grep -q 'Tsuki install.sh' "$HOME/.xinitrc"; then
+    if [[ -f $TSUKI_HOME/.xinitrc ]] && ! grep -q 'Tsuki install.sh' "$TSUKI_HOME/.xinitrc"; then
         local bak
-        bak="$HOME/.xinitrc.tsuki-bak-$(date +%Y%m%d%H%M%S)"
-        cp -a -- "$HOME/.xinitrc" "$bak"
+        bak=$(backup_path "$TSUKI_HOME/.xinitrc")
+        cp -a -- "$TSUKI_HOME/.xinitrc" "$bak"
         warn ".xinitrc đã tồn tại -> backup: ${bak##*/}"
     fi
-    cat >"$HOME/.xinitrc" <<EOF
+    cat >"$TSUKI_HOME/.xinitrc" <<EOF
 # ~/.xinitrc — do Tsuki install.sh tạo. Chạy session dwm từ TTY: startx
 #
 # startx không nạp ~/.profile nên PATH phỏng vọng; make install đặt binary vào
@@ -455,7 +537,7 @@ write_xinitrc() {
 export PATH="$PREFIX/bin:\$PATH"
 exec "$REPO_DIR/scripts/run.sh"
 EOF
-    chmod 644 "$HOME/.xinitrc"
+    chmod 644 "$TSUKI_HOME/.xinitrc"
     # "~/.xinitrc" là chuỗi hiển thị cho người đọc, KHÔNG phải đường dẫn cần
     # mở — nên cố ý không dùng $HOME. shellcheck báo SC2088 ở đây là dương
     # tính giả.
@@ -913,7 +995,12 @@ $list     Gỡ bớt rồi chạy lại."
     root_sh -c '
         set -e
         f=/etc/pacman.conf
-        bak="$f.tsuki-bak-$(date +%Y%m%d%H%M%S)"
+        # Cùng lý do như backup_path ở ngoài: date chỉ chính xác tới giây, và
+        # $bak đã là thư mục thì `cp -a file $bak` sẽ chép VÀO trong nó.
+        ts=$(date +%Y%m%d%H%M%S)
+        bak="$f.tsuki-bak-$ts"
+        n=0
+        while [ -e "$bak" ]; do n=$((n+1)); bak="$f.tsuki-bak-$ts-$n"; done
         cp -a -- "$f" "$bak"
         # File tạm do mktemp sinh, không phải "$f.new" đặt cứng: nếu bị ngắt
         # giữa chừng thì không để lại rác trong /etc.
@@ -981,7 +1068,7 @@ readonly PARU_GIT=https://aur.archlinux.org/paru.git
 # Clone vào ~/.local/src, KHÔNG clone vào thư mục repo — `git clone` không có
 # đường dẫn đích sẽ rơi vào cwd, mà cwd khi chạy install.sh là ~/dwm, tức là
 # rác vào chính repo đang chạy.
-readonly PARU_SRC=$HOME/.local/src/paru
+readonly PARU_SRC=$TSUKI_HOME/.local/src/paru
 
 # PKGBUILD của paru: makedepends=('cargo'), depends=('git' 'pacman' 'libalpm.so>=14')
 # bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
@@ -995,13 +1082,13 @@ readonly PKG_PTY=(
     fcitx5-lotus-bin
 )
 
-# Tên người gọi, đúng cả khi chạy `sudo ./install.sh`. `id -un` lúc đó trả về
-# root, bật service theo tên root thì vô dụng.
-tsuki_user() { printf '%s\n' "${SUDO_USER:-${USER:-$(id -un)}}"; }
+# `sed -n 1p` chứ không phải `head -1`: head đóng pipe sau dòng đầu thì phía
+# ghi dính SIGPIPE (141), dưới pipefail thành lỗi. sed đọc hết nên không có.
+paru_ver() { paru --version 2>/dev/null | sed -n '1p'; }
 
 cmd_paru() {
     if command -v paru >/dev/null 2>&1; then
-        ok "paru đã có: $(paru --version 2>/dev/null | head -1)"
+        ok "paru đã có: $(paru_ver)"
         return 0
     fi
 
@@ -1023,7 +1110,7 @@ cmd_paru() {
     [[ -n $pkg ]] || die "build xong nhưng không thấy *.pkg.tar.* trong $PARU_SRC"
     as_root pacman -U --noconfirm "$pkg"
     command -v paru >/dev/null 2>&1 || die "pacman -U xong nhưng vẫn không gọi được paru"
-    ok "paru: $(paru --version 2>/dev/null | head -1)"
+    ok "paru: $(paru_ver)"
 }
 
 cmd_pty() {

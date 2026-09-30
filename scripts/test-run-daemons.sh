@@ -204,5 +204,72 @@ else
 fi
 kill "$(head -1 "$XDG_RUNTIME_DIR/tsuki-oldfd.pid" 2>/dev/null)" 2>/dev/null
 
+# --- T10: daemon TỰ FORK (launcher chết) vẫn phải bị stop_daemons dọn -------
+# Đây là kịch bản `fcitx5 -d`, đo được trên phiên thật:
+#   tsuki-fcitx.pid = 452635  (CHẾT)   <- launcher
+#   pid 3046 fcitx5            (SỐNG)  <- daemon thật
+# `kill $pid` trên nội dung pidfile là kill một PID đã chết: im lặng, exit
+# status bị nuốt, tưởng đã dọn xong. Rồi `rm -f` xoá file khoá trong khi
+# daemon vẫn giữ fd trỏ tới inode đã xoá. Hậu quả: daemon sống sót qua
+# logout (phiên sau sinh bản thứ hai), và khoá trên đĩa thành inode MỚI + TRỐNG
+# nên watchdog tưởng daemon chết rồi thử sinh thêm — fcitx5 từ chối vì đã có
+# một instance, khoá lại trống, watchdog ghi "không khởi động được fcitx (thiếu
+# binary?)". Chẩn đoán sai hoàn toàn: binary có, daemon sống, ta chỉ mất dấu.
+#
+# stop_daemons nay gọi `fuser` trên từng file khoá để giết tiến trình THẬT
+# đang giữ nó, không chỉ pid trong file.
+cat > "$T/forker.sh" <<FORKEOF
+#!/bin/sh
+# giong 'fcitx5 -d': fork daemon that roi launcher chet ngay
+sleep 300 &
+printf '%s\n' "\$!" > "$T/real.pid"
+exit 0
+FORKEOF
+chmod +x "$T/forker.sh"
+sd forked "$T/forker.sh"
+sleep 0.7
+_lp=$(gf forked)                 # pid launcher: start_daemon ghi pid nay
+_rp=$(cat "$T/real.pid" 2>/dev/null || echo '')
+if [ -n "$_rp" ] && ! kill -0 "$_lp" 2>/dev/null && kill -0 "$_rp" 2>/dev/null; then
+    ok "T10 dựng được daemon tự fork: launcher $_lp chết, daemon $_rp sống"
+else
+    bad "T10 dựng daemon tự fork" "launcher=$_lp (chet=$([ -n "$_lp" ] && ! kill -0 "$_lp" 2>/dev/null && echo yes || echo no)) daemon=$_rp"
+fi
+if flock -n "$XDG_RUNTIME_DIR/tsuki-forked.lock" -c true 2>/dev/null; then
+    bad "T10 daemon con khong giu khoa" "khoa trong -> mo hinh fork khong giong fcitx5 -d"
+else
+    ok "T10 daemon con vẫn giữ khoá (kế thừa fd 8 qua fork)"
+fi
+
+dash -c ". '$FNS'; stop_daemons" >/dev/null 2>&1
+sleep 0.8
+if [ -n "$_rp" ] && ! kill -0 "$_rp" 2>/dev/null; then
+    ok "T10 stop_daemons giết được daemon thật dù pidfile trỏ launcher đã chết"
+else
+    bad "T10 daemon sống sót qua stop_daemons" "pid $_rp van song — stop_daemons chi kill duoc pid trong pidfile"
+fi
+if [ -e "$XDG_RUNTIME_DIR/tsuki-forked.lock" ]; then
+    bad "T10 khoa con lai" "tsuki-forked.lock chua bi xoa"
+else
+    ok "T10 khoa đã dọn sạch"
+fi
+
+# --- T10b: chứng minh T10 bắt được lỗi THẬT, không phải test rỗng ------------
+# Chạy lại với bản stop_daemons CŨ (chỉ kill pid trong pidfile). Nếu T10 vẫn
+# xanh ở đây thì test không kiểm được gì.
+sed -e '/if have fuser; then/,/^            fi$/d' "$FNS" > "$T/fns_nofuser.sh"
+grep -q 'have fuser' "$T/fns_nofuser.sh" && bad "T10b khong cat duoc khoi fuser" "sed that bai"
+sd forked2 "$T/forker.sh"
+sleep 0.7
+_rp2=$(cat "$T/real.pid" 2>/dev/null || echo '')
+dash -c ". '$T/fns_nofuser.sh'; stop_daemons" >/dev/null 2>&1
+sleep 0.8
+if [ -n "$_rp2" ] && kill -0 "$_rp2" 2>/dev/null; then
+    ok "T10b bản cũ (không fuser) ĐỂ LỌT daemon $_rp2 — T10 có giá trị"
+    kill "$_rp2" 2>/dev/null
+else
+    bad "T10b bản cũ cũng dọn được" "T10 không chứng minh được lỗi gì"
+fi
+
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

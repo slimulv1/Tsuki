@@ -21,6 +21,10 @@ T=$(mktemp -d)
 P=0; F=0
 ok()  { printf '  PASS  %s\n' "$*"; P=$((P+1)); }
 bad() { printf '  FAIL  %s\n        %s\n' "$*"; F=$((F+1)); }
+# canh bao: bo qua mot kiem tra vi dieu kien moi truong khong cho phep.
+# KHONG tinh vao P/F — bo qua khong phai that bai, nhung cung khong phai pass.
+# Chi dung khi thu tuc that su khong chay duoc; im lang bo qua moi la rui ro.
+warn() { printf '  SKIP  %s\n' "$*"; }
 cleanup() {
     for p in $(cat "$T"/run*/tsuki-*.pid 2>/dev/null); do kill "$p" 2>/dev/null; done
     rm -rf "$T"
@@ -81,6 +85,41 @@ mk_bin() {
         esac
     done
     ln -sf "$(command -v dash)" "$_dest/sh" 2>/dev/null
+
+    # PHẢI có: stub `id -u` trả uid giả. run.sh rơi về "/run/user/$(id -u)"
+    # khi XDG_RUNTIME_DIR rỗng hoặc hỏng (dòng 334 của run.sh). Case
+    # "khong-XDG_RT" và "khong-moi-X" cố tình đặt XDG_RUNTIME_DIR= rỗng nên
+    # chúng chạy ĐÚNG nhánh đó — mà /run/user/1000 là thư mục THẬT của phiên
+    # đang chạy.
+    #
+    # Hậu quả đo được lúc 00:13: bộ test xoá tsuki-*.lock + tsuki-*.pid thật
+    # rồi kill daemon thật. Watchdog thấy khoá biến mất nên hồi sinh: picom
+    # 2901->386318, tumbler 3254->387427, polkit chết hẳn (đạt trần 5 lần),
+    # và session.log của phiên thật bị ghi đè.
+    #
+    # `id` chỉ dùng ở 4 chỗ trong run.sh, đều là `$(id -u)` để đặt tên thư mục
+    # -> đổi uid không phá logic nào, và nhánh fallback VẪN ĐƯỢC KIỂM ĐÚNG:
+    # /run/user/4242 không tồn tại nên run.sh phải rơi tiếp sang
+    # $TMPDIR/tsuki-4242. Cách này an toàn cho MỌI case, kể cả case viết sau.
+    # PHẢI gỡ symlink trước. `id` nằm trong CORE_BINS nên vòng lặp ln -sf phía
+    # trên đã tạo symlink $_dest/id -> /usr/bin/id. `cat > $_dest/id` sau đó
+    # GHI XUYÊN QUA SYMLINK, tức mở /usr/bin/id để ghi đè. Lần đầu chỉ sống
+    # sót vì /usr/bin/id thuộc root (EACCES, không truncate) — nếu binary đó
+    # thuộc user, hoặc user chạy test bằng quyền ghi lên đó, test sẽ phá hệ
+    # thống. Đây là bẫy "ghi vào đường dẫn có thể là symlink"; mọi stub viết
+    # bằng `cat >` trong file này đều phải rm -f trước.
+    rm -f "$_dest/id"
+    cat > "$_dest/id" <<'IDSTUB'
+#!/bin/sh
+# uid gia: /run/user/4242 khong ton tai -> run.sh rut sang $TMPDIR
+for a in "$@"; do
+    case "$a" in
+        -u|-ru|--user) echo 4242; exit 0 ;;
+    esac
+done
+exec /usr/bin/id "$@"
+IDSTUB
+    chmod +x "$_dest/id"
 }
 
 # chạy một hình thế. $1 = nhãn, $2 = danh sách lệnh có, $3 = tên biến env cần
@@ -159,6 +198,51 @@ echo
 echo "--- /run/user không tồn tại: ép fallback sang \$TMPDIR ---"
 mkdir -p "$T/tmproot"
 run_case "run-user-hong"     "$ALL" "XDG_RUNTIME_DIR=/khong/ton/tai/xyz TMPDIR=$T/tmproot"
+
+echo
+echo "--- hồi quy: XDG_RUNTIME_DIR rỗng KHÔNG được chạm vào thư mục thật ---"
+# ĐÂY LÀ BẢO VỆ CHỐNG BỘ TEST TỰ PHÁ PHIÊN NGƯỜI DÙNG.
+#
+# run.sh rơi về "/run/user/$(id -u)" khi XDG_RUNTIME_DIR rỗng/hỏng (dòng 334).
+# Case "khong-XDG_RT" và "khong-moi-X" cố tình đặt nó rỗng, tức chạy đúng nhánh
+# đó — và nếu `id` thật, nhánh đó trỏ vào /run/user/1000: thư mục thật của phiên
+# đang chạy. stop_daemons() có `rm -f "$XDG_RUNTIME_DIR"/tsuki-*.lock` và
+# `tsuki-*.pid` rồi kill các pid ghi trong đó.
+#
+# Đã xảy ra thật lúc 00:13 ngày 01/10: bộ test xoá khoá/pid thật, kill daemon
+# thật; watchdog thấy khoá biến mất nên hồi sinh (picom 2901->386318, tumbler
+# 3254->387427, polkit chết hẳn sau 5 lần thử), session.log bị ghi đè.
+#
+# Cách kiểm: canary tên đúng dạng glob của stop_daemons (tsuki-*.lock). Nếu test
+# chạm vào thư mục thật, canary bị xoá -> đỏ. Không cần đoán, không phụ thuộc
+# thứ tự, không đụng daemon nào đang sống.
+_REAL_RT=${XDG_RUNTIME_DIR:-}
+if [ -z "$_REAL_RT" ] || [ ! -d "$_REAL_RT" ]; then
+    warn "canary-XDG-RT thư mục runtime thật không xác định — BỎ QUA"
+else
+    _canary="$_REAL_RT/tsuki-canary.lock"
+    if [ -e "$_canary" ]; then
+        warn "canary-XDG-RT đã có $(), bỏ qua để không đụng file thật"
+        warn "canary-XDG-RT thư mục thật: $_REAL_RT"
+    else
+        : > "$_canary" 2>/dev/null
+        _cok=1
+        [ -e "$_canary" ] || _cok=0
+        if [ "$_cok" = 1 ]; then
+            # chạy lại đúng case nguy hiểm, lần này có canary canh
+            run_case "canary-XDG-RT" "$ALL" "XDG_RUNTIME_DIR=" >/dev/null 2>&1
+            if [ -e "$_canary" ]; then
+                ok "canary-XDG-RT: XDG_RUNTIME_DIR rỗng KHÔNG chạm thư mục thật"
+            else
+                bad "canary-XDG-RT" "canary $_canary bị XOÁ — test đã ghi vào $_REAL_RT (thư mục thật của phiên đang chạy)"
+                bad "canary-XDG-RT" "nguyên nhân: run.sh dòng 334 rơi về /run/user/\$(id -u); stub 'id -u' trong mk_bin chưa được áp dụng"
+            fi
+        else
+            warn "canary-XDG-RT không tạo được canary trong $_REAL_RT — BỎ QUA"
+        fi
+        rm -f "$_canary" 2>/dev/null
+    fi
+fi
 
 echo
 echo "--- config.h trỏ font không tồn tại (dwm chết ngay) ---"

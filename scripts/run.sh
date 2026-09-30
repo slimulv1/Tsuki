@@ -93,7 +93,42 @@ stop_daemons() {
     # "_f: command not found" mỗi lần dọn. Đã mắc bằng test tích hợp.
     for _f in "$XDG_RUNTIME_DIR"/tsuki-*.pid "$XDG_RUNTIME_DIR"/tsuki-*.lock; do
         [ -f "$_f" ] || continue
-        case $_f in *.pid)
+        case $_f in
+        *.lock)
+            # Giết TIẾN TRÌNH THẬT đang giữ khoá, không chỉ pid trong file.
+            #
+            # VÌ SAO CẦN: daemon tự fork thì $! là LAUNCHER đã chết, không
+            # phải daemon. Đo được trên phiên thật với `fcitx5 -d`:
+            #   tsuki-fcitx.pid = 452635 (CHẾT)   <- launcher
+            #   pid 3046 (fcitx5 thật)             <- daemon, vẫn sống
+            # Nên `kill $pid` trên nội dung pidfile là kill một PID đã chết:
+            # im lặng, exit status bị bỏ, tưởng như đã dọn xong. Rồi dòng
+            # `rm -f "$_f"` xoá luôn file khoá — trong khi daemon vẫn giữ fd
+            # trỏ tới inode đã xoá. Hai hậu quả đo được:
+            #   1. daemon sống sót qua logout, phiên sau sinh bản thứ hai
+            #   2. khoá trên đĩa là inode MỚI và TRỐNG, nên start_daemon tưởng
+            #      daemon đã chết -> watchdog thử sinh bản thứ hai -> fcitx5 từ
+            #      chối vì đã có một instance -> khoá lại trống -> watchdog ghi
+            #      "không khởi động được fcitx (thiếu binary?)" — CHẨN ĐOÁN SAI.
+            #      Binary có; daemon sống; chỉ là ta đã mất dấu nó.
+            #
+            # `fuser` in pid ra stdout, tên file ra stderr, và mất 59ms với
+            # hàng nghìn tiến trình. Quét /proc/*/fd thì phải gọi readlink
+            # hàng chục nghìn lần — quá chậm lúc logout. Nên dùng fuser, và
+            # lùi về pidfile khi máy không có fuser.
+            #
+            # AN TOÀN: run.sh cha KHÔNG giữ file khoá nào (đã kiểm /proc/<pid>/fd
+            # trên phiên thật), nên không có nguy cơ tự giết chính mình. Watchdog
+            # giữ tsuki-watchdog.lock nhưng đã bị giết ở trên; giết lần hai vô
+            # hại, và lỡ pidfile của nó sai thì đây chính là cứu.
+            if have fuser; then
+                for _hp in $(fuser "$_f" 2>/dev/null); do
+                    case ${_hp:-} in ''|*[!0-9]*) continue ;; esac
+                    kill "$_hp" 2>/dev/null || true
+                done
+            fi
+            ;;
+        *.pid)
             _p=$(head -1 "$_f" 2>/dev/null)
             case ${_p:-} in ''|*[!0-9]*) ;; *) kill "$_p" 2>/dev/null || true ;; esac
             ;;

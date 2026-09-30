@@ -640,12 +640,12 @@ fi
 WALLPAPER=$(cat "$TSUKI_DIR/scripts/.wallpaper" 2>/dev/null)
 _needs_wallpaper_msg=0
 if [ -n "${WALLPAPER:-}" ] && [ -f "$WALLPAPER" ]; then
-    feh --bg-fill "$WALLPAPER" &
+    feh --no-fehbg --bg-fill "$WALLPAPER" &
 elif [ -f "$HOME/Pictures/Wallpapers/japanese.jpg" ]; then
-    feh --bg-fill "$HOME/Pictures/Wallpapers/japanese.jpg" &
+    feh --no-fehbg --bg-fill "$HOME/Pictures/Wallpapers/japanese.jpg" &
 else
     # Không có ảnh nào: vẽ nền đen bằng feh thay vì để X màu xám xịt.
-    feh --bg-solid '#1a1a1a' &
+    feh --no-fehbg --bg-solid '#1a1a1a' &
     # KHÔNG gọi notify-send ở đây. Bản cũ gọi ngay tại chỗ này, tức là TRƯỚC
     # khi dunst được khởi động (dunst chạy ở khối "thông báo + portal" phía
     # dưới) -> không ai nhận org.freedesktop.Notifications -> thông báo mất
@@ -658,6 +658,44 @@ fi
 # (thiếu xorg-xset) được ghi vào nhật ký thay vì biến mất trong /dev/null.
 if have xset; then
     xset r rate 200 50 2>/dev/null || warn "xset r rate thất bại — tốc độ lặp phím không đổi"
+
+    # TẮT SCREEN SAVER + DPMS CỦA CHÍNH X SERVER.
+    #
+    # Đo trên máy thật trước khi sửa:
+    #     Screen Saver:  timeout: 600  cycle: 600
+    #     DPMS:          Standby 600  Suspend 600  Off 600  — DPMS is Enabled
+    #
+    # Nghĩa là rời chuột 10 phút là màn hình trắng, rồi monitor ngủ. Trên X
+    # thuần KHÔNG có idle daemon nào cấu hình được, nên không tắt thì người
+    # dùng bị màn hình trắng mà không có cách nào đổi. Tệ hơn: nó quay lại
+    # KHÔNG khoá — Tsuki chỉ khoá bằng Super+Delete, không có tự khoá.
+    #
+    # Mặc định tắt, khớp với việc máy là desktop không có pin (không cần quản
+    # lý năng lượng). Muốn bật lại thì đặt TSUKI_SCREENSAVER=off/trước startx:
+    #     TSUKI_SCREENSAVER=600  -> blank sau 600s, tắt DPMS
+    #     TSUKI_SCREENSAVER=off  -> không blank (mặc định)
+    #     TSUKI_SCREENSAVER=keep -> giữ nguyên cấu hình X server
+    _ss=${TSUKI_SCREENSAVER:-off}
+    case $_ss in
+        off)
+            xset s off 2>/dev/null || warn "xset s off thất bại"
+            xset -dpms 2>/dev/null || warn "xset -dpms thất bại"
+            info "screensaver + DPMS: tắt (đặt TSUKI_SCREENSAVER=600 để bật lại)"
+            ;;
+        keep)
+            info "screensaver + DPMS: giữ nguyên cấu hình X server"
+            ;;
+        ''|*[!0-9]*)
+            warn "TSUKI_SCREENSAVER='$_ss' không hợp lệ — dùng off (off | 600 | keep)"
+            xset s off 2>/dev/null; xset -dpms 2>/dev/null
+            ;;
+        *)
+            xset s "$_ss" 2>/dev/null || warn "xset s $_ss thất bại"
+            xset s noexpose 2>/dev/null || true
+            xset -dpms 2>/dev/null || warn "xset -dpms thất bại"
+            info "screensaver: $_ss giây, DPMS tắt"
+            ;;
+    esac
 else
     warn "thiếu xorg-xset — bỏ qua tốc độ lặp phím"
 fi

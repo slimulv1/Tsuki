@@ -14,6 +14,33 @@ less ~/.cache/tsuki/session.log
 Ghi trực tiếp từ `run.sh:27`. Nếu file không tồn tại thì `run.sh` chưa từng chạy
 trong phiên này — thường là vì `.xinitrc` chưa trỏ tới nó.
 
+## Màn hình tự tắt / monitor ngủ
+
+`run.sh` **tắt** screensaver và DPMS của X server:
+
+```sh
+xset s off && xset -dpms
+```
+
+Lý do: X server mặc định blank sau 600 giây và bật DPMS với cả ba mốc 600 —
+rời chuột 10 phút là màn hình trắng rồi monitor ngủ. Trên X thuần không có idle
+daemon nào cấu hình được, và nó quay lại **không khoá** (Tsuki chỉ khoá bằng
+`Super+Delete`, không tự khoá).
+
+Bật lại trước khi `startx`:
+
+| Biến | Tác dụng |
+|---|---|
+| `TSUKI_SCREENSAVER=600` | blank sau 600 giây, vẫn tắt DPMS |
+| `TSUKI_SCREENSAVER=off` | không blank — **mặc định** |
+| `TSUKI_SCREENSAVER=keep` | giữ nguyên cấu hình X server |
+
+Kiểm trạng thái hiện tại:
+
+```sh
+xset q | sed -n '/Screen Saver/,/^$/p'
+```
+
 ## Daemon nào đang chạy
 
 ```sh

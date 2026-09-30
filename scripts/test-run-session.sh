@@ -595,5 +595,67 @@ else
     bad "T21 daemon trốn ra ngoài sandbox" "$_esc"
 fi
 
+# --- T22: screensaver + DPMS của X server -------------------------------------
+# Đo trên máy thật trước khi sửa: X screensaver BẬT, timeout 600, và
+#     DPMS: Standby 600  Suspend 600  Off 600 — DPMS is Enabled
+# Rời chuột 10 phút là màn hình trắng rồi monitor ngủ, trên X thuần không có
+# idle daemon nào cấu hình được, và nó quay lại KHÔNG khoá.
+#
+# Kiểm bằng cách đọc lệnh `xset` mà run.sh thực sự gọi, quan sát qua PATH giả.
+mkdir -p "$T/ss"
+cat > "$T/ss/xset" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$XSET_CALLS"
+EOF
+chmod +x "$T/ss/xset"
+# xset phải được `have` thấy -> nằm trước /usr/bin trong PATH
+_xss() {
+    export XSET_CALLS="$T/ss/calls.$1"; : > "$XSET_CALLS"
+    shift
+    : > "$FAKE_DWM_COUNT"
+    ( cd "$R" && PATH="$T/ss:$PATH" TSUKI_SCREENSAVER="$1" \
+        sh scripts/run.sh >/dev/null 2>&1 )
+    cat "$XSET_CALLS" 2>/dev/null
+}
+_calls=$(_xss default "")
+if printf '%s\n' "$_calls" | grep -qx 's off' && printf '%s\n' "$_calls" | grep -qx -- '-dpms'; then
+    ok "T22 mặc định: xset s off + xset -dpms"
+else
+    bad "T22 mặc định không tắt screensaver" "xset được gọi: [$(printf '%s' "$_calls" | tr '\n' '|')]"
+fi
+_calls=$(_xss keep keep)
+# Bỏ `r rate` — đó là lời gọi xset khác, luôn chạy. Chỉ kiểm lệnh liên quan
+# screensaver. Bản đầu khẳng định "không gọi xset nào" nên FAIL oan.
+_calls_ss=$(printf '%s\n' "$_calls" | grep -v '^r rate ' | grep -v '^$')
+if [ -z "$_calls_ss" ]; then
+    ok "T22b TSUKI_SCREENSAVER=keep: không đụng screensaver/DPMS"
+else
+    bad "T22b keep vẫn gọi xset liên quan screensaver" "[$(printf '%s' "$_calls_ss" | tr '\n' '|')]"
+fi
+_calls=$(_xss num 600)
+if printf '%s\n' "$_calls" | grep -qx 's 600'; then
+    ok "T22c TSUKI_SCREENSAVER=600: đặt timeout, vẫn tắt DPMS"
+else
+    bad "T22c giá trị số không được dùng" "[$(printf '%s' "$_calls" | tr '\n' '|')]"
+fi
+_calls=$(_xss bad abc)
+if printf '%s\n' "$_calls" | grep -qx 's off'; then
+    ok "T22d giá trị rác -> rơi về off, không để trạng thái lạ"
+else
+    bad "T22d giá trị rác xử lý sai" "[$(printf '%s' "$_calls" | tr '\n' '|')]"
+fi
+rm -f "$T"/ss/calls.*
+
+# --- T23: feh không được rác .fehbg vào $HOME ---------------------------------
+# `feh --bg-fill` ghi .fehbg vào thư mục hiện tại. Chạy từ startx thì thư mục
+# đó là $HOME — đo thấy ~/.fehbg bị ghi lại mỗi lần đăng nhập. `dwmwal.sh` cố
+# ý dùng --no-fehbg, riêng run.sh thì quên.
+if grep -qE '^\s*feh --bg-' "$R/scripts/run.sh"; then
+    bad "T23 run.sh còn gọi feh thiếu --no-fehbg" "$(grep -nE '^\s*feh --bg-' "$R/scripts/run.sh" | head -1)"
+else
+    n_feh=$(grep -cE '^\s*feh --no-fehbg ' "$R/scripts/run.sh")
+    ok "T23 cả $n_feh lời gọi feh đều có --no-fehbg"
+fi
+
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

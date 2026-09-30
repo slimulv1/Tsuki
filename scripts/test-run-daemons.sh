@@ -147,5 +147,62 @@ else
 fi
 kill "$p8" 2>/dev/null
 
+# --- T9: khoa run.sh PHAI SONG SAI khi script con tu khoa bang fd 9 -------
+# Do duoc tren phien that. updates-loop.sh lam
+#     exec 9>"$HOME/.cache/dwm-updates.lock"
+# `exec 9>` GHI DE fd 9 cua chinh no -> tha khoa ma run.sh dang giu. Sau do
+# lan start_daemon ke tiep thay khoa trong va spawn ban thu hai.
+# run.sh nay dung fd 8 nen khong va cham.
+#
+# CHÚ Ý: khoá của script con PHẢI là file KHÁC. flock xung đột kể cả khi
+# hai fd trong cùng một tiến trình trỏ cùng một file, nên nếu cho con khoá
+# đúng file của run.sh thì `flock -n 9` trả 1, con `exit 0` ngay, và test báo
+# FAIL dù code đúng. Thực tế cũng vậy: run.sh khoá
+# $XDG_RUNTIME_DIR/tsuki-updates.lock còn updates-loop.sh khoá
+# $HOME/.cache/dwm-updates.lock — hai file riêng.
+cat > "$T/selflock.sh" <<'SL'
+#!/bin/sh
+exec 9>"$CHILD_LOCK"
+flock -n 9 || exit 0
+while :; do sleep 300; done
+SL
+chmod +x "$T/selflock.sh"
+export CHILD_LOCK="$T/child-own.lock"
+sd selflock dash "$T/selflock.sh"
+sleep 0.6
+# Kiem tra KHOA (khong kiem pid) - day moi la co che dung dac.
+# Probe bang DUONG DAN, khong phai bang so fd: `flock -n 8 -c true` se ke
+# thua chinh fd 8 cua shell dang goi nen bao gioi cung ra "tha khoa".
+if flock -n "$XDG_RUNTIME_DIR/tsuki-selflock.lock" -c true 2>/dev/null; then
+    bad "T9 khoa con sau khi script con tu flock fd 9" "khoa bi tha"
+else
+    ok "T9 khoa van duoc giu sau khi script con tu flock fd 9"
+fi
+sd selflock dash "$T/selflock.sh"
+sleep 0.5
+q=$(gf selflock)
+if [ -n "$q" ] && kill -0 "$q" 2>/dev/null; then
+    ok "T9b goi lai khong spawn ban thu hai"
+else
+    bad "T9b spawn trung" "pid='$q'"
+fi
+unset CHILD_LOCK
+
+# --- T9c: chung minh T9 THAT SU BAT LOI, khong phai test ruong -----------
+# Chay lai dung kich ban do, nhung ban start_daemon da dung lai fd 9 (ban
+# cu). Neu T9 van PASS o day thi test khong kiem duoc gi ca.
+export CHILD_LOCK="$T/child-own-fd9.lock"
+sed -e 's/^        exec 8>/        exec 9>/' \
+    -e 's/^        flock -n 8 || exit 0/        flock -n 9 || exit 0/' "$FNS" > "$T/fns_fd9.sh"
+grep -q 'exec 9>"\$_lock"' "$T/fns_fd9.sh" || { bad "T9c khong tao duoc ban fd 9" "sed that bai"; }
+dash -c ". '$T/fns_fd9.sh'; start_daemon oldfd dash '$T/selflock.sh'" 2>/dev/null
+sleep 0.6
+if flock -n "$XDG_RUNTIME_DIR/tsuki-oldfd.lock" -c true 2>/dev/null; then
+    ok "T9c ban cu (fd 9) that su tha khoa — T9 co gia tri"
+else
+    bad "T9c ban cu van giu khoa" "T9 khong bat duoc loi that"
+fi
+kill "$(head -1 "$XDG_RUNTIME_DIR/tsuki-oldfd.pid" 2>/dev/null)" 2>/dev/null
+
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

@@ -164,8 +164,20 @@ fi
 # bị kill -9, nên trạng thái "daemon đang chạy" không bao giờ thành sai lệch.
 # Cùng cách updates-loop.sh tự khoá (dòng 18-19 của file đó).
 #
-# pidfile vẫn ghi lại, nhưng chỉ để TIỆN TRA: xem pid trong log, kill tay.
-# Tính đúng đắn không dựa vào nó nữa.
+# SỰ THẬT ĐÃ ĐO ĐẠC ĐƯỢC TRÊN PHIÊN THẬT (2026-09-30, sau khi đổi sang flock):
+#   fcitx5 -d TỰ FORK RỒI THOÁT. pid ta ghi ($! = 3054) là tiến trình CHA và
+#   chết ngay; daemon thật là pid khác (3061, ppid=1). Nếu còn dùng pidfile
+#   kiểu cũ thì `kill -0 3054` thất bại và lần đăng nhập sau sẽ spawn một
+#   fcitx5 thứ hai. Với flock thì 3061 vẫn giữ khoá qua fd 8 -> đúng một bản.
+#   Đây mới là nguyên nhân thật của pidfile "thối" quan sát được ở phiên trước
+#   (tsuki-fcitx.pid trỏ 3223 đã chết) — KHÔNG phải PID reuse như tôi đoán
+#   giữa chừng. Cả hai đều được flock chặn, nhưng ghi đúng nguyên nhân thì
+#   comment mới đáng tin.
+#
+# pidfile vẫn ghi lại, nhưng chỉ để TIỆN TRA. Với lệnh tự daemonize (nhận
+# `-d`) thì số trong pidfile là pid của tiến trình khởi chạy, KHÔNG phải pid
+# daemon — đừng dùng nó để `kill`. Muốn biết daemon thật thì hỏi khoá:
+#   fuser ~/.cache/tsuki/session.log >/dev/null 2>&1; fuser "$XDG_RUNTIME_DIR/tsuki-fcitx.lock"
 start_daemon() {
     _name=$1; shift
     _lock="$XDG_RUNTIME_DIR/tsuki-$_name.lock"
@@ -184,12 +196,17 @@ start_daemon() {
         return 0                              # không có flock: lùi về pidfile
     fi
 
-    # Subshell giữ FD 9 rồi exec — `exec` GIỮ NGUYÊN PID nên pid ta ghi ra
-    # đúng là pid của daemon. `flock -n 9 || exit 0` chặn trường hợp có
-    # tiến trình khác giành khoá giữa lúc probe và lúc spawn.
+    # Subshell giữ khoá rồi exec — `exec` GIỮ NGUYÊN PID nên với lệnh chạy
+    # tiền cảnh, số ghi ra đúng là pid của daemon.
+    #
+    # DÙNG FD 8, KHÔNG DÙNG FD 9. updates-loop.sh tự khoá bằng
+    # `exec 9>"$HOME/.cache/dwm-updates.lock"` (dòng 18 của file đó) — `exec 9>`
+    # GHI ĐÈ fd 9 của chính nó, tức là thả khoá mà run.sh đang giữ. Đã đo được
+    # trên phiên thật: sau khi chạy, khoá `tsuki-updates.lock` báo trống.
+    # Chọn fd 8 thì không va chạm với quy ước fd 9 phổ biến của script tự khoá.
     (
-        exec 9>"$_lock"
-        flock -n 9 || exit 0
+        exec 8>"$_lock"
+        flock -n 8 || exit 0
         exec "$@"
     ) >/dev/null 2>&1 &
     printf '%s\n' "$!" >"$_pidf"

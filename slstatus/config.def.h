@@ -87,7 +87,7 @@ static const struct arg args[] = {
 { cpu_perc,      " ^cCPU_HEX^󰻠 %s%%^d^ ",        nullptr },
 { ram_used,      "^cRAM_HEX^ %s^d^ ",           nullptr },
 { disk_perc,     "^cDISK_HEX^󰋊 %s%%^d^ ",        "/" },
-{ run_command, "^cTEMP_HEX^󱩱 %s°C^d^ ",        "~/dwm/scripts/cpu_temp.sh" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
+{ run_command, "^cTEMP_HEX^󱩱 %s°C^d^ ",        "\"$TSUKI_DIR/scripts/cpu_temp.sh\"" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
 { net_icon,      "^c#7842d7^ %s ",               nullptr },  /* icon internet: MAU CO DINH #7842d7 — KHONG dung sentinel nen khong doi theo wallpaper; chi click vao icon (marker trong net_icon.c) -> netpanel.sh */
 { wifi_panel,    "%s",                           nullptr },  /* Wi-Fi Mini: chỉ tên mạng đang kết nối; màu nằm trong wifi_panel.c (#define) nên cũng cố định */
 { battery_bar,   "%s",                           "BAT1" },

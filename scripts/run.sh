@@ -70,6 +70,22 @@ start_daemon() {
     echo $! >"$_pid"
 }
 
+# --- systemd user manager: đưa DISPLAY/XAUTHORITY vào môi trường -------------
+#
+# Vì sao: dunst và xdg-desktop-portal chạy dưới systemd --user (Type=dbus),
+# không phải con trực tiếp của X. Khi khởi động bằng `startx`, systemd user
+# manager KHÔNG có DISPLAY trong environment (startx không đi qua logind),
+# nên khi app gọi org.freedesktop.Notifications thì systemd D-Bus-activate
+# dunst.service -> ExecStart=/usr/bin/dunst, nhưng dunst không thấy DISPLAY:
+#     WARNING: Cannot open X11 display.
+#     CRITICAL: Couldn't initialize X11 output. Aborting...
+# -> exit 1 -> start-limit-hit -> không có dịch vụ thông báo nào, phím
+# volume im lặng, hộp thoại "Lưu ảnh" của Firefox không hiện.
+#
+# `systemctl --user import-environment` là đường đúng: đẩy biến của ta vào
+# môi trường của systemd user manager, để unit đọc được DISPLAY thật.
+systemctl --user import-environment DISPLAY XAUTHORITY 2>/dev/null || true
+
 # --- nền desktop ------------------------------------------------------------
 [ -f "$HOME/.Xresources" ] && xrdb -merge "$HOME/.Xresources" &
 
@@ -86,6 +102,20 @@ fi
 
 xset r rate 200 50 &
 picom &
+
+# --- thông báo + portal ------------------------------------------------------
+#
+# Cả hai đều BẮT BUỘC cho hai thứ hay vấn đề nhất trên rice:
+#   1. OSD/phím volume — gọi dunstify -> cần org.freedesktop.Notifications.
+#      Không có dunst thì phím volume vẫn đổi âm lượng nhưng không hiện gì.
+#   2. "Lưu ảnh" của Firefox — GTK4 dùng xdg-desktop-portal FileChooser.
+#      Không có portal-gtk thì app nhận lệnh nhưng không dựng được cửa sổ.
+#
+# `systemctl --user start` (không phải chạy tay) để dunst đi đúng con đường
+# D-Bus mà app gọi tới. Vẫn cần bọc `|| true`: nếu không có systemd user bus
+# (session rất cũ) thì bỏ qua, đừng làm hỏng cả session.
+systemctl --user start xdg-desktop-portal.service xdg-desktop-portal-gtk.service 2>/dev/null || true
+systemctl --user start dunst.service 2>/dev/null || true
 
 # polkit-gnome authentication agent (cần cho popup mật khẩu của pkexec/sudo)
 [ -x /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ] &&

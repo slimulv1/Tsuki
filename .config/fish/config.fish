@@ -12,8 +12,11 @@ alias vim 'nvim'
 alias arisa 'opencode'
 alias Arisa 'opencode'
 alias opencode-clean 'rm -rf ~/.local/share/opencode ~/.config/opencode ~/.cache/opencode ~/.local/state/opencode /tmp/opencode ./.opencode.json ./.opencode/ 2>/dev/null; and echo "✅ Đã xóa sạch dữ liệu OpenCode"'
-alias cdwm 'vim ~/dwm/config.h'
-alias mdwm 'cd ~/dwm; sudo make clean install; cd -'
+# Gọi __tsuki_repo lúc chạy (không lúc định nghĩa alias) nên vẫn đúng khi
+# clone ở ~/tsuki hay ~/dwm. Hardcode ~/dwm làm hai alias này vô dụng trên máy
+# đã clone chỗ khác — `cd` vào thư mục không tồn tại rồi im lặng.
+alias cdwm 'nvim (__tsuki_repo)/config.h'
+alias mdwm 'set -l r (__tsuki_repo); and cd $r; and sudo make install; and cd -'
 
 # ── Loom: pywal colors (tự theo wallpaper — dwmwal tạo colors.fish) ──
 if test -f ~/.cache/wal/colors.fish

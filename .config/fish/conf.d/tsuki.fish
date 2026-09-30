@@ -15,8 +15,16 @@
 # binary thật. Ngoài TTY mà cần binary thì gõ `command dwm`.
 
 function __tsuki_repo --description 'Thư mục repo Tsuki'
-    for d in ~/dwm ~/.config/dwm ~/Tsuki
+    # Nhiều chỗ vì người dùng clone ở nhiều tên khác nhau. `~/Tsuki` không phải
+    # `~/tsuki`: filesystem này phân biệt hoa/thường, thiếu một bản thì hỏng.
+    for d in ~/tsuki ~/Tsuki ~/dwm ~/.config/dwm ~/.config/tsuki
         test -f "$d/scripts/run.sh"; and echo $d; and return 0
+    end
+    # Cuối cùng thử chính thư mục cha của file đang chạy (conf.d/../..).
+    set -l self (status --current-filename)
+    test -n "$self"; and begin
+        set -l up (builtin realpath "$self" 2>/dev/null)
+        test -f "$up/scripts/run.sh"; and echo (dirname "$up"); and return 0
     end
     return 1
 end
@@ -34,8 +42,8 @@ function dwm --description 'Bật Tsuki (dwm) từ TTY'
     # 1. Chưa clone repo — không có gì để chạy
     if test -z "$repo"
         echo "tsuki: chưa có mã nguồn Tsuki." >&2
-        echo "  git clone https://github.com/slimulv1/Tsuki.git ~/dwm" >&2
-        echo "  cd ~/dwm && ./install.sh" >&2
+        echo "  git clone https://github.com/slimulv1/Tsuki.git ~/tsuki" >&2
+        echo "  cd ~/tsuki && ./install.sh" >&2
         return 1
     end
 

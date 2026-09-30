@@ -166,10 +166,16 @@ static const Layout layouts[] = {
 static const Key keys[] = {
     /* modifier                         key         function        argument */
 
-    // brightness and audio 
-    {0,             XF86XK_AudioLowerVolume,    spawn, SHCMD("dash ~/dwm/scripts/mediacard.sh volume down")},
-	{0,             XF86XK_AudioMute, spawn,    SHCMD("dash ~/dwm/scripts/mediacard.sh volume mute")},
-    {0,             XF86XK_AudioRaiseVolume,    spawn, SHCMD("dash ~/dwm/scripts/mediacard.sh volume up")},
+    // brightness and audio
+    //
+    // Dùng $TSUKI_DIR, KHÔNG hardcode ~/dwm. run.sh export TSUKI_DIR=$(pwd
+    // của repo) rồi exec dwm, nên dwm thừa hưởng biến này và SHCMD (chạy
+    // /bin/sh -c) sẽ expand lúc phím được bấm. Hardcode ~/dwm làm mọi
+    // dòng dưới đây chết âm thầm nếu clone ở chỗ khác — phím volume im
+    // lặng, Super+w không đổi wallpaper, mà không có lỗi nào hiện ra.
+    {0,             XF86XK_AudioLowerVolume,    spawn, SHCMD("dash \"$TSUKI_DIR/scripts/mediacard.sh\" volume down")},
+	{0,             XF86XK_AudioMute, spawn,    SHCMD("dash \"$TSUKI_DIR/scripts/mediacard.sh\" volume mute")},
+    {0,             XF86XK_AudioRaiseVolume,    spawn, SHCMD("dash \"$TSUKI_DIR/scripts/mediacard.sh\" volume up")},
 	{0,				XF86XK_MonBrightnessUp,     spawn,	{.v = light_up}},
 	{0,				XF86XK_MonBrightnessDown,   spawn,	{.v = light_down}},
 
@@ -199,8 +205,8 @@ static const Key keys[] = {
     { MODKEY,                           XK_k,       focusstack,     {.i = -1 } },
     { MODKEY,                           XK_i,       incnmaster,     {.i = +1 } },
     { MODKEY,                           XK_d,       spawn,          SHCMD("discord-ptb")},
-    { MODKEY,                           XK_slash,   spawn,          SHCMD("st -e bash -c 'bat ~/dwm/KEYBINDS.md || less ~/dwm/KEYBINDS.md'")},
-    { MODKEY,                           XK_w,       spawn,          SHCMD("dash ~/dwm/scripts/dwmwal.sh")},
+    { MODKEY,                           XK_slash,   spawn,          SHCMD("st -e bash -c 'bat \"$TSUKI_DIR/KEYBINDS.md\" || less \"$TSUKI_DIR/KEYBINDS.md\"'")},
+    { MODKEY,                           XK_w,       spawn,          SHCMD("dash \"$TSUKI_DIR/scripts/dwmwal.sh\"")},
 
     // shift view
     { MODKEY,                           XK_Left,    shiftview,      {.i = -1 } },
@@ -277,7 +283,7 @@ static const Key keys[] = {
     { MODKEY,                           XK_q,       killclient,     {0} },
 
     // restart: rebuild & reload
-    { MODKEY|ShiftMask,                 XK_r,       spawn, SHCMD("dash ~/dwm/scripts/rebuild.sh") },
+    { MODKEY|ShiftMask,                 XK_r,       spawn, SHCMD("dash \"$TSUKI_DIR/scripts/rebuild.sh\"") },
 
     // hide & restore windows (Super+x) + file manager (Super+e)
     { MODKEY,                           XK_e,       spawn,          SHCMD("thunar")},
@@ -298,7 +304,7 @@ static const Button buttons[] = {
     { ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
     { ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
     { ClkWinTitle,          0,              Button2,        zoom,           {0} },
-    { ClkNetIcon,           0,              Button1,        spawn,          SHCMD("dash ~/dwm/scripts/netpanel.sh") }, /* CHỈ click icon internet mới mở netpanel (hit-test marker trong dwm.c buttonpress) */
+    { ClkNetIcon,           0,              Button1,        spawn,          SHCMD("dash \"$TSUKI_DIR/scripts/netpanel.sh\"") }, /* CHỈ click icon internet mới mở netpanel (hit-test marker trong dwm.c buttonpress) */
     { ClkStatusText,        0,              Button2,        spawn,          SHCMD("st") },
 
     /* Keep movemouse? */

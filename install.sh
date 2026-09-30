@@ -3,7 +3,7 @@
 # install.sh — cài Tsuki (dwm rice) trên Arch/CachyOS.
 #
 #   ./install.sh              # cài đầy đủ: deps -> build -> dotfiles -> session
-#   ./install.sh deps         # chỉ cài gói phụ thuộc
+#   ./install.sh deps         # chỉ gói phụ thuộc (XLibre thay X.Org, tự hỏi)
 #   ./install.sh arisa        # hỏi rồi thêm kho arisa (Super+C, Super+D)
 #   ./install.sh paru         # cài paru để dùng AUR
 #   ./install.sh pty          # bộ gõ Lotus (tiếng Việt) — cần paru
@@ -12,9 +12,13 @@
 #   ./install.sh session      # chỉ cấu hình chạy từ TTY (.xinitrc)
 #   ./install.sh session --dm # cài thêm .desktop cho display manager
 #   ./install.sh uninstall    # gỡ binary Tsuki đã cài
-#   ./install.sh xlibre           # XLibre kênh stable (25.1)
-#   ./install.sh xlibre beta      # XLibre kênh beta (25.2, dùng thử)
-#   ./install.sh xlibre oldstable # kênh cũ (25.0)
+#   ./install.sh xlibre [kênh]  # đổi kênh: stable | beta | oldstable
+#
+# XLibre thay X.Org: `deps` tự hỏi rồi cài, không cần làm gì thêm. Lệnh `xlibre`
+# ở trên KHÔNG phải để "chuyển sang XLibre" — phần đó đã tự động rồi. Nó chỉ
+# dùng để đổi kênh, và sẽ nâng cấp toàn hệ thống (`pacman -Syyu`).
+#
+# Không chạy `make clean` ở đâu cả: config.h là cấu hình thật của máy, đã được
 #
 # Không chạy `make clean` ở đâu cả: config.h là cấu hình thật của máy, đã được
 # git track; `make clean` ở các Makefile cũ từng xoá nó rồi cp lại từ
@@ -142,6 +146,12 @@ readonly PKG_BUILD=(
 # (xem ghi chuc dau muc "packages")
 # shellcheck disable=SC2034
 readonly PKG_SESSION=(
+    # X server. Tên gói vẫn là xorg-server nhưng `missing_pkgs` hỏi
+    # `pacman -Qq xorg-server`, mà xlibre-xserver khai báo
+    # `Provides: xorg-server` — nên khi XLibre đã cài, dòng này tự coi là
+    # đủ và KHÔNG kéo X.Org xuống. Vì vậy cmd_deps phải gọi cmd_xlibre_auto
+    # TRƯỚC install_pkgs PKG_SESSION; đảo thứ tự thì xorg-server về trước rồi
+    # mới bị xlibre-meta thay, tốn vô ích một vòng cài/gỡ.
     xorg-server
     # startx — .config/fish/conf.d/tsuki.fish chặn `dwm` nếu thiếu startx
     xorg-xinit
@@ -276,6 +286,9 @@ install_pkgs() {
 cmd_deps() {
     detect_sudo
     install_pkgs PKG_BUILD      "build"
+    # XLibre trước PKG_SESSION: xlibre-xserver Provides xorg-server, đặt trước
+    # thì PKG_SESSION không kéo X.Org xuống. Đảo thứ tự là tốn hai vòng cài/gỡ.
+    cmd_xlibre_auto
     install_pkgs PKG_SESSION    "session"
     install_pkgs PKG_CONFIG     "config-apps"
     install_pkgs PKG_KEYBINDS   "keybind-apps"
@@ -510,6 +523,22 @@ xlibre_repo_name() {
     esac
 }
 
+# Ngược của xlibre_repo_name: "[xlibre-beta]" -> "beta".
+# Trả về 1 và im lặng nếu tên mục không phải kênh nào ta biết. Quan trọng:
+# cmd_xlibre_auto gọi hàm này giữa lúc cài gói, mà xlibre_repo_name lại
+# `die` với kênh lạ — die ở giữa chừng thì người dùng bị bỏ lại với hệ thống
+# nửa vời nửa không. Ở đây trả về 1 để caller tự lo và rơi về mặc định.
+xlibre_channel_of() {
+    local name=${1#[}
+    name=${name%]}
+    case $name in
+        xlibre|xlibre-stable)  printf 'stable\n'    ;;
+        xlibre-beta)           printf 'beta\n'      ;;
+        xlibre-oldstable)      printf 'oldstable\n' ;;
+        *)                     return 1            ;;
+    esac
+}
+
 xlibre_add_key() {
     step "thêm khoá ký XLibre ($XLIBRE_KEY_FPR)"
     if pacman-key --finger "$XLIBRE_KEY_FPR" >/dev/null 2>&1; then
@@ -628,6 +657,90 @@ EOF
     ok "đã bật [$repo]"
 }
 
+# Cài XLibre thay X.Org — chạy TỰ ĐỘNG trong `deps`, trước PKG_SESSION.
+#
+# Vì sao phải trước: xlibre-xserver khai báo `Provides: xorg-server`. Đặt
+# cmd_xlibre_auto trước install_pkgs PKG_SESSION thì `missing_pkgs` thấy
+# xorg-server đã được đáp ứng và không kéo X.Org xuống. Đảo thứ tự thì X.Org
+# cài trước, xlibre-meta gỡ nó sau — tốn hai vòng cài/gỡ và để lại
+# /etc/X11/xorg.conf đọc sai.
+#
+# Vì sao phải dò kênh đang bật: người dùng có thể đã tự thêm [xlibre-beta]
+# thẳng vào /etc/pacman.conf. Nếu ta cứ chọn `stable` rồi đưa vào
+# xlibre_add_repo, hàm đó sẽ `die` vì thấy hai kênh cùng bật — và chết đúng
+# lúc đang cài. Dò trước, dùng luôn kênh đang có.
+cmd_xlibre_auto() {
+    detect_sudo
+
+    if pacman -Qq xlibre-meta >/dev/null 2>&1; then
+        ok "XLibre: đã có (xlibre-meta) — xorg-server do XLibre đáp ứng"
+        return 0
+    fi
+
+    # mapfile, KHÔNG `| head -n1`: xlibre_active_channels chạy grep, head đóng
+    # sớm pipe thì grep nhận SIGPIPE (141) và pipefail biến nó thành lỗi —
+    # đúng cái bẫy đã dính hai lần trong script này.
+    local -a sections=()
+    mapfile -t sections < <(xlibre_active_channels)
+    local -a lines=()
+    mapfile -t lines < <(printf '%s\n' "${sections[@]}" | grep -v '^$')
+
+    local channel=stable sec detected
+    if ((${#lines[@]} > 1)); then
+        # Nhiều kênh cùng bật: lỗi cấu hình của người dùng, không phải của ta.
+        # Báo rõ rồi bỏ qua — còn hơn tự ý chọn một kênh rồi cài.
+        warn "đang bật ${#lines[@]} kênh XLibre cùng lúc — bỏ qua, hãy tự gộp còn một:"
+        printf '    %s\n' "${lines[@]}"
+        return 0
+    fi
+    if ((${#lines[@]} == 1)); then
+        sec=${lines[0]%%$'\t'*}
+        if detected="$(xlibre_channel_of "$sec")"; then
+            channel=$detected
+            info "pacman.conf đang bật $sec — dùng kênh $channel"
+        else
+            warn "có mục $sec trong pacman.conf nhưng không phải kênh nào tôi biết — bỏ qua"
+            return 0
+        fi
+    fi
+
+    if ! confirm "Thêm kho XLibre và thay xorg-server bằng XLibre?" n \
+                 "Câu trả lời: y = dùng XLibre, n = giữ X.Org"; then
+        warn "giữ X.Org — Tsuki vẫn chạy bình thường, chỉ khác nhà cung cấp X server"
+        return 0
+    fi
+
+    local repo
+    repo="$(xlibre_repo_name "$channel")"
+    printf '%sXLibre — kênh %s%s\n' "$C_B" "$channel" "$C_RST"
+    case $channel in
+        beta)      warn "beta = series 25.2, chưa coi là ổn định. Cài xong nhớ đọc README." ;;
+        oldstable) warn "oldstable = series 25.0, kênh cũ." ;;
+    esac
+
+    xlibre_add_key
+    xlibre_add_repo "$repo"
+
+    # -Syy chứ không phải -Syyu: đây là ngay sau khi hỏi, người dùng chưa kịp
+    # đọc danh sách nâng cấp. -Syyu nâng cấp TOÀN BỘ hệ thống mà Arch không
+    # hỗ trợ partial upgrade — đồng ý hàng loạt có thể để lại hệ thống lệch
+    # phiên bản rồi hỏng. Nếu bạn đã có sẵn nhiều thứ trên máy, hãy tự
+    # `sudo pacman -Syu` trước rồi chạy lại `deps`.
+    step "đồng bộ index"
+    as_root pacman -Syy --noconfirm
+
+    step "cài xlibre-meta (thay xorg-server)"
+    # --noconfirm ở đây là cố ý: người dùng đã trả lời y ở confirm() phía
+    # trên. xlibre-xserver Conflicts với xorg-server nên pacman tự gói cả
+    # việc gỡ X.Org vào cùng một transaction — không phải partial upgrade.
+    as_root pacman -S --needed --noconfirm xlibre-meta
+    ok "XLibre: xong. Đăng xuất rồi đăng nhập lại để X server mới có hiệu lực"
+}
+
+# ĐỔI KÊNH — không phải "cài XLibre" nữa, phần đó giờ tự chạy trong `deps`.
+# Vẫn giữ `-Syyu` ở đây vì đổi kênh giữa chừng thì bắt buộc: hai series khác
+# nhau (25.1 vs 25.2) lệch ABI, hạ cấp một nhóm thư viện rồi thay X server là
+# cách chắc chắn làm vỡ session hiện tại.
 cmd_xlibre() {
     detect_sudo
     local channel=${1:-stable} repo

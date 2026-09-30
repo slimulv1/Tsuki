@@ -23,3 +23,27 @@ scripts/.wallpaper
 
 # fuzz-status.sh build artifacts
 .fuzz/
+
+# --- secrets ---------------------------------------------------------------
+# fish tự sinh file này ở mỗi lần khởi động shell, ghi lại MỌI biến đã
+# `set -x` kèm giá trị. Nó đã chứa khoá API thật dưới dạng
+#   SETUVAR --export OPENCODE_API_KEY:sk\x...
+# và khoá đó nằm trong repo công khai từ commit 7031df3 (9/2026).
+# File này là trạng thái MÁY, không phải cấu hình để chia sẻ — mỗi người một
+# khoá. Giữ trong .gitignore, KHÔNG xoá khỏi đĩa (xoá thì fish mất biến):
+# dùng `git rm --cached` để ngừng theo dõi mà file vẫn còn.
+.config/fish/fish_variables
+.config/fish/fish_user_variables
+
+# phòng xa: đừng bao giờ commit thứ gì trông như thông tin đăng nhập
+.env
+.env.*
+*.pem
+*.key
+id_rsa
+id_ed25519
+.netrc
+.npmrc
+.pypirc
+*-credentials.json
+secrets/

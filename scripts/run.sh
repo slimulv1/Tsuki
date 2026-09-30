@@ -202,6 +202,21 @@ export SDL_IM_MODULE=fcitx
 export GLFW_IM_MODULE=ibus
 command -v fcitx5 >/dev/null 2>&1 && start_daemon fcitx fcitx5 -d
 
+# --- xsettingsd --------------------------------------------------------------
+# Daemon XSETTINGS cho app GTK. install.sh cài gói + repo có sẵn
+# .config/xsettingsd/xsettingsd.conf, nhưng trước đây KHÔNG ai khởi động nó,
+# nên cả file config là cấu hình chết.
+#
+# start_daemon tự kiểm tra pidfile nên login lần sau không spawn trùng. Cần
+# `systemctl --user import-environment` (đã gọi ở trên) để nó thấy DISPLAY —
+# không thì nó chết ngay với "Cannot open X11 display".
+#
+# KHÔNG kỳ vọng daemon này đổi con trỏ của dwm/st: xsettingsd không hỗ trợ
+# cursor theme, và X11 không còn đường nạp theme vào core cursor font. Chi tiết
+# ở .config/xsettingsd/xsettingsd.conf và ở khối cursor phía trên.
+command -v xsettingsd >/dev/null 2>&1 &&
+    start_daemon xsettingsd xsettingsd -c "$TSUKI_DIR/.config/xsettingsd/xsettingsd.conf"
+
 # --- status bar -------------------------------------------------------------
 # slstatus binary trong repo (dwmwal.sh rebuild + đổi màu theo wallpaper, không
 # cần root). Vòng lặp tự phục hồi: nếu slstatus chết/bị kill (vd dwmwal pkill)

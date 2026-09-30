@@ -9,6 +9,7 @@
 #   ./install.sh pty          # bộ gõ Lotus (tiếng Việt) — cần paru
 #   ./install.sh build        # chỉ build + cài binary
 #   ./install.sh dotfiles     # chỉ copy ~/.config
+#   ./install.sh themes       # chỉ cài theme Miami26 + icon Kora (từ git, user-level)
 #   ./install.sh session      # chỉ cấu hình chạy từ TTY (.xinitrc)
 #   ./install.sh session --dm # cài thêm .desktop cho display manager
 #   ./install.sh uninstall    # gỡ binary Tsuki đã cài
@@ -607,6 +608,56 @@ EOF
         chmod 644 "$d/Tsuki.desktop"
         echo "  + $d/Tsuki.desktop"
     ' _ "$REPO_DIR"
+}
+
+# --- theme GTK + icon: Miami26 + Kora ---------------------------------------
+# Hai theme này KHÔNG có trong kho Arch/CachyOS/arisa, cũng không có trong AUR
+# (đã tra rpc.v5/search của AUR: "miami26" và "kora-grey" đều 0 kết quả).
+# Chúng chỉ có trên GitHub, nên phải clone rồi copy.
+#
+# Cài ở mức USER (~/.themes, ~/.local/share/icons) chứ không phải /usr/share:
+# không cần root, và không đụng theme của các user khác trên cùng máy.
+# GTK3 tra theme theo đúng tên thư mục sau khi cài, KHÔNG phải Name= trong
+# index.theme — nên thư mục phải tên đúng "Miami26" / "kora-pgrey".
+cmd_themes() {
+    step "cài theme Miami26 + icon Kora (từ git)"
+    local src="$TSUKI_HOME/.cache/tsuki-themes"
+    mkdir -p "$src" "$TSUKI_HOME/.themes" "$TSUKI_HOME/.local/share/icons"
+
+    fetch_repo() {
+        local url=$1 dir=$2
+        if [[ -d $src/$dir/.git ]]; then
+            info "$dir đã có — bỏ qua clone"
+            return 0
+        fi
+        rm -rf -- "$src/$dir"
+        git clone -q --depth 1 "$url" "$src/$dir" \
+            || { warn "clone thất bại: $url"; return 1; }
+    }
+
+    # Miami26: repo chứa nhiều biến thể trong Themes/, ta lấy đúng bản gốc.
+    if fetch_repo https://github.com/dhampirave/Miami26 Miami26; then
+        rm -rf -- "$TSUKI_HOME/.themes/Miami26"
+        cp -r -- "$src/Miami26/Themes/Miami26" "$TSUKI_HOME/.themes/Miami26" \
+            && ok "Miami26 -> ~/.themes/Miami26"
+    fi
+
+    # Kora: thư mục kora-pgrey/ và kora/ nằm Ở GỐC repo (không phải dưới kora/).
+    if fetch_repo https://github.com/bikass/kora kora; then
+        local t
+        for t in kora-pgrey kora; do
+            rm -rf -- "$TSUKI_HOME/.local/share/icons/$t"
+            # icon-theme.cache trong repo là cache sinh trên MÁY TÁC GIẢ, chứa
+            # đường dẫn tuyệt đối của họ -> dùng lại sẽ sai. Xoá rồi dựng lại.
+            rm -f -- "$src/kora/$t/icon-theme.cache"
+            if cp -r -- "$src/kora/$t" "$TSUKI_HOME/.local/share/icons/$t"; then
+                command -v gtk-update-icon-cache >/dev/null 2>&1 &&
+                    gtk-update-icon-cache -f -t \
+                        "$TSUKI_HOME/.local/share/icons/$t" >/dev/null 2>&1 || true
+                ok "Kora/$t -> ~/.local/share/icons/$t"
+            fi
+        done
+    fi
 }
 
 cmd_session() {
@@ -1321,6 +1372,7 @@ main() {
         deps)      cmd_deps ;;
         build)     cmd_build ;;
         dotfiles)  cmd_dotfiles; cmd_firefox ;;
+        themes)    cmd_themes ;;
         session)   cmd_session "${2:-}" ;;
         xlibre)    cmd_xlibre "${2:-stable}" ;;
         arisa)     cmd_arisa ;;
@@ -1337,6 +1389,7 @@ main() {
             cmd_pty
             cmd_build
             cmd_dotfiles
+            cmd_themes
             cmd_firefox
             cmd_session
             ;;

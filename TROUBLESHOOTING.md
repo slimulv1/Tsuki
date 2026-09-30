@@ -40,7 +40,41 @@ fuser "$XDG_RUNTIME_DIR/tsuki-fcitx.lock"
 `run.sh` khởi động: nền (`feh`), `picom`, `xrdb`, con trỏ, tốc độ lặp phím,
 `dunst` + `xdg-desktop-portal` (+ `-gtk`), `polkit-gnome`, `fcitx5`,
 `xsettingsd`, `slstatus`, `tumblerd`, và hai script nền `updates-loop.sh` /
-`mediacard.sh`.
+`mediacard.sh`. Mỗi cái giữ một khoá `flock` trong `$XDG_RUNTIME_DIR` nên gọi lại
+`run.sh` không sinh bản thứ hai.
+
+## Watchdog
+
+Daemon chết giữa phiên được khởi động lại trong **15 giây**:
+
+```
+WARN  watchdog: xsettingsd đã chết — khởi động lại (lần 1/5)
+```
+
+Chỉ áp dụng cho daemon không tự phục hồi. `slstatus`, `updates-loop.sh` và
+`mediacard.sh` có vòng lặp riêng nên tự lại; `dunst` và portal do `systemd --user`
+lo. Watchdog giám sát `picom`, `fcitx5`, `xsettingsd`, `tumblerd`, `polkit-gnome`
+— và `dunst`/portal khi không có systemd user bus.
+
+**Có trần 5 lần.** Daemon chết 5 lần thì watchdog bỏ qua và ghi:
+
+```
+WARN  watchdog: <tên> đã thử lại 5 lần vẫn chết — bỏ qua, xem nhật ký phiên
+```
+
+Thử vô hạn thì tệ hơn lúc đầu — log đầy, CPU quay, nguyên nhân gốc bị chôn dưới
+hàng nghìn dòng "đã thử lại". Gặp dòng này thì đó mới là lỗi thật cần tra.
+
+Daemon vốn không bao giờ chạy được (thiếu binary) chỉ báo **một lần**:
+
+```
+WARN  watchdog: không khởi động được <tên> (thiếu binary?) — bỏ qua
+```
+
+Nếu `dunst` im lặng mà bạn vừa cài, chạy `./install.sh deps` rồi đăng nhập lại.
+
+Muốn đổi nhịp: `WD_INTERVAL` và `WD_MAX_RETRY` đọc từ môi trường, đặt trước khi
+`startx`.
 
 ## Con trỏ không đổi
 

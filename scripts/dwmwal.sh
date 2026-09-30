@@ -18,7 +18,7 @@ CACHE="$HOME/.cache/dwmwal"
 WALL_DIR="$HOME/Pictures/Wallpapers"
 
 # build rồi báo nếu hỏng. Tách riêng để test trích được từ file thật (giống
-# cách test-run-daemons.sh trích start_daemon/stop_daemons từ run.sh) thay vì
+# cách test/test-run-daemons.sh trích start_daemon/stop_daemons từ run.sh) thay vì
 # chép lại logic. $1 = thư mục, $2 = tên để hiện trong thông báo.
 #
 # Vì sao phải có: dwm spawn script này ở nền nên stdout/stderr bị nuốt. `make`

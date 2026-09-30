@@ -6,7 +6,7 @@
 # rồi chạy đúng code TRÍCH TỪ install.sh — không sao chép logic, để test
 # không thể "trôi" khỏi bản thật.
 #
-#   ./scripts/test-firefox-profile.sh
+#   ./test/test-firefox-profile.sh
 #
 # Không cần root, không đụng profile thật. Chạy được trên máy sạch chưa cài
 # Firefox — đó là lý do nó dựng layout giả thay vì đọc layout thật.

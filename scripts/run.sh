@@ -49,7 +49,7 @@ mkdir -p "$TSUKI_LOG_DIR" 2>/dev/null || TSUKI_LOG_DIR="${TMPDIR:-/tmp}/tsuki-$(
 # biến, nên khi XDG_CACHE_HOME không ghi được thì thư mục fallback chưa tồn tại
 # và dòng `: >"$TSUKI_LOG"` ngay sau đó thất bại:
 #     run.sh: 30: cannot create /tmp/tsuki-1000/session.log: Directory nonexistent
-# rc=2, script chết trước khi làm được gì. Do test-run-matrix.sh dò ra.
+# rc=2, script chết trước khi làm được gì. Do test/test-run-matrix.sh dò ra.
 mkdir -p "$TSUKI_LOG_DIR" 2>/dev/null || TSUKI_LOG_DIR=""
 if [ -n "$TSUKI_LOG_DIR" ]; then
     TSUKI_LOG="$TSUKI_LOG_DIR/session.log"
@@ -85,7 +85,7 @@ stop_daemons() {
     # `kill` daemon CỦA BẢN THỨ NHẤT. Đo được: sau khi bản thứ hai thoát,
     # tsuki-session.owner bốc hơi trong khi bản thứ nhất vẫn sống. Khoá phiên
     # như vậy chỉ là hình thức.
-    # Mặc định 1 để gọi trực tiếp (test-run-daemons.sh trích hàm này ra dùng)
+    # Mặc định 1 để gọi trực tiếp (test/test-run-daemons.sh trích hàm này ra dùng)
     # vẫn dọn bình thường; run.sh tự đặt 0 ngay sau khi đặt trap.
     [ "${_OWNS_SESSION:-1}" = 1 ] || return 0
     # Cờ "đang tắt" đặt TRƯỚC mọi thứ khác. Watchdog thấy cờ là thoát

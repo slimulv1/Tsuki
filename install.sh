@@ -9,6 +9,7 @@
 #   ./install.sh pty          # bộ gõ Lotus (tiếng Việt) — cần paru
 #   ./install.sh build        # chỉ build + cài binary
 #   ./install.sh dotfiles     # chỉ copy ~/.config
+#   ./install.sh firefox      # chỉ nạp giao diện vào profile Firefox
 #   ./install.sh themes       # chỉ cài theme Miami26 + icon Kora (từ git, user-level)
 #   ./install.sh session      # chỉ cấu hình chạy từ TTY (.xinitrc)
 #   ./install.sh session --dm # cài thêm .desktop cho display manager
@@ -517,69 +518,245 @@ cmd_dotfiles() {
     ok "xong ($n/${#items[@]} mục)"
 }
 
-# Tìm thư mục profile thật của Firefox.
-#
-# BUG ĐÃ SỬA (2 lỗi cùng chỗ, đều làm giao diện không bao giờ được cài mà
-# KHÔNG báo lỗi rõ ràng):
-#   1) tìm ở "$TSUKI_HOME/.config/mozilla/firefox" — sai hoàn toàn. Profile
-#      của Firefox KHÔNG nằm trong ~/.config, mà ở ~/.mozilla hoặc ~/.cache.
-#   2) ngay cả khi sửa thành ~/.mozilla thì vẫn thiếu trường hợp máy này:
-#      profile thật nằm ở ~/.cache/mozilla/firefox/<hash>.default-release.
-#      Không có biến MOZ_* nào set, không wrapper nào can thiệp — Firefox 157
-#      trên máy này tự chọn ~/.cache/mozilla.
-# Hậu quả trước đây: `find` ra rỗng -> `[[ -n $profile ]]` sai -> `return 0`
-# (exit 0, coi như thành công) -> user.js và userChrome.css chưa bao giờ được
-# copy, Firefox giữ nguyên giao diện cũ mà install.sh vẫn báo là xong.
-firefox_profile() {
-    local base
-    # Thứ tự theo độ phổ biến; dùng cả hai vì khác máy khác chỗ.
-    for base in \
+# Thư mục gốc có thể chứa profile Firefox. Thứ tự KHÔNG quan trọng nữa vì
+# firefox_profile() đọc profiles.ini ở từng thư mục trước khi đoán.
+firefox_bases() {
+    printf '%s\n' \
         "$TSUKI_HOME/.mozilla/firefox" \
         "${XDG_CACHE_HOME:-$TSUKI_HOME/.cache}/mozilla/firefox" \
         "$TSUKI_HOME/.cache/mozilla/firefox" \
         "$TSUKI_HOME/snap/firefox/common/.mozilla/firefox"
-    do
-        [[ -d $base ]] || continue
-        # Ưu tiên .default-release (profile đang dùng), không thì lấy bất kỳ
-        # profile nào có prefs.js — profile mới tạo chưa kịp có prefs.js vẫn
-        # phải dùng được, nên chấp nhận cả hai.
-        local p
-        p="$(find "$base" -maxdepth 1 -name '*.default-release' 2>/dev/null | head -1 || true)"
-        [[ -n $p ]] && { printf '%s\n' "$p"; return 0; }
-        p="$(find "$base" -maxdepth 1 -name '*.default*' 2>/dev/null | head -1 || true)"
-        [[ -n $p ]] && { printf '%s\n' "$p"; return 0; }
-    done
+}
+
+# Đọc profiles.ini — nguồn CHUẨN XÁC cho biết profile nào đang được dùng.
+#
+# profiles.ini có hai loại mục:
+#   [ProfileN]    Name=<tên>  IsRelative=1  Path=<thư mục>   Default=1?
+#   [InstallXXXX] Name=<tên>  Default=1  Locked=1
+# `Default=1` trong [Install*] là "kho cài đặt mặc định"; nó trỏ tới profile
+# qua trường `Name` khớp với `Name` của một [ProfileN].
+#
+# Trả về đường dẫn tuyệt đối, hoặc rỗng nếu không đọc được gì hữu ích.
+#
+# Vì sao BẮT BUỘC đọc file này: bản trước chỉ đoán theo tên thư mục
+# (`*.default-release`). Người dùng tự đổi tên profile — hoặc Firefox tự tạo
+# tên khác (ví dụ `mycustom.profile`) — thì bản trước cài giao diện vào
+# profile KHÔNG dùng, Firefox mở lên vẫn nguyên diện. Đã tái hiện được:
+# profiles.ini trỏ `mycustom.profile`, có thêm bẫy `xyz.default-release`
+# -> bản cũ chọn `xyz.default-release` (SAI).
+firefox_profile_ini() {
+    local base=$1 ini=$1/profiles.ini
+    [[ -f $ini ]] || return 1
+
+    local rel def_name
+    # Cấu trúc profiles.ini thật của Firefox:
+    #   [Install<hash>]  Default=1  Locked=1  InstallTime=...   <- kho cai mac dinh
+    #   [Profile0]       Name=<ten>  IsRelative=1  Path=<thu muc>  Default=1
+    # `Name` cua [Install*] tro toi `Name` cua mot [Profile*].
+    #
+    # BUOC 1 — [Profile*] co Default=1: day la "profile dang dung", truc tiep
+    # nhat, thuong co san. KHONG dung co so "neu isdef == 1" roi moi gan
+    # isdef = 1: bien khoi dong o 0 nen nhanh do khong bao gio chay ->
+    # def_name luon rong -> profiles.ini chua BAO GIO duoc doc that.
+    # Test T2 "pass" truoc do chi do may doan theo mtime trung hop.
+    rel="$(awk -F= '
+        /^\[Profile/ { isprof = 1; isdef = 0; next }
+        /^\[/        { isprof = 0; isdef = 0; next }
+        isprof && isdef == 0 && $1 == "Default" && $2 == "1" { isdef = 1; next }
+        isprof && isdef == 1 && $1 == "Path" { print $2; exit }
+    ' "$ini" 2>/dev/null || true)"
+
+    # BUOC 2 — khong co [Profile*] Default=1: theo kho cai mac dinh.
+    # `Name` cua [Install*] co Default=1 -> Profile cung ten do.
+    if [[ -z ${rel:-} ]]; then
+        def_name="$(awk -F= '
+            /^\[Install/ { isinst = 1; isdef = 0; next }
+            /^\[/        { isinst = 0; isdef = 0; next }
+            isinst && isdef == 0 && $1 == "Default" && $2 == "1" { isdef = 1; next }
+            isinst && isdef == 1 && $1 == "Name" { print $2; exit }
+        ' "$ini" 2>/dev/null || true)"
+        if [[ -n $def_name ]]; then
+            rel="$(awk -F= -v want="$def_name" '
+                /^\[Profile/ { isprof = 1; name = ""; next }
+                /^\[/        { isprof = 0; next }
+                isprof && $1 == "Name" { name = $2; next }
+                isprof && $1 == "Path" && name == want { print $2; exit }
+            ' "$ini" 2>/dev/null || true)"
+        fi
+    fi
+
+    # BUOC 3 — profiles.ini khong danh dau Default gi ca (hoac Install khong
+    # tro toi Profile nao): lay [Profile*] dau tien. Van tot hon doan theo ten.
+    if [[ -z ${rel:-} ]]; then
+        rel="$(awk -F= '
+            /^\[Profile/ { isprof = 1; next }
+            /^\[/        { isprof = 0; next }
+            isprof && $1 == "Path" { print $2; exit }
+        ' "$ini" 2>/dev/null || true)"
+    fi
+
+    [[ -n ${rel:-} ]] || return 1
+
+    # IsRelative=0 nghia la Path la duong dan tuyet doi. Thu `[[ $rel == /* ]]`
+    # truoc khi noi vao $base — `//abs/path` va `/base//abs/path` deu tro sai.
+    if [[ $rel == /* ]]; then
+        [[ -d $rel ]] && { printf '%s\n' "$rel"; return 0; }
+        return 1
+    fi
+    if [[ -d $base/$rel ]]; then
+        printf '%s\n' "${base%/}/$rel"
+        return 0
+    fi
+    return 1
+}
+
+# Tìm thư mục profile thật của Firefox.
+#
+# LỊCH SỬ LỖI (cả ba đều là kiểu "chạy xong mà không làm gì"):
+#
+#  1) Bản đầu tìm ở "$TSUKI_HOME/.config/mozilla/firefox". Sai hoàn toàn:
+#     profile Firefox KHÔNG nằm trong ~/.config. `find` ra rỗng ->
+#     `[[ -n $profile ]]` sai -> `return 0` (exit 0, coi là thành công) ->
+#     user.js và userChrome.css chưa từng được copy, Firefox giữ nguyên
+#     giao diện cũ mà install.sh vẫn in "xong".
+#
+#  2) Sửa thành ~/.mozilla. Máy này lại dùng ~/.cache/mozilla/firefox/
+#     (không có biến MOZ_* nào, /usr/bin/firefox chỉ là
+#     `exec /usr/lib/firefox/firefox "$@"` — Firefox 157 tự chọn ~/.cache).
+#
+#  3) Sửa thành "dò cả hai, ưu tiên .mozilla". Sai ở chỗ khác: thứ tự ưu
+#     tiên cứng, `find | head -1` không sort (chọn theo thứ tự thư mục, không
+#     ổn định), và hoàn toàn không biết profile nào ĐANG DÙNG. Đã tái hiện:
+#     máy có .mozilla/.../OLD.default-release (profile cũ) và
+#     .cache/.../NEW.default-release (mới dùng, có prefs.js) -> chọn OLD.
+#
+# Cách sửa lần này: ưu tiên tuyệt đối profiles.ini; chỉ khi không có (hoặc
+# không đọc được) mới đoán theo mtime, và đoán có thứ tự xác định.
+#
+# Thư mục sửa đổi gần nhất trong danh sách tham số.
+# `sed -n 1p` chứ không `head -1`: head đóng pipe sau dòng đầu thì ls nhận
+# SIGPIPE (141), dưới `set -o pipefail` thành lỗi. sed đọc hết nên không có.
+# Đúng lỗi đó đã xảy ra ở paru_ver (dòng 1301) — giữ nhất quán.
+#
+# LƯU Ý: hàm tự thêm `--` để chặn đường dẫn bắt đầu bằng `-`. Vì vậy CALLER
+# TUYỆT ĐỐI KHÔNG được truyền `--` nữa — nếu không sẽ thành
+# `ls -dt -- -- /path/...`: dấu `--` thứ hai bị ls hiểu là TÊN FILE, ls trả 2
+# ("cannot access '--'") dù đã in ra kết quả đúng. Đã mắc đúng lỗi này:
+# `set -x` cho thấy `(( 3 ))` (3 tham số thay vì 2) và
+# `ls -dt -- -- /tmp/.../zzz.default-release/` -> newest_dir trả 2 ->
+# `newest_dir ... && return 0` trong firefox_profile KHÔNG bao giờ chạy ->
+# hàm in ra đường dẫn đúng nhưng trả về 1.
+newest_dir() {
+    (( $# )) || return 1
+    ls -dt -- "$@" 2>/dev/null | sed -n '1p'
+}
+
+firefox_profile() {
+    local base p
+    local -a ini_hits=() guess_hits=()
+
+    # Gom ỨNG VIÊN TỪ MỌI thư mục gốc rồi mới chọn — KHÔNG return ngay trong
+    # vòng lặp. Bản trước return ở thư mục đầu tiên tìm được, nên khi máy vừa
+    # dùng ~/.cache mà ~/.mozilla còn sót profile cũ thì chọn nhầm profile
+    # cũ. Đã tái hiện: ~/.mozilla/.../OLD (2021) vs ~/.cache/.../NEW (2026)
+    # -> bản cũ trả về OLD. Sau khi gom hết, newest_dir() chọn đúng NEW.
+    #
+    # `while read` chứ không `for base in $(firefox_bases)`: word splitting
+    # làm vỡ đường dẫn có khoảng trắng (ví dụ TSUKI_HOME="/home/a b").
+    while IFS= read -r base; do
+        [[ -n $base && -d $base ]] || continue
+        # profiles.ini là nguồn chuẩn xác — ưu tiên tuyệt đối.
+        p="$(firefox_profile_ini "$base" || true)"
+        if [[ -n $p ]]; then
+            ini_hits+=("$p")
+            continue
+        fi
+        # Không có profiles.ini (Firefox chưa từng ghi, hoặc profile tạo tay
+        # bằng --profile): đoán trong thư mục này — lấy profile sửa gần nhất,
+        # vì hoạt động càng lâu càng gần với "đang dùng" hơn là so tên.
+        # Glob KHÔNG khớp thì "$base/*.*/" giữ nguyên chuỗi, ls báo lỗi
+        # (đã nuốt trong 2>/dev/null) và in rỗng -> p rỗng -> bỏ qua.
+        p="$(newest_dir "$base"/*.*/ 2>/dev/null || true)"
+        [[ -n ${p:-} ]] && guess_hits+=("${p%/}")
+    done < <(firefox_bases)
+
+    if (( ${#ini_hits[@]} )); then
+        newest_dir "${ini_hits[@]}" && return 0
+    fi
+    if (( ${#guess_hits[@]} )); then
+        newest_dir "${guess_hits[@]}" && return 0
+    fi
     return 1
 }
 
 cmd_firefox() {
     step "cài giao diện Firefox"
-    local profile
+    local profile src_user src_css dst_user dst_css
+    src_user="$REPO_DIR/.config/firefox/user.js"
+    src_css="$REPO_DIR/.config/firefox/chrome/userChrome.css"
+
+    # Kiểm tra nguồn TRƯỚC. install_dotfile() im lặng `return 0` khi
+    # [[ -e $src ]] sai, nên nếu repo thiếu file thì hàm vẫn in
+    # "OK profile: ..." và thoát 0 — đúng loại "báo thành công rỗng" mà
+    # bản trước mắc. Đã tái hiện: repo thiếu userChrome.css -> in OK,
+    # exit 0, nhưng profile không có file đó. Ở đây phải nói thẳng.
+    local -a missing=()
+    [[ -f $src_user ]] || missing+=("${src_user#$REPO_DIR/}")
+    [[ -f $src_css  ]] || missing+=("${src_css#$REPO_DIR/}")
+    if (( ${#missing[@]} )); then
+        die "thiếu file trong repo: ${missing[*]}"
+    fi
+
     profile="$(firefox_profile || true)"
     if [[ -z $profile ]]; then
         warn "không tìm thấy thư mục profile Firefox."
-        warn "  Đã dò: ~/.mozilla/firefox, ~/.cache/mozilla/firefox, ~/.snap/.../firefox"
+        local b
+        while IFS= read -r b; do warn "  đã dò: ${b/#$TSUKI_HOME/~}"; done \
+            < <(firefox_bases)
         warn "  Hãy MỞ FIREFOX MỘT LẦN (để nó tạo profile) rồi chạy lại ./install.sh dotfiles"
         return 0
     fi
+
+    dst_user="$profile/user.js"
+    dst_css="$profile/chrome/userChrome.css"
     mkdir -p "$profile/chrome"
-    install_dotfile "$REPO_DIR/.config/firefox/user.js" "$profile/user.js"
-    install_dotfile "$REPO_DIR/.config/firefox/chrome/userChrome.css" "$profile/chrome/userChrome.css"
-    ok "profile: ${profile##*/}"
+    install_dotfile "$src_user" "$dst_user"
+    install_dotfile "$src_css"  "$dst_css"
+
+    # Xác minh bằng SO SÁNH NỘI DUNG, không chỉ "file tồn tại": install_dotfile
+    # có thể bỏ qua vì is_generated, hoặc return sớm. So byte cho chắc.
+    local -a bad=()
+    cmp -s -- "$src_user" "$dst_user" || bad+=("user.js")
+    cmp -s -- "$src_css"  "$dst_css"  || bad+=("chrome/userChrome.css")
+    if (( ${#bad[@]} )); then
+        die "đã copy nhưng nội dung KHÔNG khớp repo: ${bad[*]}"
+    fi
+    ok "profile: ${profile##*/} (user.js + userChrome.css đã khớp repo)"
 
     # userChrome.css CHỈ có tác dụng sau khi Firefox đọc lại pref. Pref
     # toolkit.legacyUserProfileCustomizations.stylesheets nằm trong user.js
     # vừa copy, nhưng Firefox nạp pref khi khởi động — nên file cũ có sẵn
     # thì phải đóng hẳn Firefox rồi mở lại mới thấy đổi. Nhắc luôn vì
     # "cài xong không thấy gì đổi" là triệu chứng dễ gặp nhất ở bước này.
+    #
+    # Tridactyl: KHÔNG cần bật tay. Gói `firefox-tridactyl` (kho `extra`) đặt
+    # .xpi vào /usr/lib/firefox/browser/extensions/ — Firefox 157 tự quét
+    # thư mục đó và tự bật. Đã kiểm chứng: chạy Firefox với profile tạm,
+    # extensions.json ghi `tridactyl.vim@cmcaine.co.uk ... active=true,
+    # location=app-global`. Nên KHÔNG bảo người dùng vào about:debugging
+    # bật tay — bản trước bảo vậy là SAI.
+    local ext_state=""
+    if pacman -Qq firefox-tridactyl >/dev/null 2>&1; then
+        ext_state="đã cài, Firefox tự bật (gõ \`:\` trong trang để kích hoạt)"
+    else
+        ext_state="CHƯA cài — chạy ./install.sh deps"
+    fi
     cat <<EOF
 
   Giao diện đã nạp vào: ${profile##*/}
   Đóng hẳn Firefox rồi mở lại để userChrome.css có hiệu lực.
 
-  Tridactyl: gói 'firefox-tridactyl' được ./install.sh deps cài từ kho 'extra'.
-  Mở Firefox, vào about:debugging#/runtime/this-firefox và bật
-  "Tridactyl — Vim mode for Firefox" nếu nó không tự bật.
+  Tridactyl: $ext_state.
 
 EOF
 }
@@ -1434,6 +1611,7 @@ main() {
         deps)      cmd_deps ;;
         build)     cmd_build ;;
         dotfiles)  cmd_dotfiles; cmd_firefox ;;
+        firefox)   cmd_firefox ;;
         themes)    cmd_themes ;;
         session)   cmd_session "${2:-}" ;;
         xlibre)    cmd_xlibre "${2:-stable}" ;;

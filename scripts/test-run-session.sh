@@ -526,5 +526,35 @@ else
     bad "T19 run.sh báo lỗi shell khi chạy" "$_st"
 fi
 
+# --- T20: KHÔNG hàm nào được GỌI trước khi ĐỊNH NGHĨA ------------------------
+# Hàm shell phải có trước lệnh gọi. Đã mắc lỗi này HAI LẦN trong cùng phiên:
+#   1) `safe_touch` dùng ở dòng 37, định nghĩa ở dòng 71 -> unbound/không gọi được
+#   2) `( _font_check ) &` ở dòng 178, hàm ở dòng 790
+#      -> "line 178: _font_check: command not found"
+# Lần (2) bị T3/T19 bắt, nhưng cả hai chỉ bắt được khi đường đó được chạy tới.
+# Test này kiểm TĨNH, nên bắt được cả khi không có test nào chạy tới.
+#
+# Cách kiểm: với mỗi tên hàm, tìm dòng định nghĩa `ten() {` và dòng gọi đầu
+# tiên trong code (bỏ qua comment), rồi so số thứ tự.
+_bad_fn=""
+for _h in $(grep -oE '^[a-z_][a-z0-9_]*\(\) \{' "$R/scripts/run.sh" | sed 's/() {//'); do
+    _def=$(grep -nE "^${_h}\(\) \{" "$R/scripts/run.sh" | head -1 | cut -d: -f1)
+    [ -n "$_def" ] || continue
+    # dòng gọi: không phải comment, không phải chính dòng định nghĩa, và có
+    # tên hàm đứng sau một ký tự ngăn cách lệnh
+    _use=$(grep -nE "(^|[;&|(]|[[:space:]])${_h}([[:space:]]|$)" "$R/scripts/run.sh" \
+           | grep -vE "^[0-9]+:[[:space:]]*#" \
+           | awk -F: -v d="$_def" '$1 != d {print $1; exit}')
+    if [ -n "$_use" ] && [ "$_use" -lt "$_def" ]; then
+        _bad_fn="$_bad_fn  $_h: gọi ở dòng $_use, định nghĩa ở dòng $_def
+"
+    fi
+done
+if [ -z "$_bad_fn" ]; then
+    ok "T20 không hàm nào bị gọi trước khi định nghĩa"
+else
+    bad "T20 hàm dùng trước khi định nghĩa" "$_bad_fn"
+fi
+
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

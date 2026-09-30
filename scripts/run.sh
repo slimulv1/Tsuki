@@ -78,6 +78,55 @@ warn() { printf 'tsuki: %s\n' "$*" >&2; log "WARN  $*"; }
 info() { log "INFO  $*"; }
 fail() { printf 'tsuki: %s\n' "$*" >&2; log "FAIL  $*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
+stop_daemons() {
+    # Cờ "đang tắt" đặt TRƯỚC mọi thứ khác. Watchdog thấy cờ là thoát
+    # ngay, nên không có trường hợp nó hồi sinh daemon trong lúc ta đang dọn
+    # (race thật: watchdog đang ngủ 15s, thức dậy giữa lúc dọn).
+    safe_touch "$XDG_RUNTIME_DIR/tsuki-stopping" || true
+    # Dừng watchdog trước, rồi mới giết daemon — nếu ngược lại watchdog có
+    # thể kịp chạy một vòng nữa.
+    if [ -f "$XDG_RUNTIME_DIR/tsuki-watchdog.pid" ]; then
+        _wp=$(head -1 "$XDG_RUNTIME_DIR/tsuki-watchdog.pid" 2>/dev/null)
+        case ${_wp:-} in ''|*[!0-9]*) ;; *) kill "$_wp" 2>/dev/null || true ;; esac
+    fi
+    # KHÔNG để dòng `_f` trần ở đây: shell hiểu nó là lệnh cần thực thi ->
+    # "_f: command not found" mỗi lần dọn. Đã mắc bằng test tích hợp.
+    for _f in "$XDG_RUNTIME_DIR"/tsuki-*.pid "$XDG_RUNTIME_DIR"/tsuki-*.lock; do
+        [ -f "$_f" ] || continue
+        case $_f in *.pid)
+            _p=$(head -1 "$_f" 2>/dev/null)
+            case ${_p:-} in ''|*[!0-9]*) ;; *) kill "$_p" 2>/dev/null || true ;; esac
+            ;;
+        esac
+        rm -f "$_f"
+    done
+    # File trạng thái của mediacard.sh: nó ghi vào $XDG_RUNTIME_DIR nhưng không
+    # tự dọn (không có trap trong file đó). XDG_RUNTIME_DIR bị xoá khi logout
+    # nên chỉ còn sót qua vòng lặp rebuild trong cùng phiên — nhưng để lại
+    # cũng không có lý do.
+    rm -f "$XDG_RUNTIME_DIR/nowplaying-art" \
+          "$XDG_RUNTIME_DIR/nowplaying-last" \
+          "$XDG_RUNTIME_DIR/pulse" 2>/dev/null || true
+    # Cờ tắt và bộ đếm thử lại chỉ có ý nghĩa trong phiên này.
+    rm -f "$XDG_RUNTIME_DIR/tsuki-stopping" \
+          "$XDG_RUNTIME_DIR"/tsuki-retry-* \
+          "$XDG_RUNTIME_DIR"/tsuki-gaveup-* 2>/dev/null || true
+}
+
+# `stop_daemons` và `_dwm_forward` phải ĐỊNH NGHĨA TRƯỚC khối trap bên dưới.
+# Thường thì thứ tự không quan trọng vì thân trap chỉ chạy lúc thoát — nhưng
+# `exit 1` sớm (vd TSUKI_DIR sai) cũng đi qua trap EXIT, lúc đó hàm chưa có.
+# Lỗi bị nuốt nhờ `2>/dev/null` trong trap, nên nó chỉ là may mắn. T20 bắt
+# được. Dời lên đây để hết phụ thuộc vào may mắn.
+
+_dwm_forward() {
+    # $1 = TERM | HUP | INT. Chỉ khi dwm còn sống và khác chính ta.
+    if [ -n "$_dwm_pid" ] && [ "$_dwm_pid" -ne "$$" ] 2>/dev/null; then
+        kill -"$1" "$_dwm_pid" 2>/dev/null
+    fi
+    :
+}
+
 # Khi run.sh bị giết (SIGTERM/SIGHUP từ logout, hoặc đóng terminal), các daemon
 # nó spawn sẽ thành mồ côi và tiếp tục chạy tới lần đăng nhập sau. Lần sau
 # start_daemon sẽ phát hiện khoá vẫn bị giữ nên bỏ qua — nên session mới có
@@ -91,15 +140,9 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # file: dwm chạy NỀN + `wait`, nên khi run.sh nhận tín hiệu, `wait` bị ngắt và
 # trap chạy ngay. Nếu trap chỉ dọn daemon rồi thoát mà không báo dwm, dwm sống
 # mồ côi giữ X server — người dùng thấy màn hình đen nhưng dwm vẫn giữ cửa sổ.
+# pid của dwm, để trap chuyển tiếp tín hiệu được. Đặt rỗng; vòng lặp dwm
+# sẽ gán khi dwm thật sự chạy.
 _dwm_pid=""
-
-_dwm_forward() {
-    # $1 = TERM | HUP | INT. Chỉ khi dwm còn sống và khác chính ta.
-    if [ -n "$_dwm_pid" ] && [ "$_dwm_pid" -ne "$$" ] 2>/dev/null; then
-        kill -"$1" "$_dwm_pid" 2>/dev/null
-    fi
-    :
-}
 
 # POSIX quy định trap BỊ HOÃN khi shell đang chờ một lệnh foreground. Bản cũ
 # chạy `dwm` ở foreground nên `kill -TERM <pid run.sh>` KHÔNG làm gì cả: đo thật
@@ -172,6 +215,101 @@ if [ -z "${LANG:-}" ]; then
     info "LANG chưa đặt — dùng $LANG"
 fi
 [ -n "${LC_CTYPE:-}" ] || { LC_CTYPE=${LANG}; export LC_CTYPE; }
+
+# KIỂM FONT, đồng bộ, trước khi chạy dwm.
+#
+# dwm.c:3101 — `if (!drw_fontset_create(dwm, fonts, LENGTH(fonts))) die(...)`.
+# THIẾU FONT LÀ CHẾT NGAY lúc khởi động: màn hình đen, không bar. Không có
+# gì để tra nếu không biết điều này.
+#
+# ĐỌC MẢNG `fonts[]` THẲNG TỪ config.h, không hardcode tên font — nên sửa
+# config.h là tự kiểm lại, không phải sửa ở đây.
+#
+# CHI HAI TIẾN TRÌNH CON: `fc-list` + MỘT lần `awk`. Đo bằng mốc thời gian ở
+# từng khối của run.sh:
+#     phần danh tính    1 ms      daemon nền        14 ms
+#     nền desktop       0 ms      thumbnail          3 ms
+#     thông báo+portal  4 ms      KIỂM FONT         33 ms
+# 33ms là khối lớn nhất, và phần lớn KHÔNG phải fontconfig: fc-list ~10ms,
+# fc-match ~5ms (chạy song song vẫn 11ms vì fontconfig tự khởi tạo). Phần còn
+# lại là ~9 tiến trình con: sed, tr, grep, printf. Gộp hết vào một awk.
+#
+# HÀM NÀY PHẢI ĐỊNH NGHĨA TRƯỚC CHỖ GỌI. Lần đầu đặt lệnh gọi ở đầu phiên còn
+# hàm ở gần cuối file -> `line 178: _font_check: command not found`, và T3/T19
+# bắt được ngay. Hàm shell phải có trước lệnh gọi, không có ngoại lệ.
+#
+# CHẠY SONG SONG, KHÔNG PHẢI BẤT ĐỒNG BỘ. Lệnh gọi nằm ở khối danh tính
+# session, nhưng ta `wait` ngay TRƯỚC khi gọi dwm — nên kết quả chắc chắn có
+# trong nhật ký trước khi dwm chạy. Đã thử bỏ hẳn `wait` (thuần bất đồng bộ)
+# rồi báo cố và bỏ: T16/T17 fail vì grep nhật ký ngay khi run.sh thoát, và
+# cleanup phải chờ. Chồng lấp thời gian chờ thì được, bất đồng bộ thì không.
+_font_check() {
+    have fc-list || return 0
+    _fc_all=$(fc-list -f '%{family}\n' 2>/dev/null)
+    # RỖNG = KHÔNG XÁC MINH ĐƯỢC, KHÔNG phải font thiếu. Cache fontconfig
+    # hỏng, fc-list bị giới hạn, hay không có fontconfig đều ra rỗng. Báo động
+    # giả thì tệ hơn hẳn sót: bảo người dùng cài gói họ đã có.
+    [ -n "$_fc_all" ] || return 0
+
+    _fc_bad=$(printf '%s\n' "$_fc_all" | awk -v cfg="$TSUKI_DIR/config.h" '
+        {                                   # gom mọi family đã cài
+            n = split($0, a, ",")
+            for (i = 1; i <= n; i++) {
+                gsub(/^[ \t]+|[ \t]+$/, "", a[i])
+                if (a[i] != "") { have[a[i]] = 1; nfam++ }
+            }
+        }
+        END {
+            while ((getline l < cfg) > 0)
+                if (l ~ /static const char \*fonts\[\]/) { line = l; break }
+            close(cfg)
+            if (line == "") { print "SO 0"; exit 0 }
+            s = index(line, "{"); e = index(line, "}")
+            if (s == 0 || e <= s) exit 0
+            body = substr(line, s + 1, e - s - 1)
+            cnt = split(body, items, ",")
+            m = 0
+            for (i = 1; i <= cnt; i++) {
+                if (match(items[i], /"[^"]*"/) == 0) continue
+                f = substr(items[i], RSTART + 1, RLENGTH - 2)
+                if (f == "") continue
+                fam = f; sub(/:.*$/, "", fam)      # bỏ :style=...:size=...
+                # "serif"/"monospace" là yêu cầu chung của fontconfig, không
+                # phải tên font, nên không có trong danh sách family.
+                # PHẢI HẠ CHỮ THƯỜNG trước khi so: config.h có thể viết
+                # "Serif", còn alias của fontconfig là chữ thường. Bản shell
+                # cũ làm `tr A-Z a-z`; làm bản awk mà quên bước này thì T16
+                # bắt được ngay ("báo chết-ngay dù font hợp lệ").
+                lfam = tolower(fam)
+                if (lfam == "serif" || lfam == "sans-serif" || lfam == "sans" ||
+                    lfam == "monospace" || lfam == "cursive" || lfam == "fantasy" ||
+                    lfam == "system-ui" || lfam == "emoji" || lfam == "math" ||
+                    lfam == "fangsong" || lfam == "installed" ||
+                    lfam == "ui-serif" || lfam == "ui-sans-serif" ||
+                    lfam == "ui-monospace" || lfam == "ui-rounded") continue
+                if (fam in have) continue
+                m++; bad[m] = f
+            }
+            if (m == 0) { print "SO " nfam; exit 0 }
+            for (i = 1; i <= m; i++) print bad[i]
+        }' 2>/dev/null)
+
+    case $_fc_bad in
+    "SO "*)  info "font: hết (${_fc_bad#SO } family)"; return 0 ;;
+    esac
+    if [ -n "$_fc_bad" ]; then
+        fail "dwm SẼ CHẾT NGAY: config.h trỏ font không có trên máy:"
+        printf '%s\n' "$_fc_bad" | while IFS= read -r _l; do
+            [ -n "$_l" ] && fail "  $_l  -> không có trong danh sách font đã cài"
+        done
+        fail "  cài gói: ttc-iosevka  ttf-jetbrains-mono-nerd   rồi chạy fc-cache -f"
+        fail "  (đọc thẳng từ config.h nên sửa config.h cũng được kiểm lại)"
+    fi
+}
+
+# BẮT ĐẦU kiểm font ngay từ đầu phiên, để nó chạy song song với phần khởi
+# động daemon. `wait` của nó đặt ngay trước khi gọi dwm.
+( _font_check ) & _FONT_PID=$!
 
 # --- danh tính session ------------------------------------------------------
 # GDM kế thừa nguyên bộ biến của session GNOME cho mọi session nó khởi chạy.
@@ -304,45 +442,33 @@ start_daemon() {
     info "$_name: pid $!"
 }
 
-# Dừng daemon do phiên này khởi động. Gọi khi thoát session để không để lại
-# tiến trình mồ côi — nhất là sau khi rebuild nhiều lần. Xoá cả khoá: nếu
-# không, lần đăng nhập sau thấy khoá vẫn "bị giữ" bởi tiến trình đã chết (chỉ
-# xảy ra nếu tiến trình bị SIGKILL, nhưng vẫn nên dọn).
-stop_daemons() {
-    # Cờ "đang tắt" đặt TRƯỚC mọi thứ khác. Watchdog thấy cờ là thoát
-    # ngay, nên không có trường hợp nó hồi sinh daemon trong lúc ta đang dọn
-    # (race thật: watchdog đang ngủ 15s, thức dậy giữa lúc dọn).
-    safe_touch "$XDG_RUNTIME_DIR/tsuki-stopping" || true
-    # Dừng watchdog trước, rồi mới giết daemon — nếu ngược lại watchdog có
-    # thể kịp chạy một vòng nữa.
-    if [ -f "$XDG_RUNTIME_DIR/tsuki-watchdog.pid" ]; then
-        _wp=$(head -1 "$XDG_RUNTIME_DIR/tsuki-watchdog.pid" 2>/dev/null)
-        case ${_wp:-} in ''|*[!0-9]*) ;; *) kill "$_wp" 2>/dev/null || true ;; esac
-    fi
-    # KHÔNG để dòng `_f` trần ở đây: shell hiểu nó là lệnh cần thực thi ->
-    # "_f: command not found" mỗi lần dọn. Đã mắc bằng test tích hợp.
-    for _f in "$XDG_RUNTIME_DIR"/tsuki-*.pid "$XDG_RUNTIME_DIR"/tsuki-*.lock; do
-        [ -f "$_f" ] || continue
-        case $_f in *.pid)
-            _p=$(head -1 "$_f" 2>/dev/null)
-            case ${_p:-} in ''|*[!0-9]*) ;; *) kill "$_p" 2>/dev/null || true ;; esac
-            ;;
-        esac
-        rm -f "$_f"
-    done
-    # File trạng thái của mediacard.sh: nó ghi vào $XDG_RUNTIME_DIR nhưng không
-    # tự dọn (không có trap trong file đó). XDG_RUNTIME_DIR bị xoá khi logout
-    # nên chỉ còn sót qua vòng lặp rebuild trong cùng phiên — nhưng để lại
-    # cũng không có lý do.
-    rm -f "$XDG_RUNTIME_DIR/nowplaying-art" \
-          "$XDG_RUNTIME_DIR/nowplaying-last" \
-          "$XDG_RUNTIME_DIR/pulse" 2>/dev/null || true
-    # Cờ tắt và bộ đếm thử lại chỉ có ý nghĩa trong phiên này.
-    rm -f "$XDG_RUNTIME_DIR/tsuki-stopping" \
-          "$XDG_RUNTIME_DIR"/tsuki-retry-* \
-          "$XDG_RUNTIME_DIR"/tsuki-gaveup-* 2>/dev/null || true
-}
 
+# --- watchdog: định nghĩa lệnh hồi sinh + danh sách giám sát -----------------
+#
+# PHẢI KHỚP CHÍNH XÁC với lệnh spawn ở trên. Lệch một chỗ thì watchdog hồi
+# sinh thứ KHÁC với thứ đang chạy — ví dụ gọi `fcitx5` không kèm `-d` sẽ tạo
+# một tiến trình chạy tiền cảnh treo vĩnh viện thay vì daemon hoá.
+supervise_one() {
+    case $1 in
+        polkit)   [ -x /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ] &&
+                      start_daemon polkit /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ;;
+        fcitx)    command -v fcitx5 >/dev/null 2>&1 && start_daemon fcitx fcitx5 -d ;;
+        xsettingsd) command -v xsettingsd >/dev/null 2>&1 &&
+                      start_daemon xsettingsd xsettingsd -c "$TSUKI_DIR/.config/xsettingsd/xsettingsd.conf" ;;
+        picom)    have picom && start_daemon picom picom ;;
+        tumbler)  [ -n "$_tumblerd" ] && start_daemon tumbler "$_tumblerd" ;;
+        dunst)    [ "$_have_user_bus" = 0 ] && have dunst && start_daemon dunst dunst ;;
+        portal)   [ "$_have_user_bus" = 0 ] && {
+                      for _p in /usr/libexec/xdg-desktop-portal /usr/lib/xdg-desktop-portal; do
+                          [ -x "$_p" ] && { start_daemon portal "$_p"; break; }
+                      done; } ;;
+        portal-gtk) [ "$_have_user_bus" = 0 ] && {
+                      for _p in /usr/libexec/xdg-desktop-portal-gtk /usr/lib/xdg-desktop-portal-gtk; do
+                          [ -x "$_p" ] && { start_daemon portal-gtk "$_p"; break; }
+                      done; } ;;
+        *)        warn "watchdog: không biết hồi sinh '$1' — bỏ qua" ;;
+    esac
+}
 # --- watchdog: daemon chết giữa phiên ----------------------------------------
 #
 # VẤN ĐỀ ĐO ĐƯỢC: giết `xsettingsd` giữa phiên, chờ 11 giây — không ai khởi
@@ -734,34 +860,6 @@ elif [ -x /usr/libexec/tumblerd ]; then
     _tumblerd=/usr/libexec/tumblerd
 fi
 [ -n "$_tumblerd" ] && start_daemon tumbler "$_tumblerd"
-
-# --- watchdog: định nghĩa lệnh hồi sinh + danh sách giám sát -----------------
-#
-# PHẢI KHỚP CHÍNH XÁC với lệnh spawn ở trên. Lệch một chỗ thì watchdog hồi
-# sinh thứ KHÁC với thứ đang chạy — ví dụ gọi `fcitx5` không kèm `-d` sẽ tạo
-# một tiến trình chạy tiền cảnh treo vĩnh viện thay vì daemon hoá.
-supervise_one() {
-    case $1 in
-        polkit)   [ -x /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ] &&
-                      start_daemon polkit /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 ;;
-        fcitx)    command -v fcitx5 >/dev/null 2>&1 && start_daemon fcitx fcitx5 -d ;;
-        xsettingsd) command -v xsettingsd >/dev/null 2>&1 &&
-                      start_daemon xsettingsd xsettingsd -c "$TSUKI_DIR/.config/xsettingsd/xsettingsd.conf" ;;
-        picom)    have picom && start_daemon picom picom ;;
-        tumbler)  [ -n "$_tumblerd" ] && start_daemon tumbler "$_tumblerd" ;;
-        dunst)    [ "$_have_user_bus" = 0 ] && have dunst && start_daemon dunst dunst ;;
-        portal)   [ "$_have_user_bus" = 0 ] && {
-                      for _p in /usr/libexec/xdg-desktop-portal /usr/lib/xdg-desktop-portal; do
-                          [ -x "$_p" ] && { start_daemon portal "$_p"; break; }
-                      done; } ;;
-        portal-gtk) [ "$_have_user_bus" = 0 ] && {
-                      for _p in /usr/libexec/xdg-desktop-portal-gtk /usr/lib/xdg-desktop-portal-gtk; do
-                          [ -x "$_p" ] && { start_daemon portal-gtk "$_p"; break; }
-                      done; } ;;
-        *)        warn "watchdog: không biết hồi sinh '$1' — bỏ qua" ;;
-    esac
-}
-
 # Danh sách giám sát. KHÔNG gồm slstatus/updates/mediacard (đã có vòng lặp tự
 # phục hồi) và dunst/portal khi đã có systemd user bus (systemd lo).
 WATCH_LIST="picom fcitx xsettingsd tumbler polkit"
@@ -776,69 +874,12 @@ _thumb_dir="${XDG_CACHE_HOME:-$HOME/.cache}/thumbnails"
 mkdir -p "$_thumb_dir" 2>/dev/null && chmod 700 "$_thumb_dir" 2>/dev/null
 
 # --- dwm --------------------------------------------------------------------
-# KIỂM FONT TRƯỚC KHI CHẠY DWM.
-#
-# dwm.c:3101 — `if (!drw_fontset_create(drw, fonts, LENGTH(fonts))) die(...)`.
-# Nghĩa là THIẾU FONT LÀ CHẾT NGAY lúc khởi động, màn hình đen, không bar.
-# Không có gì để tra nếu không biết điều này.
-#
-# install.sh có cài `ttc-iosevka` và `ttf-jetbrains-mono-nerd`, nhưng gói đó
-# có thể bị gỡ, hoặc `fc-cache` chưa chạy, hoặc người dùng sửa config.h trỏ
-# sang font không có. Ở đây ta đọc đúng mảng `fonts[]` trong config.h rồi hỏi
-# fontconfig — không hardcode tên font, nên sửa config.h là tự kiểm lại.
-#
-# `fc-match` LUÔN trả về thứ gì đó (nếu không thì DejaVu), nên phải so family
-# nó trả về với family đã xin: lệch nghĩa là fontconfig đang thay thế, tức
-# font không tồn tại.
-TSUKI_FONT_ALIASES="serif sans-serif sans monospace cursive fantasy system-ui emoji math fangsong ui-serif ui-sans-serif ui-monospace ui-rounded installed"
-export TSUKI_FONT_ALIASES
-_wf="$XDG_RUNTIME_DIR/tsuki-fonts.txt"
-sed -n 's/.*static const char \*fonts\[\][[:space:]]*=[[:space:]]*{\(.*\)}.*/\1/p' \
-    "$TSUKI_DIR/config.h" 2>/dev/null \
-  | tr ',' '\n' | sed -n 's/^[[:space:]]*"\([^"]*\)".*/\1/p' >"$_wf" 2>/dev/null
-if [ -s "$_wf" ] && have fc-match; then
-    _wf_bad=""
-    while IFS= read -r _f; do
-        [ -n "$_f" ] || continue
-        _fam=${_f%%:*}
-        _lfam=$(printf '%s' "$_fam" | tr 'A-Z' 'a-z')
-        # TRỪ alias generic của fontconfig: `fc-match Serif` trả về "Noto
-        # Serif" — đó là ĐÚNG, vì "serif" là yêu cầu chung chứ không phải tên
-        # font. Không trừ thì config.h dùng alias sẽ bị báo nhầm font thiếu.
-        case " $TSUKI_FONT_ALIASES " in
-            *" $_lfam "*) continue ;;
-        esac
-        _got=$(fc-match -f '%{family}' "$_fam" 2>/dev/null)
-        # RỖNG = fontconfig KHÔNG TRẢ LỜI ĐƯỢC, KHÔNG phải font thiếu. Thiếu
-        # font thì fontconfig vẫn trả về font thay thế (DejaVu, Noto...).
-        # Rỗng xảy ra khi cache fontconfig hỏng, fc-match bị giới hạn, hoặc
-        # hệ thống tối giản không có fontconfig.
-        #
-        # Bản trước coi rỗng là "lệch" -> báo SẼ CHẾT NGAY cho font hoàn toàn
-        # bình thường. Đó là BÁO ĐỘNG GIẢ, tệ hơn hẳn sót: bảo người dùng cài
-        # gói họ đã có. Do test-run-matrix.sh dò ra, vì fc-match bị stub thành
-        # exit 0 nên không in gì.
-        [ -n "$_got" ] || continue
-        # family fontconfig chọn là trường đầu tiên, phần còn lại là fallback
-        _got=${_got%%,*}
-        case "$_got" in
-            "$_fam"|"$_fam "*|"$_fam,"*) : ;;
-            *) _wf_bad="$_wf_bad  $_f  -> fontconfig thay bằng '$_got'
-" ;;
-        esac
-    done <"$_wf"
-    if [ -n "$_wf_bad" ]; then
-        fail "dwm SẼ CHẾT NGAY: config.h trỏ font không có trên máy:"
-        printf '%s' "$_wf_bad" | while IFS= read -r _l; do
-            [ -n "$_l" ] && fail "  $_l"
-        done
-        fail "  cài gói: ttc-iosevka  ttf-jetbrains-mono-nerd   rồi chạy fc-cache -f"
-        fail "  (đã đọc danh sách từ config.h nên sửa config.h cũng được kiểm lại)"
-    else
-        info "font: $(tr '\n' ' ' <"$_wf" | sed 's/ $//')"
-    fi
-fi
-rm -f "$_wf" 2>/dev/null || true
+
+# `_font_check` chạy NỀN từ khối danh tính session, nhưng ta `wait` ngay trước
+# khi gọi dwm — nên kết quả CHẮC CHẮN có trong nhật ký trước khi dwm chạy.
+# Đây KHÔNG phải chẩn đoán bất đồng bộ (đã thử và bỏ vì sinh race), chỉ là
+# chồng lấp thời gian chờ với phần khởi động daemon. Đo được ~15ms.
+wait "${_FONT_PID:-}" 2>/dev/null || :
 # Vòng lặp, không exec. Super+Shift+R -> scripts/rebuild.sh -> killall dwm:
 # không có vòng lặp thì dwm chết là X session chết theo, ta bị đá về TTY giữa
 # lúc đang code. Có vòng lặp thì binary mới được nạp và bạn không mất context.

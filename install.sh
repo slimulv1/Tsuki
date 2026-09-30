@@ -522,6 +522,7 @@ cmd_dotfiles() {
 # firefox_profile() đọc profiles.ini ở từng thư mục trước khi đoán.
 firefox_bases() {
     printf '%s\n' \
+        "$TSUKI_HOME/.config/mozilla/firefox" \
         "$TSUKI_HOME/.mozilla/firefox" \
         "${XDG_CACHE_HOME:-$TSUKI_HOME/.cache}/mozilla/firefox" \
         "$TSUKI_HOME/.cache/mozilla/firefox" \
@@ -545,48 +546,63 @@ firefox_bases() {
 # profiles.ini trỏ `mycustom.profile`, có thêm bẫy `xyz.default-release`
 # -> bản cũ chọn `xyz.default-release` (SAI).
 firefox_profile_ini() {
-    local base=$1 ini=$1/profiles.ini
+    local base=$1 ini=$1/profiles.ini installs=$1/installs.ini
     [[ -f $ini ]] || return 1
 
-    local rel def_name
-    # Cấu trúc profiles.ini thật của Firefox:
-    #   [Install<hash>]  Default=1  Locked=1  InstallTime=...   <- kho cai mac dinh
-    #   [Profile0]       Name=<ten>  IsRelative=1  Path=<thu muc>  Default=1
-    # `Name` cua [Install*] tro toi `Name` cua mot [Profile*].
+    local rel want
+
+    # BUOC 1 — TIN HIEU MANH NHAT: [Install<hash>] Default=<TEN PROFILE>.
     #
-    # BUOC 1 — [Profile*] co Default=1: day la "profile dang dung", truc tiep
-    # nhat, thuong co san. KHONG dung co so "neu isdef == 1" roi moi gan
-    # isdef = 1: bien khoi dong o 0 nen nhanh do khong bao gio chay ->
-    # def_name luon rong -> profiles.ini chua BAO GIO duoc doc that.
-    # Test T2 "pass" truoc do chi do may doan theo mtime trung hop.
-    rel="$(awk -F= '
-        /^\[Profile/ { isprof = 1; isdef = 0; next }
-        /^\[/        { isprof = 0; isdef = 0; next }
-        isprof && isdef == 0 && $1 == "Default" && $2 == "1" { isdef = 1; next }
-        isprof && isdef == 1 && $1 == "Path" { print $2; exit }
+    # Day moi la thu Firefox that su dung. `Default` o day la TEN, KHONG phai
+    # so 1. profiles.ini that tren may nay:
+    #   [Install4F96D1932A9F858E]
+    #   Default=jnetde4e.default-release      <- profile DANG DUNG
+    #   Locked=1
+    #   [Profile1]
+    #   Name=default  Path=tihwr7jp.default  Default=1   <- profile RONG, 0 byte
+    # Neu di theo `Default=1` se cai giao dien vao profile rong, Firefox van
+    # mo profile khac va nguoi dung lai thay "khong doi gi".
+    want="$(awk -F= '
+        /^\[Install/ { isinst = 1; next }
+        /^\[/        { isinst = 0; next }
+        isinst && $1 == "Default" && $2 != "1" && $2 != "" { print $2; exit }
     ' "$ini" 2>/dev/null || true)"
 
-    # BUOC 2 — khong co [Profile*] Default=1: theo kho cai mac dinh.
-    # `Name` cua [Install*] co Default=1 -> Profile cung ten do.
-    if [[ -z ${rel:-} ]]; then
-        def_name="$(awk -F= '
-            /^\[Install/ { isinst = 1; isdef = 0; next }
-            /^\[/        { isinst = 0; isdef = 0; next }
-            isinst && isdef == 0 && $1 == "Default" && $2 == "1" { isdef = 1; next }
-            isinst && isdef == 1 && $1 == "Name" { print $2; exit }
-        ' "$ini" 2>/dev/null || true)"
-        if [[ -n $def_name ]]; then
-            rel="$(awk -F= -v want="$def_name" '
-                /^\[Profile/ { isprof = 1; name = ""; next }
-                /^\[/        { isprof = 0; next }
-                isprof && $1 == "Name" { name = $2; next }
-                isprof && $1 == "Path" && name == want { print $2; exit }
-            ' "$ini" 2>/dev/null || true)"
-        fi
+    # installs.ini ghi lai cung thong tin, va la noi Chrome/Firefox ghi khi
+    # nguoi dung chon "dat lam mac dinh" trong Profile Manager.
+    if [[ -z ${want:-} && -f $installs ]]; then
+        want="$(awk -F= '$1 == "Default" && $2 != "1" && $2 != "" { print $2; exit }' \
+            "$installs" 2>/dev/null || true)"
     fi
 
-    # BUOC 3 — profiles.ini khong danh dau Default gi ca (hoac Install khong
-    # tro toi Profile nao): lay [Profile*] dau tien. Van tot hon doan theo ten.
+    if [[ -n ${want:-} ]]; then
+        # So khop ca `Name` LAN `Path`. profiles.ini that tren may nay:
+        #   [Install4F96D1932A9F858E]  Default=jnetde4e.default-release
+        #   [Profile0]  Name=default-release  Path=jnetde4e.default-release
+        # Gia tri `Default` khop voi PATH, khong phai `Name`. Chi so `Name` se
+        # khong khop -> `rel` rong -> rơi xuống buoc 3 ("[Profile*] dau tien")
+        # va CHON DUNG NHIU CHUNG — tai day may that co [Profile0] la profile
+        # dung nen may rat may tinh, nhung thu tu hai muc se bien chon sai.
+        # Da bat bang cach them dieu kien so `Path`.
+        rel="$(awk -F= -v want="$want" '
+            /^\[Profile/ { isprof = 1; name = ""; next }
+            /^\[/        { isprof = 0; next }
+            isprof && $1 == "Name" { name = $2; next }
+            isprof && $1 == "Path" && (name == want || $2 == want) { print $2; exit }
+        ' "$ini" 2>/dev/null || true)"
+    fi
+
+    # BUOC 2 — khong co tin hieu Install: [Profile*] co Default=1.
+    if [[ -z ${rel:-} ]]; then
+        rel="$(awk -F= '
+            /^\[Profile/ { isprof = 1; isdef = 0; next }
+            /^\[/        { isprof = 0; isdef = 0; next }
+            isprof && isdef == 0 && $1 == "Default" && $2 == "1" { isdef = 1; next }
+            isprof && isdef == 1 && $1 == "Path" { print $2; exit }
+        ' "$ini" 2>/dev/null || true)"
+    fi
+
+    # BUOC 3 — profiles.ini khong danh dau Default gi ca: [Profile*] dau tien.
     if [[ -z ${rel:-} ]]; then
         rel="$(awk -F= '
             /^\[Profile/ { isprof = 1; next }
@@ -604,6 +620,12 @@ firefox_profile_ini() {
         return 1
     fi
     if [[ -d $base/$rel ]]; then
+        # GIU NGUYEN duong dan qua symlink, KHONG dung `realpath`/`readlink -f`.
+        # Tren may nay profile la symlink -> overlay FUSE cua profile-sync-daemon
+        # (/run/user/1000/psd/...). Ghi qua duong dan goc thi `mv`/backup hoat
+        # dong binh thuong; `realpath` se dua ra /run/... (tmpfs) va mau khi
+        # may restart. `[[ -d ]]` dinh nghia follow symlink nen van kiem tra
+        # duoc dung thu muc that.
         printf '%s\n' "${base%/}/$rel"
         return 0
     fi
@@ -626,9 +648,27 @@ firefox_profile_ini() {
 #
 #  3) Sửa thành "dò cả hai, ưu tiên .mozilla". Sai ở chỗ khác: thứ tự ưu
 #     tiên cứng, `find | head -1` không sort (chọn theo thứ tự thư mục, không
-#     ổn định), và hoàn toàn không biết profile nào ĐANG DÙNG. Đã tái hiện:
-#     máy có .mozilla/.../OLD.default-release (profile cũ) và
-#     .cache/.../NEW.default-release (mới dùng, có prefs.js) -> chọn OLD.
+#     ổn định), và hoàn toàn không biết profile nào ĐANG DÙNG.
+#
+#  4) SAI LẦM LỚN NHẤT — và đây là lý do giao diện vẫn không đổi sau khi
+#     "đã sửa xong". Bản đầu tiên tìm ở `~/.config/mozilla/firefox` là ĐÚNG
+#     với máy này, nhưng tôi (người viết dòng comment này) đã LOẠI nó đi sau
+#     khi kết luận sai rằng profile nằm ở `~/.cache`.
+#     Lý do kết luận sai: lệnh dò profile tôi dùng có `-type d`, mà profile
+#     thật ở đây là SYMLINK (`~/.config/mozilla/firefox/jnetde4e.default-release
+#     -> /run/user/1000/psd/...`) nên bị lọc mất. `~/.cache/mozilla/firefox/`
+#     có thư mục TRÙNG TÊN — do chính những lần chạy thử headless của tôi tạo
+#     ra — nên rất dễ tưởng đó là profile thật.
+#     `~/.config/mozilla/firefox/` đã có `profiles.ini` + `installs.ini` từ
+#     trước; `~/.cache/mozilla/firefox/` không có gì cả.
+#     Đã thêm lại `~/.config/mozilla/firefox` vào firefox_bases, và đặt
+#     `profiles.ini` lên trên mọi phép đoán.
+#
+#  5) `Default=1` trong [Profile*] KHÔNG phải tín hiệu đáng tin. profiles.ini
+#     thật của máy này đặt `Default=1` cho `tihwr7jp.default` — thư mục RỖNG
+#     (prefs.js 0 byte) — còn profile thật `jnetde4e.default-release`
+#     (prefs.js 30 KB) chỉ được trỏ bởi `[Install*] Default=<tên>`.
+#     Theo `Default=1` là cài vào chỗ Firefox không bao giờ mở.
 #
 # Cách sửa lần này: ưu tiên tuyệt đối profiles.ini; chỉ khi không có (hoặc
 # không đọc được) mới đoán theo mtime, và đoán có thứ tự xác định.
@@ -653,7 +693,7 @@ newest_dir() {
 
 firefox_profile() {
     local base p
-    local -a ini_hits=() guess_hits=()
+    local -a ini_hits=() guess_hits=() weak_hits=()
 
     # Gom ỨNG VIÊN TỪ MỌI thư mục gốc rồi mới chọn — KHÔNG return ngay trong
     # vòng lặp. Bản trước return ở thư mục đầu tiên tìm được, nên khi máy vừa
@@ -672,12 +712,28 @@ firefox_profile() {
             continue
         fi
         # Không có profiles.ini (Firefox chưa từng ghi, hoặc profile tạo tay
-        # bằng --profile): đoán trong thư mục này — lấy profile sửa gần nhất,
-        # vì hoạt động càng lâu càng gần với "đang dùng" hơn là so tên.
-        # Glob KHÔNG khớp thì "$base/*.*/" giữ nguyên chuỗi, ls báo lỗi
-        # (đã nuốt trong 2>/dev/null) và in rỗng -> p rỗng -> bỏ qua.
-        p="$(newest_dir "$base"/*.*/ 2>/dev/null || true)"
-        [[ -n ${p:-} ]] && guess_hits+=("${p%/}")
+        # bằng --profile): đoán trong thư mục này.
+        #
+        # Glob KHÔNG khớp thì "$base"/*.*/ giữ nguyên chuỗi; `[[ -d ]]` loại.
+        # CHIA HAI MỨC: ưu tiên ứng viên có `prefs.js` (dấu hiệu chắc chắn là
+        # profile), phần còn lại để dự phòng cho profile vừa tạo chưa thoát
+        # sạch lần nào — Firefox chỉ ghi prefs.js khi shutdown, nên profile mới
+        # mở lần đầu có thể chưa có.
+        #
+        # KHÔNG để mức dự phòng đứng ngang hàng vì nó dễ dính thư mục CACHE
+        # cùng tên: `~/.cache/mozilla/firefox/jnetde4e.default-release` trên
+        # máy này chứa cache2/, thumbnails/, safebrowsing/, packs ngôn ngữ —
+        # là cache đĩa của Firefox, KHÔNG phải profile, lại MỚI HƠN profile
+        # thật nên đứng đầu khi sort mtime. Ghi userChrome.css vào đó là vô
+        # nghĩa — va day chinh la thu da "cam ung" viec cai sai cho may nay.
+        for p in "$base"/*.*/; do
+            [[ -d $p ]] || continue
+            if [[ -f $p/prefs.js ]]; then
+                guess_hits+=("${p%/}")
+            else
+                weak_hits+=("${p%/}")
+            fi
+        done
     done < <(firefox_bases)
 
     if (( ${#ini_hits[@]} )); then
@@ -685,6 +741,9 @@ firefox_profile() {
     fi
     if (( ${#guess_hits[@]} )); then
         newest_dir "${guess_hits[@]}" && return 0
+    fi
+    if (( ${#weak_hits[@]} )); then
+        newest_dir "${weak_hits[@]}" && return 0
     fi
     return 1
 }

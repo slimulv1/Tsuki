@@ -296,8 +296,6 @@ backup_path() {
 #   - xorg-xsetroot, xorg-xwayland — xsetroot chỉ còn trong scripts/bar.sh,
 #     mà bar.sh đã bị slstatus thay và không còn ai gọi. XWayland thì bị tắt
 #     cố ý, xem scripts/run.sh.
-#   - epos-gsx300-gui (config.h:189, Super+P) — app đi kèm chuột EPOS
-#     GSX300, không có trong kho nào. Xem PKG_KEYBINDS.
 #
 # Vì sao có "shellcheck disable=SC2034" trước từng mảng PKG_*: shellcheck báo
 # chúng "appears unused". Sai. Chúng được đọc qua nameref (`local -n ref=$1`)
@@ -422,9 +420,6 @@ readonly PKG_CONFIG=(
 # Mỗi dòng là một SHCMD(...) trong config.h. Không kèm gói cho `st` `slock`
 # `dmenu_run` — ba cái đó build từ chính repo.
 #
-# Cố ý bỏ qua `epos-gsx300-gui` (config.h:189, Super+P): đó là app đi kèm
-# chuột EPOS GSX300, không có trong kho Arch/CachyOS nào. Cài nó chỉ có thể
-# bằng tay, nên để ngoài danh sách thay vì làm cả lô cài hỏng.
 # bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
 # (xem ghi chuc dau muc "packages")
 # shellcheck disable=SC2034

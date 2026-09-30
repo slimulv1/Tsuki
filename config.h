@@ -192,7 +192,6 @@ static const Key keys[] = {
     { MODKEY,                           XK_s,       spawn,          SHCMD("firefox")},
     { MODKEY,                           XK_g,       spawn,          SHCMD("steam")},
     { MODKEY,                           XK_Return,  spawn,          SHCMD("st")},
-    { MODKEY,                           XK_p,       spawn,          SHCMD("epos-gsx300-gui")},
 
     // toggle stuff
     { MODKEY,                           XK_b,       togglebar,      {0} },

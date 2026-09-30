@@ -103,9 +103,6 @@ sudo pacman -S --needed \
     eza expac neovim hwinfo wget openbsd-netcat jq    # tiện ích cho fish
 ```
 
-`Super+P` (`epos-gsx300-gui`) là app đi kèm chuột EPOS GSX300, không có trong
-kho nào — máy dùng chuột khác thì sửa hoặc xoá dòng `config.h:189`.
-
 ---
 
 MIT — [LICENSE](LICENSE). `dwm` `st` `slock` `dmenu` `slstatus` thuộc

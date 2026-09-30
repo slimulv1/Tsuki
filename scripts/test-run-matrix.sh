@@ -245,6 +245,155 @@ else
 fi
 
 echo
+echo "--- GDM/SDDM: phải ghi đè danh tính session kế thừa ---"
+# GDM và SDDM kế thừa nguyên bộ biến của session GNOME/Ubuntu cho mọi session
+# chúng khởi chạy. Nếu run.sh không ghi đè, xdg-desktop-portal chạy dưới nhãn
+# GNOME trên X11 thật -> FileChooser nhận lệnh nhưng không dựng được cửa sổ
+# ("Lưu ảnh" bấm không ra gì). Đây là lý do khối "danh tính session" tồn tại.
+#
+# Cách kiểm: stub dwm GHI LẠI môi trường nó kế thừa. dwm chính là nơi các app
+# con thừa hưởng, nên đó là thứ app thật sẽ thấy — chỉ grep dòng `export` trong
+# run.sh thì chứng minh câu lệnh chạy, không chứng minh nó tới nơi.
+_gd="$T/case-gdm"
+mkdir -p "$_gd/run" "$_gd/home" "$_gd/repo/.config/xsettingsd"
+mk_bin "$_gd/bin" "$ALL"
+ln -sfn "$R/scripts" "$_gd/repo/scripts"
+cat > "$_gd/repo/dwm" <<'GDSTUB'
+#!/bin/sh
+: >> "$DWM_MARK"
+printf '%s|%s|%s|%s\n' "$XDG_CURRENT_DESKTOP" "$XDG_SESSION_DESKTOP" \
+    "$XDG_SESSION_TYPE" "$DESKTOP_SESSION" > "$DWM_MARK.env"
+exit 0
+GDSTUB
+chmod +x "$_gd/repo/dwm"
+: > "$_gd/repo/.config/xsettingsd/xsettingsd.conf"
+cp "$R/config.h" "$_gd/repo/config.h"
+: > "$T/gdm.mark"; rm -f "$T/gdm.mark.env"
+env -i PATH="$_gd/bin:/usr/bin:/bin" HOME="$_gd/home" \
+    XDG_RUNTIME_DIR="$_gd/run" XDG_CACHE_HOME="$_gd/home/.cache" \
+    TSUKI_DIR="$_gd/repo" DWM_MARK="$T/gdm.mark" \
+    XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_DESKTOP=ubuntu \
+    XDG_SESSION_TYPE=wayland DESKTOP_SESSION=gnome \
+    dash "$R/scripts/run.sh" >/dev/null 2>"$_gd/err"
+_got=$(cat "$T/gdm.mark.env" 2>/dev/null)
+if [ "$_got" = "dwm|dwm|x11|dwm" ]; then
+    ok "GDM: dwm thấy '$_got' — danh tính GNOME đã bị ghi đè hết"
+else
+    bad "GDM danh tính session" "dwm thấy '$_got', cần 'dwm|dwm|x11|dwm'"
+fi
+if grep -qE 'unbound variable|syntax error|command not found|bad substitution' "$_gd/err" 2>/dev/null; then
+    bad "GDM lỗi shell" "$(grep -m1 -E 'unbound|syntax|not found|substitution' "$_gd/err")"
+else
+    ok "GDM: không lỗi shell"
+fi
+
+echo
+echo "--- systemd user manager hỏng: phải rơi về chạy dunst trực tiếp ---"
+# `systemctl --user is-system-running` trả khác 0 VÀ busctl cũng không nói chuyện
+# được -> nhánh else. Nếu ta tin mình có bus rồi gọi
+# `systemctl --user start dunst.service` thì dunst không bao giờ lên, mà không
+# gì báo vì mọi lệnh đều có `|| true`.
+_sb="$T/case-nobus"
+mkdir -p "$_sb/run" "$_sb/home" "$_sb/repo/.config/xsettingsd"
+mk_bin "$_sb/bin" "$ALL"
+printf '#!/bin/sh\nexit 1\n' > "$_sb/bin/systemctl"; chmod +x "$_sb/bin/systemctl"
+printf '#!/bin/sh\nexit 1\n' > "$_sb/bin/busctl";   chmod +x "$_sb/bin/busctl"
+ln -sfn "$R/scripts" "$_sb/repo/scripts"
+cp "$T/dwm" "$_sb/repo/dwm"; chmod +x "$_sb/repo/dwm"
+: > "$_sb/repo/.config/xsettingsd/xsettingsd.conf"
+cp "$R/config.h" "$_sb/repo/config.h"
+: > "$T/nb.mark"
+env -i PATH="$_sb/bin:/usr/bin:/bin" HOME="$_sb/home" \
+    XDG_RUNTIME_DIR="$_sb/run" XDG_CACHE_HOME="$_sb/home/.cache" \
+    TSUKI_DIR="$_sb/repo" DWM_MARK="$T/nb.mark" \
+    dash "$R/scripts/run.sh" >/dev/null 2>"$_sb/err"
+if [ -s "$T/nb.mark" ]; then
+    ok "no-bus: dwm vẫn chạy (run.sh không chết vì thiếu systemd)"
+else
+    bad "no-bus" "run.sh chết trước dwm: $(tail -2 "$_sb/err" 2>/dev/null | tr '\n' ';')"
+fi
+if grep -q 'không có systemd user bus' "$_sb/home/.cache/tsuki/session.log" 2>/dev/null; then
+    ok "no-bus: nhận ra mất user bus và báo ra"
+else
+    bad "no-bus không báo" "log: $(grep -iE 'systemd|dunst|portal' "$_sb/home/.cache/tsuki/session.log" 2>/dev/null | head -2 | tr '\n' ';')"
+fi
+# PHẢI khẳng định qua nhật ký, không kiểm tsuki-dunst.lock. Bản đầu kiểm file
+# khoá và luôn đỏ: dwm stub trả 0 nên run.sh thoát sạch, stop_daemons xoá hết
+# tsuki-*.lock — tức là đo đúng thứ đã bị dọn, không phải thứ chưa từng có.
+# start_daemon ghi "dunst: pid N" vào nhật ký ngay lúc spawn, đó mới là dấu
+# vết còn lại sau khi dọn.
+if grep -q 'dunst: pid' "$_sb/home/.cache/tsuki/session.log" 2>/dev/null; then
+    ok "no-bus: dunst được spawn trực tiếp ($(grep -m1 'dunst: pid' "$_sb/home/.cache/tsuki/session.log" | tr -d '\n'))"
+else
+    bad "no-bus dunst" "không có dòng 'dunst: pid' trong nhật ký: $(grep -iE 'dunst|portal' "$_sb/home/.cache/tsuki/session.log" 2>/dev/null | head -2 | tr '\n' ';')"
+fi
+
+echo
+echo "--- XDG_RUNTIME_DIR chỉ đọc: phải chạy tiếp, không spam lỗi ---"
+# Thư mục runtime tồn tại nhưng không ghi được (chmod 555). Mọi safe_touch,
+# `exec 8>lock`, `exec 6>claim` đều hỏng. run.sh phải hạ cấp chứ không chết —
+# mất daemon thì chịu, mất cả desktop thì không.
+_ro="$T/case-ro"
+mkdir -p "$_ro/run" "$_ro/home" "$_ro/repo/.config/xsettingsd"
+chmod 555 "$_ro/run"
+mk_bin "$_ro/bin" "$ALL"
+ln -sfn "$R/scripts" "$_ro/repo/scripts"
+cp "$T/dwm" "$_ro/repo/dwm"; chmod +x "$_ro/repo/dwm"
+: > "$_ro/repo/.config/xsettingsd/xsettingsd.conf"
+cp "$R/config.h" "$_ro/repo/config.h"
+: > "$T/ro.mark"
+env -i PATH="$_ro/bin:/usr/bin:/bin" HOME="$_ro/home" \
+    XDG_RUNTIME_DIR="$_ro/run" XDG_CACHE_HOME="$_ro/home/.cache" \
+    TSUKI_DIR="$_ro/repo" DWM_MARK="$T/ro.mark" \
+    dash "$R/scripts/run.sh" >/dev/null 2>"$_ro/err"
+chmod 755 "$_ro/run"
+if [ -s "$T/ro.mark" ]; then
+    ok "runtime chỉ đọc: dwm vẫn chạy (hạ cấp chứ không chết)"
+else
+    bad "runtime chỉ đọc" "run.sh chết: $(tail -2 "$_ro/err" 2>/dev/null | tr '\n' ';')"
+fi
+# KHÔNG dùng `|| echo 0`: grep -c đã in "0" rồi mới trả mã 1, nên || echo 0
+# cộng thêm một dòng -> biến thành "0\n0" và `[ ... -le 2 ]` báo
+# "integer expression expected", tức thông báo lỗi của chính test chứ không
+# phải lỗi của run.sh. Đúng thứ ta đang kiểm là "ít dòng lỗi", nên đừng để
+# cách đếm tự sinh lỗi.
+_rospam=$(grep -cE 'Permission denied|unbound variable|syntax error' "$_ro/err" 2>/dev/null || true)
+if [ "$_rospam" -le 2 ]; then
+    ok "runtime chỉ đọc: lỗi bị nuốt gọn ($_rospam dòng, không spam)"
+else
+    bad "runtime chỉ đọc" "$_rospam dòng lỗi: $(grep -m2 -E 'Permission denied|unbound' "$_ro/err" | tr '\n' ';')"
+fi
+
+echo
+echo "--- D-Bus trỏ tới socket chết (khác hẳn biến rỗng) ---"
+# `DBUS_SESSION_BUS_ADDRESS=` rỗng đã có ca riêng. Trường hợp này khác: biến
+# CÓ giá trị nhưng socket bên kia không còn — đúng trạng thái sau khi dbus
+# daemon chết giữa phiên rồi ta khởi động lại run.sh.
+_db="$T/case-dbusdead"
+mkdir -p "$_db/run" "$_db/home" "$_db/repo/.config/xsettingsd"
+mk_bin "$_db/bin" "$ALL"
+ln -sfn "$R/scripts" "$_db/repo/scripts"
+cp "$T/dwm" "$_db/repo/dwm"; chmod +x "$_db/repo/dwm"
+: > "$_db/repo/.config/xsettingsd/xsettingsd.conf"
+cp "$R/config.h" "$_db/repo/config.h"
+: > "$T/dbd.mark"
+env -i PATH="$_db/bin:/usr/bin:/bin" HOME="$_db/home" \
+    XDG_RUNTIME_DIR="$_db/run" XDG_CACHE_HOME="$_db/home/.cache" \
+    TSUKI_DIR="$_db/repo" DWM_MARK="$T/dbd.mark" \
+    DBUS_SESSION_BUS_ADDRESS=unix:path=/khong/ton/tai/bus \
+    dash "$R/scripts/run.sh" >/dev/null 2>"$_db/err"
+if [ -s "$T/dbd.mark" ]; then
+    ok "D-Bus chết: dwm vẫn chạy"
+else
+    bad "D-Bus chết" "run.sh chết: $(tail -2 "$_db/err" 2>/dev/null | tr '\n' ';')"
+fi
+if grep -qE 'unbound variable|syntax error|bad substitution' "$_db/err" 2>/dev/null; then
+    bad "D-Bus chết lỗi shell" "$(grep -m1 -E 'unbound|syntax|substitution' "$_db/err")"
+else
+    ok "D-Bus chết: không lỗi shell"
+fi
+
+echo
 echo "--- config.h trỏ font không tồn tại (dwm chết ngay) ---"
 _fdir="$T/case-font"
 mkdir -p "$_fdir/run" "$_fdir/home" "$_fdir/repo/.config/xsettingsd"

@@ -437,8 +437,22 @@ if have flock; then
     # stop_daemons quét để `kill`, nếu đặt tên tsuki-session.pid thì lúc dọn
     # nó sẽ kill đúng pid run.sh đang chạy — tự giết mình giữa chừng.
     _owner="$XDG_RUNTIME_DIR/tsuki-session.owner"
-    safe_touch "$_claim" || true
-    if exec 6>"$_claim"; then
+    # PHẢI probe bằng safe_touch TRƯỚC, không viết `if exec 6>"$_claim"`.
+    # Với builtin `exec`, lỗi chuyển hướng làm shell THOÁT NGAY theo POSIX —
+    # điều kiện của `if` không kịp được xét. Tái hiện trên dash:
+    #   $ dash -c 'if exec 6>/ro; then echo A; else echo B; fi; echo CUOI'
+    #   dash: cannot create /ro: Permission denied   <- khong co A, B, lẫn CUOI
+    # Đây là lớp lỗi "chuyển hướng chí tử" từng xảy ra ở 20502fd; ở đó đã sửa
+    # bằng safe_touch, ở đây tôi tự viết lại sai lần nữa.
+    # safe_touch bọc subshell nên chỉ trả mã lỗi, không giết shell. Probe
+    # thành công thì exec chắc chắn thành công (vừa tạo được chính file đó).
+    if ! safe_touch "$_claim"; then
+        warn "không ghi được $_claim — bỏ qua khoá cấp phiên"
+        # Vẫn coi là sở hữu để dọn lúc thoát: không khoá được phiên còn hơn là
+        # không dọn, vì không dọn thì daemon sót qua phiên sau.
+        _OWNS_SESSION=1
+    else
+        exec 6>"$_claim"
         if ! flock -n 6 2>/dev/null; then
             # `have fuser` trước: không có thì bỏ trống, đừng để
             # "fuser: command not found" lọt vào nhật ký rồi in ra chỗ lệch.
@@ -455,12 +469,6 @@ if have flock; then
         # tin của bản đang giữ, và thông báo "đã có run.sh khác" lại chỉ ra
         # chính nó.
         printf '%s\n' "$$" >"$_owner" 2>/dev/null || true
-        _OWNS_SESSION=1
-    else
-        warn "không mở được $_claim — bỏ qua khoá cấp phiên"
-        # Không khoá được thì coi như có quyền dọn, giữ hành vi cũ. Nếu đặt 0,
-        # máy thiếu flock sẽ không bao giờ dọn daemon lúc logout — rò rỉ
-        # daemon sang phiên sau, tệ hơn nhiều so với mất khoá.
         _OWNS_SESSION=1
     fi
 else
@@ -680,7 +688,13 @@ _start_watchdog() {
             done
         done
     ) >/dev/null 2>&1 &
-    printf '%s\n' "$!" >"$XDG_RUNTIME_DIR/tsuki-watchdog.pid"
+    # safe_touch trước: `>file` thẳng khi không ghi được sẽ in
+    # "cannot create ... Permission denied" vào stderr của run.sh. Ở hình thế
+    # XDG_RUNTIME_DIR chỉ đọc, đó là 1 dòng nhiễu mỗi lần; tệ hơn, cùng nguyên
+    # nhân với dwm.err bên dưới làm cả phiên không lên được.
+    if safe_touch "$XDG_RUNTIME_DIR/tsuki-watchdog.pid"; then
+        printf '%s\n' "$!" >"$XDG_RUNTIME_DIR/tsuki-watchdog.pid"
+    fi
 }
 
 # --- systemd user manager: đưa DISPLAY/XAUTHORITY vào môi trường -------------
@@ -1099,8 +1113,13 @@ while type dwm >/dev/null 2>&1; do
     # Ly do chi bao khi chet som: chan doan CUA DWM (die() khi khong nap duoc
     # font, khong mo duoc display) xay ra trong vai mili giay dau. dwm song
     # >10s roi moi chet thi phan lon noi dung file la cua app con.
+    # RƠI VỀ /dev/null nếu không ghi được. Đo được ở hình thế XDG_RUNTIME_DIR
+    # chỉ đọc: `dwm 2>"$_dwm_err"` không mở được file nên dwm KHÔNG BAO GIỜ
+    # chạy, run.sh quay đủ 10 vòng rồi "dwm crash liên tục 10 lần — DỪNG".
+    # Mất dwm thì mất desktop; mất file nhật ký lỗi thì chỉ mất chẩn đoán.
+    # Nên đánh đổi thế này, không đánh đổi ngược lại.
     _dwm_err="$XDG_RUNTIME_DIR/tsuki-dwm.err"
-    safe_touch "$_dwm_err" || true
+    safe_touch "$_dwm_err" || _dwm_err=/dev/null
     dwm 2>"$_dwm_err" &
     _dwm_pid=$!
     wait "$_dwm_pid"

@@ -30,7 +30,8 @@ grep -q '^start_daemon() {' "$FNS" || { echo "FAIL: không trích được start
 export XDG_RUNTIME_DIR="$T/run"; mkdir -p "$XDG_RUNTIME_DIR"
 sd() { dash -c ". '$FNS'; start_daemon $*" 2>/dev/null; }
 gf() { head -1 "$XDG_RUNTIME_DIR/tsuki-$1.pid" 2>/dev/null; }
-n_of() { pgrep -c -x "$1" 2>/dev/null || echo 0; }
+# || true, không || echo 0: pgrep -c in "0" rồi mới trả mã 1 (xem holders).
+n_of() { pgrep -c -x "$1" 2>/dev/null || true; }
 
 # --- T1: spawn lần đầu, ghi pid đúng tiến trình ------------------------------
 sd sleeper sleep 300
@@ -110,7 +111,11 @@ sleep 0.6
 base=$(n_of sleep)
 racy_pids=$(pgrep -x sleep 2>/dev/null | wc -l)
 # đếm số process con có FD trên lockfile của racy
-holders=$(ls -l /proc/*/fd 2>/dev/null | grep -c "tsuki-racy.lock" || echo 0)
+# `|| true` chứ không `|| echo 0`: grep -c in "0" rồi mới trả mã 1, thêm nữa
+# sẽ ra "0\n0" và dòng `[ "$holders" -le 1 ]` báo "integer expression expected".
+# Tệ hơn: hỏng ĐÚNG vào tình huống T6 sinh ra để bắt (không tiến trình nào giữ
+# khoá) — lúc đó đọc thông báo lỗi sẽ tưởng test hỏng, không phải daemon.
+holders=$(ls -l /proc/*/fd 2>/dev/null | grep -c "tsuki-racy.lock" || true)
 if [ "$holders" -le 1 ]; then
     ok "T6 race 5 lần song song → chỉ 1 daemon giữ khoá (holders=$holders)"
 else

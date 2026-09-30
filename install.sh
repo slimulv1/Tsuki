@@ -272,6 +272,12 @@ readonly PKG_KEYBINDS=(
     visual-studio-code-bin
     # config.h:187 Super+G
     steam
+    # Tridactyl — điều khiển Firefox bằng bàn phím kiểu Vim. KHÔNG có dotfile
+    # trong .config (nên không thuộc PKG_CONFIG, vì PKG_CONFIG và items trong
+    # cmd_dotfiles phải khớp 1-1) và không mở bằng phím tắt.
+    # CÓ SẴN trong kho `extra` — tridactyl-guide.md:206 nói lấy ở AUR là
+    # không còn đúng, nên không đưa vào PKG_PTY (nhóm AUR).
+    firefox-tridactyl
     # config.h:201 Super+D
     discord-ptb
     # config.h:202 Super+/ — `bat ... || less ...`; less là nhánh dự phòng nên
@@ -511,21 +517,71 @@ cmd_dotfiles() {
     ok "xong ($n/${#items[@]} mục)"
 }
 
+# Tìm thư mục profile thật của Firefox.
+#
+# BUG ĐÃ SỬA (2 lỗi cùng chỗ, đều làm giao diện không bao giờ được cài mà
+# KHÔNG báo lỗi rõ ràng):
+#   1) tìm ở "$TSUKI_HOME/.config/mozilla/firefox" — sai hoàn toàn. Profile
+#      của Firefox KHÔNG nằm trong ~/.config, mà ở ~/.mozilla hoặc ~/.cache.
+#   2) ngay cả khi sửa thành ~/.mozilla thì vẫn thiếu trường hợp máy này:
+#      profile thật nằm ở ~/.cache/mozilla/firefox/<hash>.default-release.
+#      Không có biến MOZ_* nào set, không wrapper nào can thiệp — Firefox 157
+#      trên máy này tự chọn ~/.cache/mozilla.
+# Hậu quả trước đây: `find` ra rỗng -> `[[ -n $profile ]]` sai -> `return 0`
+# (exit 0, coi như thành công) -> user.js và userChrome.css chưa bao giờ được
+# copy, Firefox giữ nguyên giao diện cũ mà install.sh vẫn báo là xong.
+firefox_profile() {
+    local base
+    # Thứ tự theo độ phổ biến; dùng cả hai vì khác máy khác chỗ.
+    for base in \
+        "$TSUKI_HOME/.mozilla/firefox" \
+        "${XDG_CACHE_HOME:-$TSUKI_HOME/.cache}/mozilla/firefox" \
+        "$TSUKI_HOME/.cache/mozilla/firefox" \
+        "$TSUKI_HOME/snap/firefox/common/.mozilla/firefox"
+    do
+        [[ -d $base ]] || continue
+        # Ưu tiên .default-release (profile đang dùng), không thì lấy bất kỳ
+        # profile nào có prefs.js — profile mới tạo chưa kịp có prefs.js vẫn
+        # phải dùng được, nên chấp nhận cả hai.
+        local p
+        p="$(find "$base" -maxdepth 1 -name '*.default-release' 2>/dev/null | head -1 || true)"
+        [[ -n $p ]] && { printf '%s\n' "$p"; return 0; }
+        p="$(find "$base" -maxdepth 1 -name '*.default*' 2>/dev/null | head -1 || true)"
+        [[ -n $p ]] && { printf '%s\n' "$p"; return 0; }
+    done
+    return 1
+}
+
 cmd_firefox() {
     step "cài giao diện Firefox"
     local profile
-    # `|| true` là bắt buộc: dưới `set -o pipefail`, khi head lấy đủ dòng rồi
-    # thoát, find bị SIGPIPE và trả 141; lệnh gán cũng nhận luôn 141 -> set -e
-    # kết thúc script ngay. Đã kiểm chứng: exit=141.
-    profile="$(find "$TSUKI_HOME/.config/mozilla/firefox" -maxdepth 1 -name '*.default-release' 2>/dev/null | head -1 || true)"
-    [[ -n $profile ]] || {
-        warn "không tìm thấy Firefox profile — bỏ qua (mở Firefox một lần rồi chạy lại)"
+    profile="$(firefox_profile || true)"
+    if [[ -z $profile ]]; then
+        warn "không tìm thấy thư mục profile Firefox."
+        warn "  Đã dò: ~/.mozilla/firefox, ~/.cache/mozilla/firefox, ~/.snap/.../firefox"
+        warn "  Hãy MỞ FIREFOX MỘT LẦN (để nó tạo profile) rồi chạy lại ./install.sh dotfiles"
         return 0
-    }
+    fi
     mkdir -p "$profile/chrome"
     install_dotfile "$REPO_DIR/.config/firefox/user.js" "$profile/user.js"
     install_dotfile "$REPO_DIR/.config/firefox/chrome/userChrome.css" "$profile/chrome/userChrome.css"
     ok "profile: ${profile##*/}"
+
+    # userChrome.css CHỈ có tác dụng sau khi Firefox đọc lại pref. Pref
+    # toolkit.legacyUserProfileCustomizations.stylesheets nằm trong user.js
+    # vừa copy, nhưng Firefox nạp pref khi khởi động — nên file cũ có sẵn
+    # thì phải đóng hẳn Firefox rồi mở lại mới thấy đổi. Nhắc luôn vì
+    # "cài xong không thấy gì đổi" là triệu chứng dễ gặp nhất ở bước này.
+    cat <<EOF
+
+  Giao diện đã nạp vào: ${profile##*/}
+  Đóng hẳn Firefox rồi mở lại để userChrome.css có hiệu lực.
+
+  Tridactyl: gói 'firefox-tridactyl' được ./install.sh deps cài từ kho 'extra'.
+  Mở Firefox, vào about:debugging#/runtime/this-firefox và bật
+  "Tridactyl — Vim mode for Firefox" nếu nó không tự bật.
+
+EOF
 }
 
 # ---------------------------------------------------------------- session ---
@@ -1232,6 +1288,12 @@ readonly PKG_AUR=(
 # Gói bộ gõ. Không có trong kho nào của Arch/CachyOS, chỉ có ở AUR.
 readonly PKG_PTY=(
     fcitx5-lotus-bin
+    # Native messenger cho Tridactyl (extension Vim cho Firefox ở PKG_KEYBINDS).
+    # KHÔNG có trong kho — chỉ có ở AUR (firefox-tridactyl-native 1.24.2-2 và
+    # bản -bin). Nếu thiếu nó thì tridactyl vẫn chạy nhưng mọi tính năng
+    # cần native bị chặn: :nativeinstall, :restart, :setpref, :guiset, :saveas,
+    # và dấu `!` để chạy lệnh hệ thống. Cần paru — xem cmd_pty.
+    firefox-tridactyl-native
 )
 
 # `sed -n 1p` chứ không phải `head -1`: head đóng pipe sau dòng đầu thì phía

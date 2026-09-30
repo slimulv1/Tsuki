@@ -73,6 +73,32 @@ static void wipe_secure(void *p, size_t n)
 
 static int g_need_redraw = 1;
 
+/* Đường dẫn lockfile, tính lúc chạy.
+ *
+ * BUG ĐÃ SỬA: ghi cứng "/tmp/netpanel.lock" — tên đoán trước được trong /tmp
+ * (world-writable, dính sticky bit). User khác trên cùng máy tạo sẵn file
+ * (hay symlink) ở tên đó thì ta mở trúng file của họ; O_CREAT cũng không cứu
+ * được. Nay dùng $XDG_RUNTIME_DIR (riêng theo user, 0700) và fallback
+ * /tmp kèm uid để không trùng với bất kỳ ai. */
+static char g_lockpath[256];
+
+static const char *
+netpanel_lock_path(void)
+{
+	const char *rt;
+	int n;
+
+	rt = getenv("XDG_RUNTIME_DIR");
+	if (rt && rt[0] == '/') {
+		n = snprintf(g_lockpath, sizeof(g_lockpath), "%s/netpanel.lock", rt);
+		if (n > 0 && (size_t)n < sizeof(g_lockpath))
+			return g_lockpath;
+	}
+	n = snprintf(g_lockpath, sizeof(g_lockpath), "/tmp/netpanel-%ld.lock",
+	             (long)getuid());
+	return (n > 0 && (size_t)n < sizeof(g_lockpath)) ? g_lockpath : NULL;
+}
+
 /* đọc từng dòng từ con trỏ bộ đệm */
 static int next_line(char **p, char *dst, size_t dn)
 {
@@ -1599,7 +1625,8 @@ int main(void)
 	signal(SIGUSR2, on_usr2);
 
 	/* --- khóa single-instance: click icon lần 2 → USR2 bảo instance cũ đóng --- */
-	int lockfd = open("/tmp/netpanel.lock", O_RDWR | O_CREAT, 0600);
+	const char *lockpath = netpanel_lock_path();
+	int lockfd = lockpath ? open(lockpath, O_RDWR | O_CREAT, 0600) : -1;
 	if (lockfd < 0)
 		die("lockfile");
 	if (flock(lockfd, LOCK_EX | LOCK_NB) < 0) {
@@ -1907,7 +1934,7 @@ int main(void)
 	if (lockfd >= 0) {
 		flock(lockfd, LOCK_UN);
 		close(lockfd);
-		unlink("/tmp/netpanel.lock");
+		unlink(lockpath);
 	}
 	return 0;
 }

@@ -19,8 +19,8 @@ alias cdwm 'nvim (__tsuki_repo)/config.h'
 alias mdwm 'set -l r (__tsuki_repo); and cd $r; and sudo make install; and cd -'
 
 # ── Loom: pywal colors (tự theo wallpaper — dwmwal tạo colors.fish) ──
-if test -f ~/.cache/wal/colors.fish
-    source ~/.cache/wal/colors.fish
+if test -f ~/.cache/dwmwal/colors.fish
+    source ~/.cache/dwmwal/colors.fish
     if set -q foreground
         set fish_color_normal $foreground
         set fish_color_command $color4

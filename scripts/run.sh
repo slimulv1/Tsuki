@@ -15,15 +15,26 @@ set -u
 
 # --- vị trí repo: suy ra từ chính script, không hardcode $HOME/dwm -----------
 # Đặt sau $HOME để người dùng clone ở đường dẫn khác vẫn chạy được.
-DWM_DIR="${TSUKI_DIR:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)}"
-export TSUKI_DIR="$DWM_DIR"
+TSUKI_DIR="${TSUKI_DIR:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)}"
+export TSUKI_DIR
+# Alias tương thích: script cũ / dotfile cá nhân từng đọc $DWM_DIR. Giữ để
+# không vỡ gì; nội bộ Tsuki chỉ dùng TSUKI_DIR — khỏi hai tên cho một thứ.
+export DWM_DIR="$TSUKI_DIR"
 
 # startx không nạp profile login shell -> PATH không có /usr/local/bin,
 # nơi `make install` đặt dwm/st/slock/dmenu/slstatus. Thiếu thì while type dwm
 # thoát ngay và ta bị đá về màn hình đăng nhập mà không thấy cửa sổ nào.
 PATH="/usr/local/bin:$PATH"
 export PATH
-export PATH="$DWM_DIR:$PATH"   # cho netpanel/imgdec nằm trong repo
+
+# $TSUKI_DIR/dmenu ĐỨNG TRƯỚC /usr/local/bin — đây là chỗ duy nhất dmenu lấy
+# màu mới. `dmenu_run` (script trong /usr/local/bin) gọi `dmenu` và `dmenu_path`
+# BẰNG TÊN trần, nên nó lấy bản đầu tiên trong PATH. Trước đây dwmwal.sh chỉ
+# `make -C dmenu` (build trong repo) mà không cài, nên Super+R ra dmenu màu cũ
+# vĩnh viễn, đổi wallpaper vô ích. Đặt thư mục build của repo trước là cách
+# không cần root — cùng ý với cách slstatus chạy bản trong repo bên dưới.
+# Nếu repo chưa build (mới clone) thì rơi về /usr/local/bin như cũ, an toàn.
+export PATH="$TSUKI_DIR/dmenu:$TSUKI_DIR:$PATH"
 
 # --- danh tính session ------------------------------------------------------
 # GDM kế thừa nguyên bộ biến của session GNOME cho mọi session nó khởi chạy.
@@ -89,7 +100,7 @@ systemctl --user import-environment DISPLAY XAUTHORITY 2>/dev/null || true
 # --- nền desktop ------------------------------------------------------------
 [ -f "$HOME/.Xresources" ] && xrdb -merge "$HOME/.Xresources" &
 
-WALLPAPER=$(cat "$DWM_DIR/scripts/.wallpaper" 2>/dev/null)
+WALLPAPER=$(cat "$TSUKI_DIR/scripts/.wallpaper" 2>/dev/null)
 if [ -n "${WALLPAPER:-}" ] && [ -f "$WALLPAPER" ]; then
     feh --bg-fill "$WALLPAPER" &
 elif [ -f "$HOME/Pictures/Wallpapers/japanese.jpg" ]; then
@@ -139,7 +150,7 @@ command -v fcitx5 >/dev/null 2>&1 && start_daemon fcitx fcitx5 -d
 # slstatus binary trong repo (dwmwal.sh rebuild + đổi màu theo wallpaper, không
 # cần root). Vòng lặp tự phục hồi: nếu slstatus chết/bị kill (vd dwmwal pkill)
 # thì restart ngay — bar không bao giờ trống.
-SLSTATUS="$DWM_DIR/slstatus/slstatus"
+SLSTATUS="$TSUKI_DIR/slstatus/slstatus"
 [ -x "$SLSTATUS" ] || SLSTATUS="$(command -v slstatus 2>/dev/null || true)"
 
 if [ -n "$SLSTATUS" ]; then
@@ -154,10 +165,10 @@ fi
 
 # --- daemon nền -------------------------------------------------------------
 # updates-loop.sh tự flock nên gọi lại vô hại; mediacard.sh có chế độ daemon.
-[ -f "$DWM_DIR/scripts/updates-loop.sh" ] &&
-    start_daemon updates dash "$DWM_DIR/scripts/updates-loop.sh"
-[ -f "$DWM_DIR/scripts/mediacard.sh" ] &&
-    start_daemon mediacard dash "$DWM_DIR/scripts/mediacard.sh" daemon
+[ -f "$TSUKI_DIR/scripts/updates-loop.sh" ] &&
+    start_daemon updates dash "$TSUKI_DIR/scripts/updates-loop.sh"
+[ -f "$TSUKI_DIR/scripts/mediacard.sh" ] &&
+    start_daemon mediacard dash "$TSUKI_DIR/scripts/mediacard.sh" daemon
 
 # --- dwm --------------------------------------------------------------------
 # Vòng lặp, không exec. Super+Shift+R -> scripts/rebuild.sh -> killall dwm:

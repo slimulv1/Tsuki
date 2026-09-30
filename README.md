@@ -30,13 +30,17 @@ and a color lands.
 Cài Arch/CachyOS **không chọn display manager**, boot vào TTY rồi đăng nhập.
 
 ```sh
-git clone https://github.com/slimulv1/Tsuki.git ~/dwm
-cd ~/dwm
+git clone https://github.com/slimulv1/Tsuki.git ~/tsuki
+cd ~/tsuki
 ./install.sh
 ```
 
 Lệnh này cài gói phụ thuộc, build `dwm` `st` `slock` `dmenu` `slstatus`, chép
 `~/.config` và viết `~/.xinitrc`. Chỉ hỏi mật khẩu khi cần root.
+
+> Tên thư mục **không quan trọng**: `run.sh` và mọi script suy ra vị trí repo từ
+> chính `$0` (dùng `$TSUKI_DIR` nếu đã có), nên clone ở `~/Tsuki`, `~/dwm` hay
+> chỗ nào cũng chạy. `~/tsuki` chỉ là quy ước của repo này.
 
 Xong thì gõ `dwm`. Thoát về TTY bằng `Super+Ctrl+Q`.
 
@@ -51,7 +55,7 @@ Xong thì gõ `dwm`. Thoát về TTY bằng `Super+Ctrl+Q`.
 Ảnh nền không có sẵn trong repo, trỏ vào ảnh của bạn:
 
 ```sh
-echo "$HOME/Pictures/Wallpapers/<tên>.jpg" > ~/dwm/scripts/.wallpaper
+echo "$HOME/Pictures/Wallpapers/<tên>.jpg" > ~/tsuki/scripts/.wallpaper
 ```
 
 XLibre thay X.Org được `install.sh` cài tự động ở bản **stable**, không phải làm

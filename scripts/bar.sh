@@ -6,8 +6,8 @@
 # Thu muc repo. TSUKI_DIR do run.sh export; neu bar.sh chay tach (dwmwal.sh
 # spawn tay, supervisor) thi suy ra tu vi tri script. Khong hardcode ~/dwm:
 # clone o cho khac thi file nay khong doc duoc -> bar mat mau ma khong bao loi.
-DWM_DIR="${TSUKI_DIR:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)}"
-export DWM_DIR
+TSUKI_DIR="${TSUKI_DIR:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)}"
+export TSUKI_DIR
 
 # --- package updates (async) ---
 # checkupdates refreshes in a detached loop; the bar only reads the cached count (never blocks)
@@ -59,7 +59,7 @@ fi
 # load colors (live-reloaded when theme file regenerates)
 # GUARD: dash thoát (exit 2) khi `.` không đọc được file -> nếu wal bị xóa lúc
 # runtime, bar.sh sẽ chết vĩnh viễn (supervisor run.sh chỉ check 1 lần lúc boot).
-theme_file=$DWM_DIR/scripts/bar_themes/wal
+theme_file=$TSUKI_DIR/scripts/bar_themes/wal
 theme_ck=""
 [ -r "$theme_file" ] && . "$theme_file"
 

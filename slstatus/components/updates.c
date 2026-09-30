@@ -2,11 +2,45 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../slstatus.h"
 #include "../util.h"
 
-/* doc: so update pacman tu ~/.cache/dwm-updates
+/* Resolve cache path o LUC CHAY, khong ghi cung ten user luc bien dich.
+ *
+ * BUG DA SUA: truoc day ghi cung "/home/magnus/.cache/dwm-updates" — ten user
+ * cua may khac. Cache that do updates-loop.sh ghi la "$HOME/.cache/dwm-updates",
+ * nen fopen() luon truot, ham tu tao file rong o /home/magnus/... (thu muc do
+ * khong ton tai -> fopen "w" cung truot) va luon tra n = 0 -> thanh bar bao
+ * "Fully Updated" du may co 200 goi can update. Loi im lang, khong bao gi.
+ *
+ * Thu tu: $XDG_CACHE_HOME (bo qua neu khong phai duong tuyet doi, dung XDG
+ * spec) -> $HOME/.cache -> /tmp kem uid (van dung theo user, khong dung user
+ * khac nhu /tmp/dwm-updates chung). */
+static const char *
+updates_cache_path(char *dst, size_t dstsz)
+{
+        const char *base;
+        int n;
+
+        base = getenv("XDG_CACHE_HOME");
+        if (base && base[0] == '/') {
+                n = snprintf(dst, dstsz, "%s/dwm-updates", base);
+                if (n > 0 && (size_t)n < dstsz)
+                        return dst;
+        }
+        base = getenv("HOME");
+        if (base && base[0] == '/') {
+                n = snprintf(dst, dstsz, "%s/.cache/dwm-updates", base);
+                if (n > 0 && (size_t)n < dstsz)
+                        return dst;
+        }
+        n = snprintf(dst, dstsz, "/tmp/dwm-updates-%ld", (long)getuid());
+        return (n > 0 && (size_t)n < dstsz) ? dst : NULL;
+}
+
+/* doc so package update tu ~/.cache/dwm-updates
  * n > 0 -> icon + so mau ON (trang)
  * n = 0 -> AN HOAN TOAN (tra ve chuoi rong, khong icon khong so)
  * Mau lay tu args truyen trong config.h: "ONHEX OFFHEX" (hex khong co '#'),
@@ -18,7 +52,11 @@ updates(const char *arg)
         FILE *fp;
         long n;
         char on[8], off[8];
-        const char *path = "/home/magnus/.cache/dwm-updates";
+        char cachepath[512];
+        const char *path = updates_cache_path(cachepath, sizeof(cachepath));
+
+        if (!path)
+                return nullptr;
 
         if (!(fp = fopen(path, "r"))) {
                 /* cache chưa có (updates-loop.sh chưa chạy lần đầu):

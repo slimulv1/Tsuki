@@ -1,11 +1,15 @@
 #!/bin/bash
 # dunstwal.sh — sync dunst colors with dwm wal theme
-# Reads ~/.cache/wal/colors and ~/.cache/wal/accents
+# Reads ~/.cache/dwmwal/colors and ~/.cache/dwmwal/accents
 # Updates ~/.config/dunst/dunstrc and reloads dunst
 
 DUNSTRC="$HOME/.config/dunst/dunstrc"
-CACHE_COLORS="$HOME/.cache/wal/colors"
-CACHE_ACCENTS="$HOME/.cache/wal/accents"
+# BUG ĐÃ SỬA: trước đây đọc ~/.cache/wal/... — cache của WindowMaker, KHÔNG
+# phải của dwm. dwmwal.sh (dòng CACHE=) ghi vào ~/.cache/dwmwal/, nên
+# ~/.cache/wal/ không tồn tại và script chết ngay dòng [ -f ... ].
+# Hậu quả: màu dunst không bao giờ đổi theo wallpaper, im lặng.
+CACHE_COLORS="$HOME/.cache/dwmwal/colors"
+CACHE_ACCENTS="$HOME/.cache/dwmwal/accents"
 
 [ -f "$CACHE_COLORS" ] || { echo "wal colors not found at $CACHE_COLORS"; exit 1; }
 [ -f "$DUNSTRC" ] || { echo "dunstrc not found at $DUNSTRC"; exit 1; }
@@ -59,12 +63,27 @@ sed -i "/^\[urgency_critical\]/,/^\[/{
 }" "$DUNSTRC"
 
 # Reload dunst
-killall dunst 2>/dev/null
-for _ in $(seq 50); do
-    pgrep -u "$UID" -x dunst >/dev/null 2>&1 || break
-    sleep 0.1
-done
-dunst &
+#
+# KHÔNG dùng `killall dunst` + `dunst &`. run.sh khởi động dunst bằng
+# `systemctl --user start dunst.service`; unit đó là Type=dbus, Restart=no và
+# GIỮ bus name org.freedesktop.Notifications. Giết nó thì systemd đánh dấu
+# service failed, còn `dunst &` chạy tay thì cưỡi luôn bus name -> lần đăng
+# nhập sau `systemctl --user start` sẽ không lên được (đã có bus owner khác),
+# và dễ có 2 dunst cùng chạy -> OSD/notify lỗi, thông báo Firefox không hiện.
+# Đúng cách là nhờ chính daemon đọc lại config: dunstctl reload (unit cũng
+# khai báo sẵn ExecReload=/usr/bin/dunstctl reload).
+if command -v dunstctl >/dev/null 2>&1 && dunstctl reload >/dev/null 2>&1; then
+    :
+elif pgrep -u "$UID" -x dunst >/dev/null 2>&1; then
+    # Chỉ fallback khi thật sự không có dunstctl. Vẫn chờ instance cũ chết hẳn
+    # trước khi spawn để không tranh bus name.
+    killall dunst 2>/dev/null
+    for _ in $(seq 50); do
+        pgrep -u "$UID" -x dunst >/dev/null 2>&1 || break
+        sleep 0.1
+    done
+    dunst &
+fi
 
 echo "dunst colors synced with wal:"
 echo "  bg:      $BG"

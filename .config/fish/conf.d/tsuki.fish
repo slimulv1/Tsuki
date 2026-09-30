@@ -79,6 +79,12 @@ function dwm --description 'Bật Tsuki (dwm) từ TTY'
     exec startx
 end
 
+# ~/.local/bin vào PATH. Đây là cách thay cho `SETUVAR fish_user_paths:/home/
+# <user>/.local/bin` trong fish_variables: universal variable lưu đường tuyệt
+# đối nên ghi tay vào đó chỉ đúng trên đúng một máy; fish_add_path tự tính
+# theo $HOME và chạy lại nhiều lần cũng không nhân bản phần tử PATH.
+fish_add_path --path ~/.local/bin --path ~/.local/share/fnm
+
 function tsuki-status --description 'Trạng thái X session hiện tại'
     if not set -q DISPLAY; or test -z "$DISPLAY"
         echo "TTY thuần — chưa có X session."

@@ -7,8 +7,14 @@
 #   mediacard.sh volume up|down|mute   (volume key handler)
 #   mediacard.sh daemon                (MPRIS watcher, started from run.sh)
 
-ART_DIR=/tmp/nowplaying-art
-LAST_FILE=/tmp/nowplaying-last
+# State thay vì /tmp/nowplaying-*: tên file đoán trước được nằm trong /tmp
+# (world-writable) thì user khác trên cùng máy tạo symlink trỏ tới file của
+# ta là `cp -f "$f" "$dst"` ghi đè nhầm chỗ khác. $XDG_RUNTIME_DIR là thư mục
+# riêng theo user (0700), tự dọn khi logout — đúng nghĩa "state tạm".
+# Fallback ${TMPDIR:-/tmp}/tsuki-$UID vẫn giữ tính riêng theo user.
+_RT="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}/tsuki-$(id -u)}"
+ART_DIR="$_RT/nowplaying-art"
+LAST_FILE="$_RT/nowplaying-last"
 mkdir -p "$ART_DIR"
 
 # Font Awesome speaker glyphs (Nerd Font PUA), emitted via octal UTF-8:

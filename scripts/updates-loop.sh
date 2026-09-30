@@ -7,6 +7,10 @@
 # không ghi "0" giả gây báo "Fully Updated" sai.
 # (Tách từ bar.sh cũ — slstatus thay bar.sh nhưng cơ chế cache này vẫn dùng chung.)
 
+# mkdir -p trước: nếu ~/.cache chưa có (user mới, hoặc XDG_CACHE_HOME trỏ
+# chỗ chưa tạo) thì `printf > "$upd_cache"` hỏng và cả thanh updates + thanh
+# bar im lặng — đúng lỗi đường dẫn, không phải lỗi mạng.
+mkdir -p "$HOME/.cache"
 upd_cache="$HOME/.cache/dwm-updates"
 [ -f "$upd_cache" ] || printf '0\n' > "$upd_cache"
 

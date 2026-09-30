@@ -32,13 +32,15 @@ v3 fixes (vs v2):
 
 Writes byte-exact pywal cache files so every downstream script (wmwal.sh,
 dunstwal.sh, conkywal.sh, kittywal.sh, xtermwal.sh, set-icon-theme.sh,
-update-opencode-theme.sh) keeps working unchanged:
+update-opencode-theme.sh) keeps working unchanged.  The destination is
+whatever --cache-dir is given; inside Tsuki that is ~/.cache/dwmwal/ (NOT
+~/.cache/wal/, which belongs to the WindowMaker chain this rice does not use):
 
-    ~/.cache/wal/colors     (16 lines: color0..color15)
-    ~/.cache/wal/colors.sh  (shell vars: background/foreground/cursor + color0..15)
-    ~/.cache/wal/colors.json
-    ~/.cache/wal/wal        (path of the wallpaper)
-    ~/.cache/wal/accents    (accent / accent_dim for WM/dunst/conky chrome)
+    <cache-dir>/colors     (16 lines: color0..color15)
+    <cache-dir>/colors.sh  (shell vars: background/foreground/cursor + color0..15)
+    <cache-dir>/colors.json
+    <cache-dir>/wal        (path of the wallpaper)
+    <cache-dir>/accents    (accent / accent_dim for WM/dunst/conky chrome)
 
 Guaranteed error-free: any failure (bad image, missing numpy, weird mode,
 grayscale/solid image) degrades to a safe neutral palette and exits 0.

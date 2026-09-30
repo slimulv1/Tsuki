@@ -21,7 +21,10 @@ set -u
 
 ROUNDS=${1:-6000}
 MAXLEN=${2:-48}
-DWM_SRC=${DWM_SRC:-/home/slimu/dwm}
+# BUG ĐÃ SỬA: ghi cứng /home/slimu/dwm — đường dẫn trên máy tác giả, không tồn
+# tại ở đây, nên script luôn fail ở dòng [ -f "$DWM" ]. Giờ suy ra từ vị trí
+# script (vẫn override được bằng DWM_SRC=... nếu muốn trỏ chỗ khác).
+DWM_SRC=${DWM_SRC:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)}
 DISP=${DISP:-:99}
 
 DWM="$DWM_SRC/dwm"

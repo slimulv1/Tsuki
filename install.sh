@@ -998,7 +998,7 @@ arisa_add_key() {
     # shellcheck disable=SC2064
     trap "rm -rf '$tmp'" RETURN
     # README dùng `curl -LO` (tải vào thư mục hiện tại). Tải vào thư mục tạm
-    # để không rác file .gpg vào ~/dwm khi chạy install.sh từ repo — bước còn
+    # để không rác file .gpg vào thư mục repo khi chạy install.sh từ đó — bước còn
     # lại giữ nguyên.
     curl -fsSL -o "$tmp/arisa.gpg" "$ARISA_KEY_URL"
     as_root pacman-key --add "$tmp/arisa.gpg"
@@ -1125,7 +1125,7 @@ EOF
 # Repo này có 2 gói đến từ AUR nên cần AUR helper trước.
 readonly PARU_GIT=https://aur.archlinux.org/paru.git
 # Clone vào ~/.local/src, KHÔNG clone vào thư mục repo — `git clone` không có
-# đường dẫn đích sẽ rơi vào cwd, mà cwd khi chạy install.sh là ~/dwm, tức là
+# đường dẫn đích sẽ rơi vào cwd, mà cwd khi chạy install.sh là thư mục repo, tức là
 # rác vào chính repo đang chạy.
 readonly PARU_SRC=$TSUKI_HOME/.local/src/paru
 

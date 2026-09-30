@@ -4,7 +4,7 @@
  *
  * Hiển thị: tên WiFi đang kết nối (nền card #1a1a2e).
  * Icon (wired/wifi/offline) do net_icon lo phía trước;
- * panel đầy đủ (stats/DNS/scan...) do ~/dwm/netpanel lo khi click.
+ * panel đầy đủ (stats/DNS/scan...) do ~/tsuki/netpanel lo khi click.
  * Mất kết nối: rỗng.
  *
  * Palette đã verify qua 2 vòng vision-check (2026-08-24):

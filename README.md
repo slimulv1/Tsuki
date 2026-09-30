@@ -21,7 +21,7 @@ and a color lands.
 | | |
 |---|---|
 | ![Desktop](assets/preview.png) | ![Wallpaper picker](assets/wallpicker.png) |
-| Desktop + statusbar | Bấm `Super+w` để đổi wallpaper |
+| Desktop + statusbar | `Super+w` đổi wallpaper |
 | ![Netpanel](assets/netpanel.png) | ![Firefox](assets/firefox.png) |
 | Netpanel — quản lý Wi-Fi | Giao diện Firefox |
 
@@ -32,21 +32,12 @@ Cài Arch/CachyOS **không chọn display manager**, boot vào TTY rồi đăng 
 ```sh
 git clone https://github.com/slimulv1/Tsuki.git ~/tsuki
 cd ~/tsuki
-./install.sh check      # kiểm tra máy đã đủ công cụ chưa — không sửa gì
+./install.sh check      # kiểm tra máy đã đủ chưa — không sửa gì
 ./install.sh
 ```
 
 Lệnh này cài gói phụ thuộc, build `dwm` `st` `slock` `dmenu` `slstatus`, chép
 `~/.config` và viết `~/.xinitrc`. Chỉ hỏi mật khẩu khi cần root.
-
-`./install.sh check` chạy trước `all` và báo thẳng những gì còn thiếu (OS không
-phải Arch, thiếu `make`/`gcc`, thiếu `config.h`, thư mục đích không ghi được,
-tìm thấy mấy profile Firefox) thay vì để lỗi lộ ra giữa chừng build. Chạy nó
-trên máy mới trước khi cài, hoặc dán kết quả lên issue khi cài lỗi.
-
-> Tên thư mục **không quan trọng**: `run.sh` và mọi script suy ra vị trí repo từ
-> chính `$0` (dùng `$TSUKI_DIR` nếu đã có), nên clone ở `~/Tsuki`, `~/dwm` hay
-> chỗ nào cũng chạy. `~/tsuki` chỉ là quy ước của repo này.
 
 Xong thì gõ `dwm`. Thoát về TTY bằng `Super+Ctrl+Q`.
 
@@ -55,12 +46,11 @@ Xong thì gõ `dwm`. Thoát về TTY bằng `Super+Ctrl+Q`.
 | `Super+w` | Đổi wallpaper và theme |
 | `Super+Shift+R` | Build lại dwm |
 | `Super+Ctrl+Q` | Thoát |
-| `Super+/` | Bật bảng Keybinds |
-
-Trong `st`: lăn chuột để cuộn, hoặc kéo chuột giữ tới mép trên/dưới để tự
-cuộn. `Shift+PgUp`/`Shift+PgDn` cuộn theo trang.
+| `Super+/` | Bảng keybinds |
 
 Đầy đủ: [KEYBINDS.md](KEYBINDS.md).
+
+Tên thư mục clone **không quan trọng** — `run.sh` suy ra vị trí repo từ chính `$0`.
 
 Ảnh nền không có sẵn trong repo, trỏ vào ảnh của bạn:
 
@@ -68,66 +58,13 @@ cuộn. `Shift+PgUp`/`Shift+PgDn` cuộn theo trang.
 echo "$HOME/Pictures/Wallpapers/<tên>.jpg" > ~/tsuki/scripts/.wallpaper
 ```
 
-XLibre thay X.Org được `install.sh` cài tự động ở bản **stable**, không phải làm
-gì thêm. Muốn thử bản beta thì chạy thêm `./install.sh xlibre beta` (lệnh này nâng
-cấp cả hệ thống). Muốn có màn hình đăng nhập (GDM/SDDM/LightDM) thì
-`./install.sh session --dm`.
+Lệnh con — xem tự giải thích bằng `./install.sh --help`:
 
-## Cài tay phần còn lại
-
-`install.sh` sẽ **hỏi** trước khi thêm kho
-[arisa](https://github.com/slimulv1/arisa-repo) — kho nhị phân tự dựng bằng
-GitHub Actions, không phải kho chính thức. Cần kho đó cho `Super+C`
-(`visual-studio-code-bin`) và `Super+D` (`discord-ptb`). Từ chối thì phần còn
-lại vẫn cài đủ, chỉ hai phím đó không chạy. Thêm tay bằng `./install.sh arisa`.
-
-## Bộ gõ tiếng Việt
-
-`./install.sh pty` cài `paru` (AUR helper) rồi `fcitx5-lotus-bin`, tạo user
-`uinput_proxy`, bật `fcitx5-lotus-server@<bạn>.service`, nạp module `uinput` và
-ghi vào `/etc/modules-load.d/uinput.conf` để giữ qua reboot.
-
-Biến môi trường **đã có sẵn** trong `.config/fish/config.fish` và
-`scripts/run.sh` — đừng thêm lần nữa. Thêm vào `config.fish` bằng tay sẽ bị
-`install.sh dotfiles` ghi đè mất.
-
-Nếu `ibus-daemon` tự quay lại ở lần đăng nhập sau, phải bỏ autostart của
-ibus trong desktop environment — `install.sh` chỉ dừng được tiến trình, không
-tắt được autostart.
-
-## Tuỳ chọn khác
-
-```sh
-sudo pacman -S --needed \
-    imagemagick            # ảnh bìa album nhạc .webp -> .png (có guard)
-    eza expac neovim hwinfo wget openbsd-netcat jq    # tiện ích cho fish
-```
-
----
-
-## Khi có sự cố
-
-`scripts/run.sh` ghi lại toàn bộ phiên vào `~/.cache/tsuki/session.log` (ghi đè
-mỗi lần đăng nhập). Xem nó là bước đầu tiên khi con trỏ không đổi, phím
-volume không hiện OSD, hay hộp thoại lưu file của Firefox không dựng:
-
-```sh
-less ~/.cache/tsuki/session.log
-```
-
-`run.sh` khởi động: nền (`feh`), `picom`, `xrdb`, con trỏ, tốc độ lặp phím,
-dunst, xdg-desktop-portal, polkit-gnome, fcitx5, xsettingsd, slstatus, tumblerd,
-và hai script nền `updates-loop.sh` / `mediacard.sh`. Mỗi cái giữ một khoá
-`flock` trong `$XDG_RUNTIME_DIR` nên gọi lại `run.sh` không sinh bản thứ hai.
-
-Nếu `dwm` không lên được, `run.sh` **tự dừng** sau 10 lần crash liên tiếp thay
-vì quay vòng vô tận, và in hướng khôi phục vào cuối log.
-
-**Thumbnail trong Thunar**: Thunar không tự sinh ảnh nhỏ, nó hỏi `tumblerd` qua
-D-Bus. Ba gói do `install.sh deps` cài: `tumbler` (ảnh), `ffmpegthumbnailer`
-(video), `poppler-glib` (PDF). Kiểm tra bằng `./scripts/check-thumbs.sh`. Lưu ý
-binary `tumblerd` **không có trong `PATH`** — nó nằm ở
-`/usr/lib/tumbler-1/tumblerd`, nên `tumblerd &` sẽ báo *command not found*.
+| Lệnh | |
+|---|---|
+| `./install.sh pty` | bộ gõ tiếng Việt — cần `paru` |
+| `./install.sh session --dm` | thêm màn hình đăng nhập GDM/SDDM/LightDM |
+| `./install.sh xlibre beta` | thử XLibre beta — nâng cấp cả hệ thống |
 
 ---
 

@@ -50,6 +50,9 @@ Xong thì gõ `dwm`. Thoát về TTY bằng `Super+Ctrl+Q`.
 | `Super+Shift+R` | Build lại dwm |
 | `Super+Ctrl+Q` | Thoát |
 
+Trong `st`: lăn chuột để cuộn, hoặc kéo chuột giữ tới mép trên/dưới để tự
+cuộn. `Shift+PgUp`/`Shift+PgDn` cuộn theo trang.
+
 Đầy đủ: [KEYBINDS.md](KEYBINDS.md).
 
 Ảnh nền không có sẵn trong repo, trỏ vào ảnh của bạn:

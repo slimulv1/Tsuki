@@ -113,3 +113,12 @@
 | Super + Shift + - | Decrease border |
 | Super + Shift + p | Increase border |
 | Super + Shift + w | Reset border    |
+
+## Terminal (st)
+
+| Phím                            | Action                          |
+|---------------------------------|---------------------------------|
+| Lăn chuột lên / xuống          | Cuộn 1 dòng                    |
+| Giữ chuột trái, kéo tới mép trên/dưới | Tự cuộn liên tục        |
+| Shift + PgUp / PgDn             | Cuộn 1 trang                    |
+| Alt + lăn chuột                 | Gửi `\031` (page up) tới app   |

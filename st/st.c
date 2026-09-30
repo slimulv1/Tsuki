@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdckdint.h>
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -1193,14 +1194,59 @@ tisaltscr(void)
 void
 kscrollup(const Arg *a)
 {
-	int n = a->i;
+	int n = a->i, budget;
 
 	if (IS_SET(MODE_ALTSCREEN))
 		return;
 
-	if (n < 0) n = (-n) * term.row;
-	if (n > TSCREEN.size - term.row - TSCREEN.off) n = TSCREEN.size - term.row - TSCREEN.off;
-	while (!TLINE(-n)) --n;
+	/* Giải số dòng yêu cầu.
+	 *
+	 * `if (n < 0) n = (-n) * term.row;` — bản gốc dùng thế này, nhưng khi
+	 * n == INT_MIN thì -n tràn (UB) và n * term.row cũng có thể tràn int.
+	 * Dùng phép nhân có kiểm tra của C23 (ckd_mul) để không còn UB: nếuf
+	 * tràn thì kẹp về giá trị lớn nhất, mà phía dưới sẽ kẹp theo budget
+	 * nên kết quả vẫn đúng — chỉ khác ở chỗ trước đây là hành vi
+	 * không xác định.
+	 */
+	if (n < 0) {
+		int want;
+		if (ckd_mul(&want, -n, term.row))
+			want = INT_MAX;
+		n = want;
+	}
+
+	/* Số dòng tối đa còn có thể cuộn lên.
+	 *
+	 * budget = size - row - off. Với size = HISTSIZE (2000, cố định suốt
+	 * đời — tresize chỉ gán lại size cho màn hình PHỤ) và row <= HISTSIZE,
+	 * biểu thức này về nguyên tắc không âm. Nhưng bản gốc viết
+	 * `if (n > budget) n = budget;` — nếu budget âm thì n bị gán thành ÂM,
+	 * rồi `TSCREEN.off += n` làm off ÂM, và TLINEOFFSET đọc
+	 * buffer[chỉ số âm] => ngoài mảng.
+	 *
+	 * Hiện tại chưa kích hoạt được (xem phân tích trong KEYBINDS/commit),
+	 * nhưng guard một chiều là kiểu lỗi mà sửa sau này sẽ thành lỗ hổng
+	 * thật mà không ai thấy. Kẹp dưới bằng 0.
+	 */
+	budget = TSCREEN.size - term.row - TSCREEN.off;
+	if (budget < 0)
+		budget = 0;
+	if (n > budget)
+		n = budget;
+
+	/* Dòng chưa được cấp phát (nullptr) thì lùi lại từng dòng cho tới khi
+	 * gặp dòng có dữ liệu. Bản gốc `while (!TLINE(-n)) --n;` không có chặn
+	 * dưới: nếu quanh vòng buffer không còn dòng nào được cấp phát thì n âm
+	 * dần vô hạn cho tới khi tràn chỉ số. Dừng lại ở 0.
+	 */
+	while (n > 0 && !TLINE(-n))
+		--n;
+	if (n <= 0) {
+		selscroll(0, 0);
+		tfulldirt();
+		return;
+	}
+
 	TSCREEN.off += n;
 	selscroll(0, n);
 	tfulldirt();
@@ -1209,14 +1255,23 @@ kscrollup(const Arg *a)
 void
 kscrolldown(const Arg *a)
 {
-
 	int n = a->i;
 
 	if (IS_SET(MODE_ALTSCREEN))
 		return;
 
-	if (n < 0) n = (-n) * term.row;
-	if (n > TSCREEN.off) n = TSCREEN.off;
+	/* Cùng lý do với kscrollup: tránh UB khi n == INT_MIN. */
+	if (n < 0) {
+		int want;
+		if (ckd_mul(&want, -n, term.row))
+			want = INT_MAX;
+		n = want;
+	}
+	/* n âm không có ý nghĩa "cuộn xuống"; n == 0 thì không làm gì. */
+	if (n < 0)
+		return;
+	if (n > TSCREEN.off)
+		n = TSCREEN.off;
 	TSCREEN.off -= n;
 	selscroll(0, -n);
 	tfulldirt();

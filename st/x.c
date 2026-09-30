@@ -196,6 +196,7 @@ static int mouseaction(XEvent *, uint);
 static void brelease(XEvent *);
 static void bpress(XEvent *);
 static void bmotion(XEvent *);
+static void autoscroll(XEvent *);
 static void propnotify(XEvent *);
 static void selnotify(XEvent *);
 static void selrequest(XEvent *);
@@ -701,6 +702,65 @@ bpress(XEvent *e)
 	}
 }
 
+/* Quyết định autoscroll cho MỘT lần di chuyển chuột — tách riêng khỏi X để
+ * test được không cần mở cửa sổ thật.
+ *
+ * row    : dòng chuột, 0..th-1 (đã qua evrow())
+ * dragging: có đang giữ Button1 không
+ * altscr : đang ở màn hình phụ (không có scrollback)
+ * appmouse: app đang chiếm chuột (MODE_MOUSE)
+ * Trả về: -1 cuộn lên, 0 không làm gì, +1 cuộn xuống.
+ */
+static int
+autoscroll_dir(int row, int th, bool dragging, bool altscr, bool appmouse)
+{
+	/* Chỉ khi KÉO. Nếu chỉ để chuột chạm mép thì cuộn lung tung, và người
+	 * dùng chỉ muốn chọn vùng xong rồi thả chuột xuống mép cũng bị cuộn. */
+	if (!dragging)
+		return 0;
+	/* màn hình phụ không có scrollback */
+	if (altscr)
+		return 0;
+	/* app đang chiếm chuột (vim, less, htop): cuộn của app quan trọng hơn */
+	if (appmouse)
+		return 0;
+
+	/* th <= 1: cửa sổ quá thấp, mọi dòng đều là mép -> ưu tiên cuộn lên
+	 * (giống thứ tự hai nhánh if bên dưới) */
+	if (row <= 0)
+		return -1;
+	if (row >= th - 1)
+		return 1;
+	return 0;
+}
+
+/* Tự động cuộn khi kéo chuột giữ về mép cửa sổ.
+ *
+ * Gọi từ bmotion(): nếu đang giữ Button1 (kéo vùng chọn) và con trỏ chạm vào
+ * mép trên/dưới, mỗi lần di chuyển sẽ cuộn 1 dòng theo hướng tương ứng. Đây là
+ * hành vi mà mọi terminal khác đều có, thiếu thì kéo lên đáy không bao giờ
+ * cuộn được — phải tới mép rồi cuộn từng nút bằng lăn.
+ */
+static void
+autoscroll(XEvent *e)
+{
+	Arg a = {.i = 1};
+
+	switch (autoscroll_dir(evrow(e), win.th,
+	                      (e->xbutton.state & Button1Mask) != 0,
+	                      tisaltscr() != 0,
+	                      IS_SET(MODE_MOUSE) != 0)) {
+	case -1:
+		kscrollup(&a);
+		break;
+	case 1:
+		kscrolldown(&a);
+		break;
+	default:
+		break;
+	}
+}
+
 void
 propnotify(XEvent *e)
 {
@@ -917,6 +977,9 @@ bmotion(XEvent *e)
 		return;
 	}
 
+	/* Kéo vùng chọn tới mép cửa sổ -> tự cuộn theo hướng. Phải gọi TRƯỚC
+	 * mousesel() để tọa độ dùng cho chọn vùng là của sự kiện mới. */
+	autoscroll(e);
 	mousesel(e, 0);
 }
 

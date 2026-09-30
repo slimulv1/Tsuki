@@ -201,6 +201,17 @@ readonly PKG_SESSION=(
     xorg-xinit
     # scripts/run.sh: xrdb nạp .Xresources, xset đổi nền chuột
     xorg-xrdb xorg-xset
+    # scripts/run.sh:114 — `xsetroot -cursor_name Bibata-Modern-Ice` nạp theme
+    # cursor vào CORE CURSOR FONT của X, nhờ đó XCreateFontCursor() trong dwm
+    # (bar) và st (vùng text) cũng ra ảnh trong theme. xorg-xsetroot CHƯA có
+    # sẵn: nhóm xorg-xrdb/xorg-xset ở trên không cung cấp xsetroot.
+    xorg-xsetroot
+    # Theme cursor. PHẢI nằm ở /usr/share/icons: libXcursor mặc định chỉ tìm
+    # trong /usr/share/icons và /usr/share/pixmaps — thư mục ~/.icons hay
+    # ~/.local/share/icons KHÔNG được tìm tới (đã thử: XcursorLibraryPath()
+    # trả về chuỗi có dấu '~' chưa bung, và bản đặt ở đó vẫn load fail).
+    # Nên bản user-level chỉ giúp được app GTK, không nạp được cho X11 core.
+    bibata-cursor-theme
     # scripts/dwmwal.sh:84 — feh vẽ wallpaper
     feh
     # libnotify cấp notify-send; dunst/picom/xsettingsd nằm ở PKG_CONFIG vì
@@ -232,6 +243,7 @@ readonly PKG_CONFIG=(
     fastfetch    # .config/fastfetch/
     firefox      # .config/firefox/
     fish         # .config/fish/
+    gtk3         # .config/gtk-3.0/ (cursor theme cho app GTK3: Firefox...)
     kitty        # .config/kitty/
     picom        # .config/picom/
     starship     # .config/starship.toml
@@ -484,7 +496,7 @@ cmd_dotfiles() {
     # và ngược lại. Thêm dotfile mới thì sửa cả hai chỗ — nếu không sẽ có
     # dotfile được copy tới ~/.config mà không cài gói nào, hoặc cài gói mà
     # không dotfile nào dùng tới.
-    local -a items=(dunst fastfetch firefox fish kitty picom starship.toml xsettingsd)
+    local -a items=(dunst fastfetch firefox fish gtk-3.0 kitty picom starship.toml xsettingsd)
     local n=0 d
     for d in "${items[@]}"; do
         # starship.toml là file, còn lại là thư mục — install_dotfile nhận cả hai
@@ -545,6 +557,35 @@ EOF
     ok "~/.xinitrc -> $REPO_DIR/scripts/run.sh"
 }
 
+# ~/.Xresources — tài nguyên X mà run.sh:101 `xrdb -merge` nạp trước khi exec
+# dwm. Ở đây khai Xcursor/Xcursor.size (theme cursor).
+#
+# KHÔNG dùng install_dotfile/cp -f như .xinitrc: .Xresources là file mà người
+# dùng rất dễ đã có sẵn của riêng họ (XTerm*, font, màu...). Ghi đè là mất
+# luôn cấu hình đó. Nên:
+#   - chưa có          -> copy nguyên bản của repo
+#   - đã có, có Xcursor -> giữ nguyên (đã cấu hình rồi, không đụng)
+#   - đã có, chưa có   -> backup rồi nối thêm khối Tsuki, giữ hết nội dung cũ
+install_xresources() {
+    step "cài ~/.Xresources"
+    local f="$TSUKI_HOME/.Xresources"
+
+    if [[ -f $f ]] && grep -q '^[[:space:]]*Xcursor:' "$f"; then
+        ok "đã có Xcursor trong .Xresources — giữ nguyên"
+        return 0
+    fi
+    if [[ -f $f ]]; then
+        local bak
+        bak=$(backup_path "$f")
+        cp -a -- "$f" "$bak"
+        warn ".Xresources đã tồn tại -> backup: ${bak##*/}"
+        printf '\n%s\n' "$(cat "$REPO_DIR/.Xresources")" >>"$f"
+    else
+        install_dotfile "$REPO_DIR/.Xresources" "$f"
+    fi
+    ok "~/.Xresources (Xcursor + Xcursor.size)"
+}
+
 # .desktop cho display manager (GDM/SDDM/LightDM đều quét /usr/share/xsessions).
 # Không dùng ~/.xsessions: đó là thói quen từ LightDM, GDM không quét nên file
 # im lặng biến mất khỏi màn hình đăng nhập mà không có lỗi nào báo.
@@ -570,6 +611,7 @@ EOF
 
 cmd_session() {
     write_xinitrc
+    install_xresources
     if [[ ${1:-} == --dm ]]; then
         detect_sudo
         install_desktop_entry

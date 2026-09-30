@@ -1,0 +1,19 @@
+! Tsuki — tài nguyên X cho session dwm.
+!
+! run.sh:101 chạy `xrdb -merge ~/.Xresources` TRƯỚC khi exec dwm, nên dwm và
+! app con đều thấy các dòng dưới.
+!
+! CURSOR
+!   Xcursor / Xcursor.size là tên chuẩn của Xcursor spec: tên theme và kích
+!   thước (px). Chúng được app tự đọc XRM mới dùng tới.
+!
+!   LƯU Ý QUAN TRỌNG: hai dòng này KHÔNG nạp theme cho X11 core cursor font.
+!   Việc đó phải làm bằng `xsetroot -cursor_name Bibata-Modern-Ice
+!   -cursor_size 24`, và scripts/run.sh:114-137 gọi sẵn. Thiếu lệnh đó thì con
+!   trỏ trên thanh dwm và trong terminal vẫn là mũi tên xám mặc định, dù file
+!   này có ghi theme.
+!
+!   Đổi theme/size ở đây thì nhớ sửa CURSOR_THEME/CURSOR_SIZE trong run.sh
+!   cho khớp, hoặc sửa run.sh một chỗ rồi sinh lại file này.
+Xcursor: Bibata-Modern-Ice
+Xcursor.size: 24

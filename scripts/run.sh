@@ -114,6 +114,62 @@ fi
 xset r rate 200 50 &
 picom &
 
+# --- cursor: Bibata Modern Ice -----------------------------------------------
+# X11 không có khái niệm "cursor theme" sẵn như GNOME/KDE. Xcursor spec quy định
+# theme chỉ được dùng khi ẢNH CỦA NÓ được nạp vào CORE CURSOR FONT của X
+# server, và đó là việc của ứng dụng (libXcursor), không phải của window manager.
+# Vì vậy có 3 tầng, tầng nào cũng cần thiết cho một nhóm app khác nhau:
+#
+#   1) ~/.Xresources (Xcursor/Xcursor.size) + .config/gtk-3.0/settings.ini
+#      -> app GTK3 (Firefox, Thunar, hộp thoại...). Không cần gì thêm.
+#      settings.ini là tầng quan trọng nhất và chạy được ngay.
+#
+#   2) `xsetroot -xcf <file> <size>` ở đây -> set con trỏ cho ROOT WINDOW, nên
+#      mọi cửa sổ KHÔNG tự gọi XDefineCursor sẽ kế thừa: dmenu (dmenu.c không
+#      hề set cursor), desktop, app lạ chưa biết theme.
+#      LƯU Ý cú pháp: xsetroot 1.1.x KHÔNG có -cursor_size, và -cursor_name
+#      nhận TÊN FONT CORE (left_ptr, watch...), KHÔNG phải tên theme — dùng
+#      `-cursor_name Bibata-Modern-Ice -cursor_size 24` sẽ báo lỗi. Cách duy
+#      nhất xsetroot 1.1.4 nhận theme là -xcf <file .xc> <size>.
+#
+#   3) dwm và st thì KHÔNG nằm trong 2 tầng trên: cả hai đều tự tạo cursor bằng
+#      XCreateFontCursor() (dwm.c:3141-3145 -> XDefineCursor ở 3522 cho
+#      bar/tab/tag; st/x.c:1426 cho vùng text), nên chúng đọc core cursor font
+#      chứ không kế thừa con trỏ của root. Muốn chúng đổi theo theme thì phải có
+#      tiến trình nạp theme vào core font — thường là app GTK3 (xsettingsd, hoặc
+#      chính Firefox khi mở) làm việc đó. Nên thanh dwm và con trỏ trong st có
+#      thể vẫn là mũi tên xám mặc định ngay cả khi app khác đã đổi theme.
+#      Muốn chắc chắn thì bật xsettingsd (đã có .config trong repo) hoặc thêm một
+#      helper C nhỏ gọi XcursorLibraryLoadImages + XcursorImagesLoadCursors.
+# Báo lỗi cursor MỘT lần. run.sh chạy mỗi lần đăng nhập nên nếu im lặng thì
+# không ai biết vì sao con trỏ không đổi — đúng kiểu lỗi im lặng mà repo này
+# hay mắc. Không dùng `set -e` nên chỉ cần trả về 0.
+warn_cursor() {
+    notify-send "tsuki" "$1" 2>/dev/null || \
+        printf 'tsuki: %s\n' "$1" >&2
+    return 0
+}
+
+CURSOR_THEME=Bibata-Modern-Ice
+CURSOR_SIZE=24
+# Ưu tiên bản hệ thống (libXcursor chỉ tìm /usr/share/icons); bản ~/.local/share
+# chỉ để dự phòng cho -xcf vì ở đó -xcf vẫn đọc được file theo đường dẫn tuyệt đối.
+CURSOR_DIR=""
+for d in "/usr/share/icons/$CURSOR_THEME/cursors" \
+         "$HOME/.local/share/icons/$CURSOR_THEME/cursors"; do
+    [ -r "$d/default" ] && { CURSOR_DIR="$d"; break; }
+done
+if [ -n "$CURSOR_DIR" ] && command -v xsetroot >/dev/null 2>&1; then
+    xsetroot -xcf "$CURSOR_DIR/default" "$CURSOR_SIZE" 2>/dev/null || \
+        warn_cursor "xsetroot -xcf thất bại"
+else
+    if [ -z "$CURSOR_DIR" ]; then
+        warn_cursor "chưa cài theme cursor '$CURSOR_THEME' — chạy ./install.sh deps"
+    else
+        warn_cursor "thiếu xorg-xsetroot — chạy ./install.sh deps"
+    fi
+fi
+
 # --- thông báo + portal ------------------------------------------------------
 #
 # Cả hai đều BẮT BUỘC cho hai thứ hay vấn đề nhất trên rice:

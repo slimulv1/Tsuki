@@ -44,6 +44,8 @@ printf '%s\n' "$n" > "$FAKE_DWM_COUNT"
 # hưởng. File thật thì chắc chắn hơn đọc /proc/<pid>/status.
 : > "$FAKE_UMASK_PROBE" 2>/dev/null
 ( umask; stat -c %a "$FAKE_UMASK_PROBE" 2>/dev/null || echo "?" ) > "$FAKE_UMASK_OUT" 2>/dev/null
+# in ra lỗi thật mà dwm die() khi không nạp được font, rồi mới quyết định sống
+printf 'no fonts could be loaded.\n' >&2
 # Số lần chết nhanh từ biến môi trường; lần đó trả 1, còn lại trả 0
 if [ "$n" -le "${FAKE_DWM_FAULTS:-0}" ]; then
     exit 1
@@ -419,6 +421,84 @@ leftover=$(ls "$T/run"/tsuki-xsettingsd.lock 2>/dev/null | wc -l)
 [ "$leftover" -eq 0 ] && ok "T15b khoá đã dọn sạch" || bad "T15b còn khoá sót" "$leftover"
 unset FAKE_DWM_LINGER FAKE_DWM_PID XS_PID_FILE WD_INTERVAL WD_MAX_RETRY
 wait 2>/dev/null || true
+
+# --- T16: kiểm font trước khi chạy dwm --------------------------------------
+# dwm.c:3101 — `if (!drw_fontset_create(...)) die("no fonts could be loaded.")`.
+# Thiếu font là chết NGAY lúc khởi động: màn hình đen, không bar, không gì để
+# tra. run.sh phải báo trước khi dwm kịp chết.
+cat > "$T/repo/config.h" <<'EOF'
+static const char *fonts[] = {"DejaVu Sans:style=book:size=10" ,"Serif:style=book:size=10" };
+EOF
+: > "$FAKE_DWM_COUNT"
+( cd "$R" && timeout 60 sh scripts/run.sh >/dev/null 2>&1 )
+if grep -q 'INFO  font:' "$TSUKI_LOG_PATH" 2>/dev/null; then
+    ok "T16 font có thật: ghi 'INFO font:' vào nhật ký"
+else
+    bad "T16 không có dòng font trong nhật ký" "$(grep -c 'font' "$TSUKI_LOG_PATH" 2>/dev/null) dòng có 'font'"
+fi
+if grep -q 'SẼ CHẾT NGAY' "$TSUKI_LOG_PATH" 2>/dev/null; then
+    bad "T16b báo chết-ngay dù font hợp lệ" "config.h trong test dùng DejaVu/Serif, đều có thật"
+else
+    ok "T16b không báo chết-ngay khi font hợp lệ"
+fi
+
+# --- T17: config.h trỏ font KHÔNG tồn tại -> phải báo trước -------------------
+cat > "$T/repo/config.h" <<'EOF'
+static const char *fonts[] = {"TsukiFontKhongTonTai123:style=medium:size=12" };
+EOF
+: > "$FAKE_DWM_COUNT"
+( cd "$R" && timeout 60 sh scripts/run.sh >/dev/null 2>&1 )
+if grep -q 'SẼ CHẾT NGAY' "$TSUKI_LOG_PATH" 2>/dev/null && \
+   grep -q 'TsukiFontKhongTonTai123' "$TSUKI_LOG_PATH" 2>/dev/null; then
+    ok "T17 font thiếu: báo tên font và cách cài, trước khi dwm chết"
+else
+    bad "T17 không báo font thiếu" "log: $(grep -iE 'CHẾT|font' "$TSUKI_LOG_PATH" 2>/dev/null | head -3 | tr '\n' ';')"
+fi
+rm -f "$T/repo/config.h"
+
+# --- T18: stderr của dwm phải vào nhật ký ------------------------------------
+# Bản cũ cho stderr dwm thẳng ra terminal rồi mất: nhật ký chỉ còn
+# "dwm crash lần N", không có lý do. Giờ phải bắt được.
+: > "$FAKE_DWM_COUNT"
+( cd "$R" && timeout 60 sh scripts/run.sh >/dev/null 2>&1 )
+if grep -q 'dwm: no fonts could be loaded' "$TSUKI_LOG_PATH" 2>/dev/null; then
+    ok "T18 lỗi của dwm được ghi vào nhật ký (trước đây mất sạch)"
+else
+    bad "T18 không bắt được lỗi dwm" "log: $(grep -i dwm "$TSUKI_LOG_PATH" 2>/dev/null | head -3 | tr '\n' ';')"
+fi
+
+# --- T19: KHÔNG được tham chiếu biến chưa đặt (set -u) ở bất kỳ đâu ----------
+# run.sh chạy `set -u`. Tham chiếu biến chưa đặt KHÔNG phải cảnh báo mà là
+# THOÁT NGAY — script chết giữa chừng, dwm không bao giờ chạy.
+#
+# Đã mắc đúng lỗi này: khai báo `TSUKI_FONT_ALIASES` nhưng dùng
+# `$_TSUKI_FONT_ALIASES`; phiên chết ở dòng 761, trước khi tới dwm:
+#     run.sh: line 761: _TSUKI_FONT_ALIASES: unbound variable
+# T16/T17 bắt được, nhưng chỉ vì tình cờ. Test này thay cho may mắn: quét
+# stderr của cả một phiên, bắt mọi lỗi loại này không kể chỗ nào.
+# LƯU Ý giới hạn: T19 chỉ phủ những đường THẬT SỰ được thực thi. Đã thử: bỏ
+# config.h đi thì dòng lỗi ở khối font không chạy tới, T19 xanh trong khi T16
+# vẫn đỏ. Nên ở đây PHẢI có config.h để khối font chạy thật — không thì T19
+# chỉ là trang trí.
+cat > "$T/repo/config.h" <<'EOF'
+static const char *fonts[] = {"DejaVu Sans:style=book:size=10" };
+EOF
+: > "$FAKE_DWM_COUNT"
+( cd "$R" && sh scripts/run.sh >/dev/null 2>"$T/stderr19.txt" )
+rm -f "$T/repo/config.h"
+_st=""
+for _pat in 'unbound variable' 'syntax error' 'parameter not set' 'command not found'; do
+    if grep -q "$_pat" "$T/stderr19.txt" 2>/dev/null; then
+        _m=$(grep -m1 "$_pat" "$T/stderr19.txt" 2>/dev/null | tr -d '\n')
+        _st="$_st  [$_pat] $_m
+"
+    fi
+done
+if [ -z "$_st" ]; then
+    ok "T19 cả phiên không có lỗi set -u / cú pháp / command not found"
+else
+    bad "T19 run.sh báo lỗi shell khi chạy" "$_st"
+fi
 
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

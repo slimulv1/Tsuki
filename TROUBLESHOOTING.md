@@ -126,6 +126,31 @@ Dừng hẳn là để tránh quay vòng mãi khi `config.h` sai cú pháp. Th�
 `dwm crash liên tiếp ... DỪNG` thì đọc phần log ngay trước đó — thường là lỗi
 build hoặc thiếu font. Sửa xong thì `Super+Shift+R`.
 
+### Thiếu font — nguyên nhân số một
+
+`dwm.c` chết ngay nếu không nạp được font nào: `if (!drw_fontset_create(...)) die("no fonts could be loaded.")`.
+Triệu chứng là màn hình đen, không bar, không cửa sổ nào.
+
+`run.sh` kiểm trước khi chạy dwm và ghi vào nhật ký:
+
+```
+FAIL  dwm SẼ CHẾT NGAY: config.h trỏ font không có trên máy:
+FAIL      <tên font>  -> fontconfig thay bằng '<font khác>'
+```
+
+Cài rồi nạp lại cache:
+
+```sh
+sudo pacman -S --needed ttc-iosevka ttf-jetbrains-mono-nerd
+fc-cache -f
+```
+
+Rồi `Super+Shift+R`. Danh sách font được đọc từ `config.h` nên sửa `config.h`
+sẽ được kiểm lại ở lần đăng nhập sau — không cần sửa gì trong `run.sh`.
+
+Mọi lỗi dwm in ra đều được `run.sh` ghi lại vào nhật ký theo từng lần chết, nên
+đọc `session.log` là thấy nguyên nhân thật thay vì phải đoán.
+
 ## Bộ gõ tiếng Việt
 
 ```sh

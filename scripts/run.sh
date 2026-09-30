@@ -729,6 +729,59 @@ _thumb_dir="${XDG_CACHE_HOME:-$HOME/.cache}/thumbnails"
 mkdir -p "$_thumb_dir" 2>/dev/null && chmod 700 "$_thumb_dir" 2>/dev/null
 
 # --- dwm --------------------------------------------------------------------
+# KIỂM FONT TRƯỚC KHI CHẠY DWM.
+#
+# dwm.c:3101 — `if (!drw_fontset_create(drw, fonts, LENGTH(fonts))) die(...)`.
+# Nghĩa là THIẾU FONT LÀ CHẾT NGAY lúc khởi động, màn hình đen, không bar.
+# Không có gì để tra nếu không biết điều này.
+#
+# install.sh có cài `ttc-iosevka` và `ttf-jetbrains-mono-nerd`, nhưng gói đó
+# có thể bị gỡ, hoặc `fc-cache` chưa chạy, hoặc người dùng sửa config.h trỏ
+# sang font không có. Ở đây ta đọc đúng mảng `fonts[]` trong config.h rồi hỏi
+# fontconfig — không hardcode tên font, nên sửa config.h là tự kiểm lại.
+#
+# `fc-match` LUÔN trả về thứ gì đó (nếu không thì DejaVu), nên phải so family
+# nó trả về với family đã xin: lệch nghĩa là fontconfig đang thay thế, tức
+# font không tồn tại.
+TSUKI_FONT_ALIASES="serif sans-serif sans monospace cursive fantasy system-ui emoji math fangsong ui-serif ui-sans-serif ui-monospace ui-rounded installed"
+export TSUKI_FONT_ALIASES
+_wf="$XDG_RUNTIME_DIR/tsuki-fonts.txt"
+sed -n 's/.*static const char \*fonts\[\][[:space:]]*=[[:space:]]*{\(.*\)}.*/\1/p' \
+    "$TSUKI_DIR/config.h" 2>/dev/null \
+  | tr ',' '\n' | sed -n 's/^[[:space:]]*"\([^"]*\)".*/\1/p' >"$_wf" 2>/dev/null
+if [ -s "$_wf" ] && have fc-match; then
+    _wf_bad=""
+    while IFS= read -r _f; do
+        [ -n "$_f" ] || continue
+        _fam=${_f%%:*}
+        _lfam=$(printf '%s' "$_fam" | tr 'A-Z' 'a-z')
+        # TRỪ alias generic của fontconfig: `fc-match Serif` trả về "Noto
+        # Serif" — đó là ĐÚNG, vì "serif" là yêu cầu chung chứ không phải tên
+        # font. Không trừ thì config.h dùng alias sẽ bị báo nhầm font thiếu.
+        case " $TSUKI_FONT_ALIASES " in
+            *" $_lfam "*) continue ;;
+        esac
+        _got=$(fc-match -f '%{family}' "$_fam" 2>/dev/null)
+        # family fontconfig chọn là trường đầu tiên, phần còn lại là fallback
+        _got=${_got%%,*}
+        case "$_got" in
+            "$_fam"|"$_fam "*|"$_fam,"*) : ;;
+            *) _wf_bad="$_wf_bad  $_f  -> fontconfig thay bằng '$_got'
+" ;;
+        esac
+    done <"$_wf"
+    if [ -n "$_wf_bad" ]; then
+        fail "dwm SẼ CHẾT NGAY: config.h trỏ font không có trên máy:"
+        printf '%s' "$_wf_bad" | while IFS= read -r _l; do
+            [ -n "$_l" ] && fail "  $_l"
+        done
+        fail "  cài gói: ttc-iosevka  ttf-jetbrains-mono-nerd   rồi chạy fc-cache -f"
+        fail "  (đã đọc danh sách từ config.h nên sửa config.h cũng được kiểm lại)"
+    else
+        info "font: $(tr '\n' ' ' <"$_wf" | sed 's/ $//')"
+    fi
+fi
+rm -f "$_wf" 2>/dev/null || true
 # Vòng lặp, không exec. Super+Shift+R -> scripts/rebuild.sh -> killall dwm:
 # không có vòng lặp thì dwm chết là X session chết theo, ta bị đá về TTY giữa
 # lúc đang code. Có vòng lặp thì binary mới được nạp và bạn không mất context.
@@ -762,11 +815,24 @@ mkdir -p "$_thumb_dir" 2>/dev/null && chmod 700 "$_thumb_dir" 2>/dev/null
 _crash_count=0
 while type dwm >/dev/null 2>&1; do
     _t0=$(date +%s 2>/dev/null || echo 0)
-    dwm &
+    # stderr của dwm vào file riêng, rồi đưa vào nhật ký VÀ terminal khi dwm
+    # thoát. Vì sao không cho thẳng ra terminal như bản cũ: nguyên nhân chết
+    # của dwm ("no fonts could be loaded.") là thứ duy nhất giúp tra, mà bản
+    # cũ chỉ in ra màn hình đen rồi mất — nhật ký chỉ còn "dwm crash lần N".
+    # Ghi theo từng lần chết nên quy được lần nào hỏng vì cái gì.
+    _dwm_err="$XDG_RUNTIME_DIR/tsuki-dwm.err"
+    dwm 2>"$_dwm_err" &
     _dwm_pid=$!
     wait "$_dwm_pid"
     _rc=$?
     _dwm_pid=""
+    if [ -s "$_dwm_err" ]; then
+        while IFS= read -r _l; do
+            printf 'dwm: %s\n' "$_l" >&2
+            log "dwm: $_l"
+        done <"$_dwm_err"
+        : >"$_dwm_err"
+    fi
 
     if [ "$_rc" -eq 0 ]; then
         info "dwm thoát bình thường (exit 0) — kết thúc session"

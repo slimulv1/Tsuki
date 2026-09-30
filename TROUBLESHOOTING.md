@@ -103,6 +103,58 @@ Nếu `dunst` im lặng mà bạn vừa cài, chạy `./install.sh deps` rồi �
 Muốn đổi nhịp: `WD_INTERVAL` và `WD_MAX_RETRY` đọc từ môi trường, đặt trước khi
 `startx`.
 
+## "đã có run.sh khác đang giữ phiên này"
+
+```
+tsuki: đã có run.sh khác đang giữ phiên này (pid 2845) — không khởi động lần hai
+```
+
+`run.sh` giữ một khoá phiên trong `$XDG_RUNTIME_DIR/tsuki-session.claim`, nên chỉ
+một bản được chạy cho mỗi phiên. Bản thứ hai **thoát ngay** thay vì ghi đè.
+
+Đây là chủ ý. Trước khi có khoá, bản thứ hai khi thoát gọi `stop_daemons` — mà
+`stop_daemons` xoá `tsuki-*.lock` + `tsuki-*.pid` rồi `kill` pid ghi trong đó,
+tức là dọn **daemon của bản thứ nhất**. Đã gặp đúng sự cố đó: daemon của phiên
+đang chạy bị giết hết, watchdog thấy khoá biến mất nên hồi sinh, `polkit` chết
+hẳn sau 5 lần thử, `session.log` bị ghi đè.
+
+Thường gặp khi `.xinitrc` chạy `run.sh` mà bạn lại gõ `startx` thủ công, hoặc vô
+tình chạy `run.sh` hai lần để "sửa lỗi". Muốn chạy lại trong cùng phiên thì
+thoát hẳn trước:
+
+```sh
+kill <pid>   # pid in ra trong thông báo
+```
+
+Rồi `startx`. Còn muốn kiểm tra xem phiên hiện tại còn sống không:
+
+```sh
+cat "$XDG_RUNTIME_DIR/tsuki-session.owner"
+```
+
+## Daemon sống sót qua logout
+
+`fcitx5 -d` tự fork: tiến trình launcher thoát ngay, còn daemon thật giữ khoá.
+Nên `tsuki-fcitx.pid` trỏ tới một PID **đã chết**, và `kill` theo pidfile là kill
+một PID không tồn tại — im lặng, không báo gì, tưởng đã dọn.
+
+`stop_daemons` nay dùng `fuser` trên từng file khoá để giết đúng tiến trình
+đang giữ nó, không chỉ dựa vào pidfile.
+
+Dấu hiệu daemon đã mất dấu: khoá **tồn tại nhưng trống**, tức không ai giữ:
+
+```sh
+fuser "$XDG_RUNTIME_DIR/tsuki-fcitx.lock"   # không in gì = mất dấu
+```
+
+Thường do `stop_daemons` chạy lúc `XDG_RUNTIME_DIR` bị dọn giữa chừng, hoặc
+`run.sh` bị giết cưỡng (`kill -9`) nên trap không kịp dọn. Khắc phục: đăng nhập
+lại. Còn muốn xem trạng thái hiện tại:
+
+```sh
+fuser "$XDG_RUNTIME_DIR"/tsuki-*.lock
+```
+
 ## Con trỏ không đổi
 
 `run.sh` nạp con trỏ bằng `xsetroot -xcf` từ theme `Bibata-Modern-Ice`, cỡ 24.

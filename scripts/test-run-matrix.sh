@@ -51,24 +51,36 @@ ln cp mv touch find sort wc env id dirname basename expr test true false"
 
 # OPTIONAL — stub thành no-op khi không nằm trong danh sách "giữ lại".
 # Đây mới là thứ ta thật sự muốn tắt: lệnh X, daemon, trình hỗ trợ.
-OPTIONAL_BINS="feh picom xset xsetroot xrdb notify-send dunst flock fc-match fuser
-dbus-run-session busctl systemctl playerctl pactl wpctl xrandr xprop"
+# Mọi DAEMON thật phải nằm đây để bị stub. Thiếu `fcitx5` một lần đã làm
+# sandbox gọi fcitx5 thật, sinh 596 tiến trình mồ côi trên máy thật (6.2 GB
+# PSS) vì cleanup chỉ kill pid trong pidfile mà pidfile trỏ launcher đã chết.
+OPTIONAL_BINS="feh picom xset xsetroot xrdb notify-send dunst flock fc-match fc-list
+fuser dbus-run-session busctl systemctl playerctl pactl wpctl xrandr xprop
+fcitx5 xsettingsd tumblerd slstatus polkit-gnome-authentication-agent-1
+xdg-desktop-portal xdg-desktop-portal-gtk"
 
 # xây một bộ stub tùy biến: $1 = danh sách lệnh cần CÓ (thật hoặc stub no-op)
+# $1 = thư mục ĐÍCH, $2 = danh sách lệnh cần CÓ.
+#
+# TRƯỚC ĐÂY mk_bin ghi vào $T/bin còn run_case trỏ PATH tới $_dir/bin — thư mục
+# không tồn tại. Nghĩa là KHÔNG stub nào có tác dụng: mọi ca "tắt lệnh" đều
+# chạy binary thật, và ca "fc-match im lặng" hoàn toàn rỗng — nó xanh vì
+# fc-match thật trả về family đúng, chứ không phải vì run.sh bỏ qua.
 mk_bin() {
-    _keep=$1
-    rm -rf "$T/bin"; mkdir -p "$T/bin"
-    cp "$T/dwm" "$T/bin/dwm"
+    _dest=$1
+    _keep=$2
+    rm -rf "$_dest"; mkdir -p "$_dest"
+    cp "$T/dwm" "$_dest/dwm"
     for c in $CORE_BINS; do
-        ln -sf "$(command -v "$c" 2>/dev/null || echo /bin/false)" "$T/bin/$c" 2>/dev/null
+        ln -sf "$(command -v "$c" 2>/dev/null || echo /bin/false)" "$_dest/$c" 2>/dev/null
     done
     for c in $OPTIONAL_BINS; do
         case " $_keep " in
-            *" $c "*) ln -sf "$(command -v "$c" 2>/dev/null || echo /bin/false)" "$T/bin/$c" 2>/dev/null ;;
-            *) printf '#!/bin/sh\nexit 0\n' > "$T/bin/$c"; chmod +x "$T/bin/$c" ;;
+            *" $c "*) ln -sf "$(command -v "$c" 2>/dev/null || echo /bin/false)" "$_dest/$c" 2>/dev/null ;;
+            *) printf '#!/bin/sh\nexit 0\n' > "$_dest/$c"; chmod +x "$_dest/$c" ;;
         esac
     done
-    ln -sf "$(command -v dash)" "$T/bin/sh" 2>/dev/null
+    ln -sf "$(command -v dash)" "$_dest/sh" 2>/dev/null
 }
 
 # chạy một hình thế. $1 = nhãn, $2 = danh sách lệnh có, $3 = tên biến env cần
@@ -77,7 +89,7 @@ run_case() {
     _label=$1; _bins=$2; _env=${3:-}; _cfg=${4:-co}
     _dir="$T/case$(printf '%s' "$_label" | tr -cd 'a-z0-9' | cut -c1-24)"
     mkdir -p "$_dir/run" "$_dir/home"
-    mk_bin "$_bins"
+    mk_bin "$_dir/bin" "$_bins"
 
     # repo gia: scripts tro ve repo that, con lai rong
     mkdir -p "$_dir/repo/.config/xsettingsd"
@@ -152,7 +164,7 @@ echo
 echo "--- config.h trỏ font không tồn tại (dwm chết ngay) ---"
 _fdir="$T/case-font"
 mkdir -p "$_fdir/run" "$_fdir/home" "$_fdir/repo/.config/xsettingsd"
-mk_bin "$ALL"
+mk_bin "$_fdir/bin" "$ALL fc-list"
 ln -sfn "$R/scripts" "$_fdir/repo/scripts"
 cp "$T/dwm" "$_fdir/repo/dwm"; chmod +x "$_fdir/repo/dwm"
 : > "$_fdir/repo/.config/xsettingsd/xsettingsd.conf"
@@ -172,30 +184,33 @@ else
 fi
 
 echo
-echo "--- hồi quy: fc-match im lặng KHÔNG được báo font thiếu ---"
+echo "--- hồi quy: fc-list im lặng KHÔNG được báo font thiếu ---"
 # Bản trước coi fc-match trả về RỖNG là "lệch" -> báo "SẼ CHẾT NGAY" cho font
 # hoàn toàn bình thường. Đó là báo động giả, tệ hơn sót: nó bảo người dùng cài
 # gói họ đã có. Rỗng xảy ra khi cache fontconfig hỏng hoặc fc-match bị giới hạn.
 _rd="$T/casefc"
 mkdir -p "$_rd/run" "$_rd/home" "$_rd/repo/.config/xsettingsd"
-mk_bin "$ALL"
+mk_bin "$_rd/bin" "$ALL"
 ln -sfn "$R/scripts" "$_rd/repo/scripts"
 cp "$T/dwm" "$_rd/repo/dwm"; chmod +x "$_rd/repo/dwm"
 : > "$_rd/repo/.config/xsettingsd/xsettingsd.conf"
 cp "$R/config.h" "$_rd/repo/config.h"          # font THẬT, hoàn toàn bình thường
-rm -f "$T/bin/fc-match"   # mk_bin để symlink tới fc-match thật; phải xoá trước
-rm -f "$T/bin/fc-match"   # mk_bin tạo symlink; phải xoá trước khi ghi stub
-printf '#!/bin/sh\nexit 0\n' > "$T/bin/fc-match"
-chmod +x "$T/bin/fc-match"
+# PHẢI stub `fc-list`, KHÔNG PHẢI `fc-match`. run.sh từng hỏi `fc-match` từng
+# font; khi tối ưu hiệu năng đã đổi sang MỘT lần `fc-list` rồi so trong awk.
+# Test vẫn stub `fc-match` nên trở nên RỖNG — nó xanh vì `fc-list` thật trả về
+# family đúng, chứ không phải vì run.sh bỏ qua. Đã mắc đúng lỗi trôi này.
+rm -f "$_rd/bin/fc-list"    # mk_bin để symlink tới fc-list thật; phải xoá trước
+printf '#!/bin/sh\nexit 0\n' > "$_rd/bin/fc-list"
+chmod +x "$_rd/bin/fc-list"
 : > "$_rd/mark"
-env -i PATH="$T/bin:/usr/bin:/bin" HOME="$_rd/home" \
+env -i PATH="$_rd/bin:/usr/bin:/bin" HOME="$_rd/home" \
     XDG_RUNTIME_DIR="$_rd/run" XDG_CACHE_HOME="$_rd/home/.cache" \
     TSUKI_DIR="$_rd/repo" DWM_MARK="$_rd/mark" \
     dash "$R/scripts/run.sh" >/dev/null 2>"$_rd/err"
 if grep -q 'SẼ CHẾT NGAY' "$_rd/home/.cache/tsuki/session.log" 2>/dev/null; then
-    bad "fc-match-im-lang" "báo SẼ CHẾT NGAY cho font thật — báo động giả"
+    bad "fc-list-im-lang" "báo SẼ CHẾT NGAY cho font thật — báo động giả"
 else
-    ok "fc-match im lặng: không báo động giả (bỏ qua thay vì đoán sai)"
+    ok "fc-list im lặng: không báo động giả (bỏ qua thay vì đoán sai)"
 fi
 
 echo
@@ -206,13 +221,13 @@ echo "--- hồi quy: XDG_CACHE_HOME không ghi được thì phiên vẫn phải
 # rc=2, chết trước khi làm được gì.
 _rc2="$T/casecache"
 mkdir -p "$_rc2/run" "$_rc2/home" "$_rc2/repo/.config/xsettingsd" "$T/tmpx"
-mk_bin "$ALL"
+mk_bin "$_rc2/bin" "$ALL"
 ln -sfn "$R/scripts" "$_rc2/repo/scripts"
 cp "$T/dwm" "$_rc2/repo/dwm"; chmod +x "$_rc2/repo/dwm"
 : > "$_rc2/repo/.config/xsettingsd/xsettingsd.conf"
 cp "$R/config.h" "$_rc2/repo/config.h"
 : > "$_rc2/mark"
-env -i PATH="$T/bin:/usr/bin:/bin" HOME="$_rc2/home" \
+env -i PATH="$_rc2/bin:/usr/bin:/bin" HOME="$_rc2/home" \
     XDG_RUNTIME_DIR="$_rc2/run" XDG_CACHE_HOME=/proc/khong/ghi \
     TSUKI_DIR="$_rc2/repo" DWM_MARK="$_rc2/mark" TMPDIR="$T/tmpx" \
     dash "$R/scripts/run.sh" >/dev/null 2>"$_rc2/err"
@@ -235,13 +250,13 @@ _rd2="$T/casero"
 mkdir -p "$_rd2/run" "$_rd2/home" "$_rd2/repo/.config/xsettingsd"
 mkdir -p "$_rd2/cach/tsuki" "$_rd2/tmp/tsuki-$(id -u)"   # tồn tại sẵn
 chmod 555 "$_rd2/cach/tsuki" "$_rd2/tmp/tsuki-$(id -u)"  # nhưng không ghi được
-mk_bin "$ALL"
+mk_bin "$_rd2/bin" "$ALL"
 ln -sfn "$R/scripts" "$_rd2/repo/scripts"
 cp "$T/dwm" "$_rd2/repo/dwm"; chmod +x "$_rd2/repo/dwm"
 : > "$_rd2/repo/.config/xsettingsd/xsettingsd.conf"
 cp "$R/config.h" "$_rd2/repo/config.h"
 : > "$_rd2/mark"
-env -i PATH="$T/bin:/usr/bin:/bin" HOME="$_rd2/home" \
+env -i PATH="$_rd2/bin:/usr/bin:/bin" HOME="$_rd2/home" \
     XDG_RUNTIME_DIR="$_rd2/run" XDG_CACHE_HOME="$_rd2/cach" \
     TSUKI_DIR="$_rd2/repo" DWM_MARK="$_rd2/mark" TMPDIR="$_rd2/tmp" \
     dash "$R/scripts/run.sh" >/dev/null 2>"$_rd2/err"
@@ -251,6 +266,37 @@ else
     bad "thu muc log khong ghi duoc" "dwm khong chay: $(tail -2 "$_rd2/err" 2>/dev/null | tr '\n' ';')"
 fi
 chmod 755 "$_rd2/cach/tsuki" "$_rd2/tmp/tsuki-$(id -u)" 2>/dev/null || true
+
+# --- KHÔNG daemon nào trốn ra khỏi sandbox ----------------------------------
+# ĐÃ GÂY RA HẬU QUẢ THẬT: `fcitx5` không nằm trong danh sách stub nên sandbox
+# gọi Fcitx5 THẬT. Nó fork, launcher chết, daemon thật thành mồ côi giữ khoá
+# trên $T/case*/run/tsuki-fcitx.lock. `cleanup()` chỉ kill pid trong pidfile mà
+# pidfile trỏ launcher đã chết. Sau hàng trăm lần chạy: 596 tiến trình mồ
+# côi, 6.2 GB PSS trên máy thật. Đã dọn.
+#
+# Phải kiểm TRƯỚC cleanup, trên các khoá của chính lần chạy này — lọc theo
+# "(deleted)" là vô dụng vì dấu đó chỉ hiện ra SAU khi cleanup đã xoá thư mục,
+# lúc đó mọi daemon trốn ra đều trông sạch.
+_esc=""
+# Khớp theo TIỀN TỐ ĐƯỜNG DẪN, không đối chiếu danh sách file khoá. `stop_daemons`
+# đã `rm -f` các file khoá, nên `[ -f "$lk" ]` thất bại và vòng lặp bỏ qua hết —
+# đó là lý do bản đầu báo PASS trong khi daemon thật đã trốn ra. readlink vẫn
+# trả đường dẫn GỐC kèm " (deleted)", nên khớp tiền tố vẫn bắt được.
+for _p in $(pgrep -x fcitx5 2>/dev/null; pgrep -x xsettingsd 2>/dev/null; \
+            pgrep -x tumblerd 2>/dev/null); do
+    for _fd in /proc/$_p/fd/*; do
+        _t=$(readlink "$_fd" 2>/dev/null) || continue
+        case "$_t" in
+            "$T"/*) _esc="$_esc  pid $_p cầm $_t
+" ;;
+        esac
+    done
+done
+if [ -z "$_esc" ]; then
+    ok "không daemon nào trốn ra khỏi sandbox"
+else
+    bad "daemon trốn ra ngoài sandbox" "$_esc"
+fi
 
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

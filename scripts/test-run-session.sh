@@ -27,7 +27,14 @@ mkdir -p "$T/bin" "$T/run" "$T/home"
 #     "không khởi động được", và T13d fail oan dù watchdog chạy đúng
 #   - T2/T5/T13b "pass" nhưng không thật sự kiểm khoá gì cả
 # Dùng flock thật (/usr/bin/flock). Nó chỉ khoá file trong $T/run nên vô hại.
-for c in feh picom xset xsetroot xrdb notify-send dunst; do
+# PHẢI STUB MỌI DAEMON THẬT. Đã mắc lỗi nghiêm trọng: danh sách này thiếu
+# `fcitx5`, nên sandbox gọi Fcitx5 THẬT. Nó fork rồi launcher chết, daemon thật
+# thành mồ côi giữ khoá trên một file /tmp đã bị xoá — và `cleanup()` chỉ kill
+# pid trong pidfile, mà pidfile trỏ tới launcher đã chết.
+# Hậu quả sau khi chạy bộ test hàng trăm lần: 596 tiến trình fcitx5 mồ côi trên
+# máy thật, 6.2 GB PSS. Đã dọn, và nay mọi daemon đều stub.
+for c in feh picom xset xsetroot xrdb notify-send dunst fcitx5 xsettingsd \
+         tumblerd slstatus polkit-gnome-authentication-agent-1; do
     printf '#!/bin/sh\nexit 0\n' > "$T/bin/$c"
     chmod +x "$T/bin/$c"
 done
@@ -554,6 +561,38 @@ if [ -z "$_bad_fn" ]; then
     ok "T20 không hàm nào bị gọi trước khi định nghĩa"
 else
     bad "T20 hàm dùng trước khi định nghĩa" "$_bad_fn"
+fi
+
+# --- T21: KHÔNG daemon nào trốn ra khỏi sandbox ------------------------------
+# Đã gây ra hậu quả thật: stub thiếu `fcitx5` khiến sandbox gọi Fcitx5 THẬT.
+# Nó fork rồi launcher chết; daemon thật thành mồ côi, còn `cleanup()` chỉ kill
+# pid trong pidfile — mà pidfile trỏ launcher đã chết. Sau hàng trăm lần chạy:
+# 596 tiến trình mồ côi, 6.2 GB PSS trên máy thật.
+#
+# PHẢI KIỂM TRƯỚC KHI cleanup xoá thư mục. Bản đầu lọc theo "(deleted)" — vô
+# dụng, vì "(deleted)" chỉ xuất hiện SAU khi cleanup đã `rm -rf`; lúc đó thì mọi
+# daemon trốn ra đều trông sạch, và T21 xanh trong khi `fcitx5` thật đã chạy.
+# Nay kiểm trên khoá của CHÍNH lần chạy này ($T/run/tsuki-*.lock), lúc nó còn
+# tồn tại: daemon trốn ra sẽ vẫn cầm khoá đó sau khi run.sh thoát.
+_esc=""
+# Khớp theo TIỀN TỐ ĐƯỜNG DẪN, không đối chiếu danh sách file khoá. `stop_daemons`
+# đã `rm -f` các file khoá, nên `[ -f "$lk" ]` thất bại và vòng lặp bỏ qua hết —
+# đó là lý do bản đầu báo PASS trong khi daemon thật đã trốn ra. readlink vẫn
+# trả đường dẫn GỐC kèm " (deleted)", nên khớp tiền tố vẫn bắt được.
+for _p in $(pgrep -x fcitx5 2>/dev/null; pgrep -x xsettingsd 2>/dev/null; \
+            pgrep -x tumblerd 2>/dev/null); do
+    for _fd in /proc/$_p/fd/*; do
+        _t=$(readlink "$_fd" 2>/dev/null) || continue
+        case "$_t" in
+            "$T"/*) _esc="$_esc  pid $_p cầm $_t
+" ;;
+        esac
+    done
+done
+if [ -z "$_esc" ]; then
+    ok "T21 không daemon nào trốn ra khỏi sandbox"
+else
+    bad "T21 daemon trốn ra ngoài sandbox" "$_esc"
 fi
 
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"

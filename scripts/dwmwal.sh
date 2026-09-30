@@ -17,6 +17,22 @@ SCRIPTS="$TSUKI_DIR/scripts"
 CACHE="$HOME/.cache/dwmwal"
 WALL_DIR="$HOME/Pictures/Wallpapers"
 
+# build rồi báo nếu hỏng. Tách riêng để test trích được từ file thật (giống
+# cách test-run-daemons.sh trích start_daemon/stop_daemons từ run.sh) thay vì
+# chép lại logic. $1 = thư mục, $2 = tên để hiện trong thông báo.
+#
+# Vì sao phải có: dwm spawn script này ở nền nên stdout/stderr bị nuốt. `make`
+# hỏng mà không kiểm mã thoát thì không có gì để biết — wallpaper đổi, cảnh
+# báo "Theme applied" vẫn hiện, chỉ có thanh trạng thái là không đổi màu.
+_build_check() {
+    _bc_log="${XDG_CACHE_HOME:-$HOME/.cache}/tsuki-dwmwal.log"
+    if make -C "$1" >"$_bc_log" 2>&1; then
+        return 0
+    fi
+    notify-send -u critical "dwm" "$2 build hỏng — xem $_bc_log"
+    return 1
+}
+
 [ -d "$WALL_DIR" ] || { notify-send "dwmwal" "No wallpaper dir: $WALL_DIR"; exit 1; }
 
 # ---------------------------------------------------------------------------
@@ -329,10 +345,16 @@ if [ -z "$DWMWAL_NO_REBUILD" ]; then
         -e "s|CLOCK_HEX|${color11:-#8cbadd}|" \
         "$SLST_DIR/config.h" > "$SLST_DIR/config.h.new" \
         && mv "$SLST_DIR/config.h.new" "$SLST_DIR/config.h"
-    make -C "$SLST_DIR" >/dev/null 2>&1
-    # chi can pkill: vong lap tu phuc hoi trong run.sh se restart slstatus
-    # voi binary moi (tranh 2 instance khi nohup + wrapper cung chay)
-    pkill -x slstatus 2>/dev/null
+    # Kiểm mã thoát của make. Bản cũ `make -C "$SLST_DIR" >/dev/null 2>&1` —
+    # hỏng thì im lặng, binary cũ vẫn chạy, rồi `pkill -x slstatus` vẫn giết
+    # nó đi cho vòng lặp của run.sh nạp lại đúng binary cũ. Người dùng đổi
+    # wallpaper xong thấy thanh trạng thái không đổi mà không có gì nói lý do.
+    # Dùng chung khuôn với bước dunst ở trên.
+    if _build_check "$SLST_DIR" slstatus; then
+        # chi can pkill: vong lap tu phuc hoi trong run.sh se restart slstatus
+        # voi binary moi (tranh 2 instance khi nohup + wrapper cung chay)
+        pkill -x slstatus 2>/dev/null
+    fi
 
     # dmenu: tu config.def.h (sentinel DMENU_*) -> config.h voi mau wal moi
     DMENU_DIR="$TSUKI_DIR/dmenu"
@@ -345,7 +367,7 @@ if [ -z "$DWMWAL_NO_REBUILD" ]; then
         -e "s|DMENU_BG_OUT|${color5:-#34ab45}|" \
         "$DMENU_DIR/config.h" > "$DMENU_DIR/config.h.new" \
         && mv "$DMENU_DIR/config.h.new" "$DMENU_DIR/config.h"
-    make -C "$DMENU_DIR" >/dev/null 2>&1
+    if ! _build_check "$DMENU_DIR" dmenu; then :; fi
 fi
 
 notify-send "dwm" "Theme applied: $(basename "$WALL")"

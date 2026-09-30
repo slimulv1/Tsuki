@@ -105,6 +105,32 @@ sudo pacman -S --needed \
 
 ---
 
+## Khi có sự cố
+
+`scripts/run.sh` ghi lại toàn bộ phiên vào `~/.cache/tsuki/session.log` (ghi đè
+mỗi lần đăng nhập). Xem nó là bước đầu tiên khi con trỏ không đổi, phím
+volume không hiện OSD, hay hộp thoại lưu file của Firefox không dựng:
+
+```sh
+less ~/.cache/tsuki/session.log
+```
+
+`run.sh` khởi động: nền (`feh`), `picom`, `xrdb`, con trỏ, tốc độ lặp phím,
+dunst, xdg-desktop-portal, polkit-gnome, fcitx5, xsettingsd, slstatus, tumblerd,
+và hai script nền `updates-loop.sh` / `mediacard.sh`. Mỗi cái giữ một khoá
+`flock` trong `$XDG_RUNTIME_DIR` nên gọi lại `run.sh` không sinh bản thứ hai.
+
+Nếu `dwm` không lên được, `run.sh` **tự dừng** sau 10 lần crash liên tiếp thay
+vì quay vòng vô tận, và in hướng khôi phục vào cuối log.
+
+**Thumbnail trong Thunar**: Thunar không tự sinh ảnh nhỏ, nó hỏi `tumblerd` qua
+D-Bus. Ba gói do `install.sh deps` cài: `tumbler` (ảnh), `ffmpegthumbnailer`
+(video), `poppler-glib` (PDF). Kiểm tra bằng `./scripts/check-thumbs.sh`. Lưu ý
+binary `tumblerd` **không có trong `PATH`** — nó nằm ở
+`/usr/lib/tumbler-1/tumblerd`, nên `tumblerd &` sẽ báo *command not found*.
+
+---
+
 MIT — [LICENSE](LICENSE). `dwm` `st` `slock` `dmenu` `slstatus` thuộc
 [suckless.org](https://suckless.org). Giao diện Firefox:
 [Dook97/firefox-qutebrowser-userchrome](https://github.com/Dook97/firefox-qutebrowser-userchrome) (GPL-3.0).

@@ -16,40 +16,6 @@
 | Super + /     | Bảng keybinds này         |
 | Super + w     | Đổi wallpaper + màu theme |
 
-### Thumbnail trong Thunar
-
-`Super + e` mở Thunar. Thunar **không tự** vẽ ảnh nhỏ — nó hỏi daemon
-`tumblerd` qua D-Bus (Thumbnailer Specification), tumbler gọi plugin rồi ghi
-vào `~/.cache/thumbnails/` theo chuẩn freedesktop.
-
-| Loại file | Plugin | Gói cài |
-|---|---|---|
-| Ảnh (png/jpg/gif/webp/bmp/tiff/avif/jxl/svg) | `tumbler-pixbuf-thumbnailer` | `tumbler` |
-| JPEG (tốc độ riêng) | `tumbler-jpeg-thumbnailer` | `tumbler` |
-| Video (mp4/mkv/webm/avi/mov/m4v) | `tumbler-ffmpeg-thumbnailer` | `ffmpegthumbnailer` |
-| PDF | `tumbler-poppler-thumbnailer` | `poppler-glib` |
-| Ảnh RAW máy ảnh | `tumbler-raw-thumbnailer` | `libopenraw` |
-| Phông chữ | `tumbler-font-thumbnailer` | `freetype2` |
-| ODF (odt/ods/odp) | `tumbler-odf-thumbnailer` | `libgsf` |
-| Bìa sách, desktop, EPUB | `cover` / `desktop` / `gepub` | `libgepub` (tùy chọn) |
-
-Lần đầu mở một thư mục, thumbnail sẽ trống rồi mới có sau vài giây — đó là
-tumbler đang sinh. Lần sau tải từ cache, tức thì.
-
-Kiểm tra chuỗi này còn sống hay không:
-
-```sh
-./scripts/check-thumbs.sh           # kiểm tra + tự sinh thử ảnh và video
-./scripts/check-thumbs.sh --clean   # xoá sạch cache rồi thử lại
-```
-
-Nếu Thunar vẫn chỉ hiện icon, chạy `/usr/lib/tumbler-1/tumblerd &` hoặc đăng
-nhập lại — `scripts/run.sh` sẽ tự khởi động daemon này.
-
-> Binary `tumblerd` **không có trong `PATH`**: gói `tumbler` đặt nó ở
-> `/usr/lib/tumbler-1/tumblerd`. Gõ `tumblerd &` sẽ báo *command not found* —
-> phải dùng đường dẫn đầy đủ.
-
 ## Tiling / window management
 
 | Keybinding            | Action               |
@@ -154,29 +120,3 @@ nhập lại — `scripts/run.sh` sẽ tự khởi động daemon này.
 | Giữ chuột trái, kéo tới mép trên/dưới | Tự cuộn liên tục        |
 | Shift + PgUp / PgDn             | Cuộn 1 trang                    |
 | Alt + lăn chuột                 | Gửi `\031` (page up) tới app   |
-
-## Khi có sự cố
-
-`scripts/run.sh` ghi lại toàn bộ phiên vào `~/.cache/tsuki/session.log`
-(ghi đè mỗi lần đăng nhập). Xem nó là bước đầu tiên khi con trỏ không đổi,
-phím volume không hiện OSD, hộp thoại lưu file của Firefox không dựng, hoặc
-thumbnail Thunar không có:
-
-```sh
-less ~/.cache/tsuki/session.log
-```
-
-Những gì `run.sh` khởi động: nền (`feh`), `picom`, `xrdb`, con trỏ
-(`xsetroot -xcf`), tốc độ lặp phím (`xset r rate`), dunst, xdg-desktop-portal,
-polkit-gnome, fcitx5, xsettingsd, slstatus, tumblerd, và hai script nền
-`updates-loop.sh` / `mediacard.sh`.
-
-Mỗi daemon giữ một khoá `flock` trong `$XDG_RUNTIME_DIR`, nên gọi lại
-`run.sh` không sinh bản thứ hai. Muốn dừng tay:
-
-```sh
-pkill -f 'run\.sh$'; pkill -x tumblerd; pkill -x xsettingsd; pkill -x fcitx5
-```
-
-Nếu `dwm` không lên được, `run.sh` **tự dừng** sau 10 lần crash liên tiếp
-thay vì quay vòng vô tận, và in trong log hướng khôi phục.

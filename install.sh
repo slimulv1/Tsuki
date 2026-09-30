@@ -3,6 +3,7 @@
 # install.sh — cài Tsuki (dwm rice) trên Arch/CachyOS.
 #
 #   ./install.sh              # cài đầy đủ: deps -> build -> dotfiles -> session
+#   ./install.sh check        # kiểm tra máy đã đủ công cụ chưa (không sửa gì)
 #   ./install.sh deps         # chỉ gói phụ thuộc (hỏi rồi cài XLibre stable)
 #   ./install.sh arisa        # hỏi rồi thêm kho arisa (Super+C, Super+D)
 #   ./install.sh paru         # cài paru để dùng AUR
@@ -10,6 +11,7 @@
 #   ./install.sh build        # chỉ build + cài binary
 #   ./install.sh dotfiles     # chỉ copy ~/.config
 #   ./install.sh firefox      # chỉ nạp giao diện vào profile Firefox
+#   ./install.sh firefox <thư mục profile>   # chỉ định profile (khi tự dò trượt)
 #   ./install.sh themes       # chỉ cài theme Miami26 + icon Kora (từ git, user-level)
 #   ./install.sh session      # chỉ cấu hình chạy từ TTY (.xinitrc)
 #   ./install.sh session --dm # cài thêm .desktop cho display manager
@@ -28,6 +30,18 @@
 #
 set -euo pipefail
 
+# Chuẩn hóa locale cho MỌI lệnh con.
+#
+# Vì sao: script có so khớp chuỗi trên output của lệnh khác — `sort` trong
+# pkgs_absent_in_db, so sánh trong `grep` của các hàm dò profile, awk trên
+# /etc/pacman.d/mirrorlist. Khi LANG của người dùng là ngôn ngữ khác (fr_FR,
+# de_DE, vi_VN...), `sort` đổi thứ tự so với byte, `[[:space:]]` trong awk
+# phụ thuộc locale, và thông báo lỗi của pacman/make đổi ngôn ngữ. Cài trên
+# máy người khác thì hành vi khác máy này — đúng thứ ta muốn tránh.
+# LC_ALL=C chỉ ảnh hưởng lệnh con; printf của chính script vẫn in tiếng Việt
+# bình thường (printf truyền byte qua, không dịch).
+export LC_ALL=C
+
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly REPO_DIR
 SUDO=""
@@ -45,6 +59,140 @@ ok()   { printf '  %s✓%s %s\n' "$C_G" "$C_RST" "$*"; }
 info() { printf '  %s·%s %s\n' "$C_B" "$C_RST" "$*"; }
 warn() { printf '  %s!%s %s\n' "$C_Y" "$C_RST" "$*" >&2; }
 die()  { printf '%serror:%s %s\n' "$C_R" "$C_RST" "$*" >&2; exit 1; }
+
+# Rút gọn đường dẫn về ~/ để thông báo dễ đọc.
+#
+# KHÔNG dùng `${p/#$HOME/~}`: đã thử, không rút được khi chuỗi bằng đúng
+# $HOME (trả về nguyên đường dẫn). Hàm tường minh hơn, không phụ thuộc chi tiết
+# khác của bash.
+tilde() {
+    local p=$1
+    if [[ -z ${HOME:-} ]]; then
+        printf '%s' "$p"
+    elif [[ $p == "$HOME" ]]; then
+        printf '~'
+    elif [[ $p == "$HOME"/* ]]; then
+        printf '~/%s' "${p#"$HOME"/}"
+    else
+        printf '%s' "$p"
+    fi
+}
+
+# --------------------------------------------------------------- preflight ---
+# Kiểm tra công cụ cần thiết TRƯỚC khi làm việc.
+#
+# Không phải để "chắc chắn có" — mà để lỗi thiếu lệnh hiện ra NGAY ĐẦU, chứ
+# không phải giữa chừng: `make` thiếu mà chạy `cmd_build` thì lỗi nằm trong
+# `root_sh` của bash với quyền root, đọc như build hỏng chứ không phải thiếu
+# toolchain. Máy khác máy này càng dễ dính vì image cài sẵn khác nhau.
+need() {
+    local -a missing=()
+    local c
+    for c in "$@"; do
+        command -v "$c" >/dev/null 2>&1 || missing+=("$c")
+    done
+    if (( ${#missing[@]} )); then
+        die "thiếu lệnh: ${missing[*]}
+       Cài trước:  sudo pacman -S --needed ${missing[*]}"
+    fi
+}
+
+# Báo cáo mọi thứ install.sh cần, KHÔNG sửa gì cả. Dùng để hỏi "máy tôi có
+# chạy được không" trước khi chạy `all`, và để người khác chạy script trên máy
+# mới rồi dán kết quả lên issue.
+cmd_check() {
+    step "kiểm tra môi trường"
+    local -a warns=()
+    local g c name tools d
+
+    # 1. Hệ điều hành
+    if [[ -r /etc/os-release ]]; then
+        local os_id os_ver
+        os_id=$(. /etc/os-release 2>/dev/null; printf '%s' "${ID:-?}")
+        os_ver=$(. /etc/os-release 2>/dev/null; printf '%s' "${VERSION_ID:-${PRETTY_NAME:-?}}")
+        case $os_id in
+            arch|cachyos) ok "OS: $os_id $os_ver" ;;
+            *) warn "OS: $os_id $os_ver — script viết cho Arch/CachyOS (dùng pacman)"
+               warns+=(os) ;;
+        esac
+    else
+        warn "không đọc được /etc/os-release"; warns+=(os)
+    fi
+    command -v pacman >/dev/null 2>&1 \
+        || { warn "không có pacman — phần lớn bước sẽ không chạy"; warns+=(pacman); }
+
+    # 2. Công cụ theo từng nhóm lệnh
+    for g in "build|make gcc nproc" \
+             "deps|pacman" \
+             "pty|paru git makepkg" \
+             "themes|git curl" \
+             "session|systemctl"
+    do
+        name=${g%%|*}
+        tools=${g#*|}
+        local -a t=() miss=()
+        read -ra t <<< "$tools"
+        for c in "${t[@]}"; do
+            command -v "$c" >/dev/null 2>&1 || miss+=("$c")
+        done
+        if (( ${#miss[@]} )); then
+            warn "$name: thiếu ${miss[*]}"
+            warns+=("$name")
+        else
+            ok "$name: ${t[*]}"
+        fi
+    done
+
+    # 3. Quyền root
+    if (( EUID == 0 )); then
+        ok "đang chạy với quyền root"
+    elif command -v sudo >/dev/null 2>&1; then
+        ok "có sudo (sẽ hỏi mật khẩu khi cần)"
+    else
+        warn "không có sudo và không phải root — các bước cài gói sẽ dừng"
+        warns+=(sudo)
+    fi
+
+    # 4. Repo: config.h phải có, nếu không make sẽ tự tạo lại từ config.def.h
+    # và xoá sạch tuỳ chỉnh (xem cảnh báo đầu script).
+    local bad_cfg=0
+    for d in . st slock dmenu slstatus netpanel; do
+        [[ -d $REPO_DIR/$d ]] || continue
+        [[ -f $REPO_DIR/$d/config.h ]] || { bad_cfg=1; warns+=("$d/config.h"); }
+    done
+    if (( bad_cfg )); then
+        warn "thiếu config.h — build sẽ cp từ config.def.h và mất cấu hình"
+    else
+        ok "config.h trong repo: đủ"
+    fi
+
+    # 5. Thư mục đích
+    if [[ -w $TSUKI_HOME ]]; then
+        ok "thư mục đích: $(tilde "$TSUKI_HOME")"
+    else
+        warn "không ghi được vào $TSUKI_HOME"; warns+=(home)
+    fi
+
+    # 6. Profile Firefox — báo cáo, KHÔNG tự chọn (khi có nhiều, cmd_firefox hỏi)
+    local -a cands=()
+    mapfile -t cands < <(firefox_candidates) || true
+    if (( ${#cands[@]} == 0 )); then
+        info "Firefox: chưa thấy profile nào (mở Firefox một lần rồi chạy lại)"
+    elif (( ${#cands[@]} == 1 )); then
+        ok "Firefox: $(tilde "${cands[0]}")"
+    else
+        warn "Firefox: ${#cands[@]} profile, sẽ hỏi khi cài"
+        for c in "${cands[@]}"; do printf '    %s\n' "$(tilde "$c")"; done
+    fi
+
+    printf '\n'
+    if (( ${#warns[@]} )); then
+        warn "còn ${#warns[@]} điểm cần xử lý: ${warns[*]}"
+        printf '  ./install.sh deps cài phần thiếu; bước chưa sẵn sàng thì bỏ qua.\n'
+        return 0
+    fi
+    ok "mọi thứ đã sẵn sàng"
+}
 
 # Chạy lệnh cần quyền root: dùng sudo nếu có, nếu không (đã root) thì chạy thẳng.
 as_root() {
@@ -411,6 +559,7 @@ build_one() {
 
 cmd_build() {
     detect_sudo
+    need make gcc nproc
     # Mỗi thư mục con đều có `config.h:` -> cp config.def.h $@ trong Makefile.
     # Thiếu file thì make âm thầm tạo lại từ config.def.h và mất sạch tùy chỉnh,
     # đúng thứ cảnh báo ở đầu script. Phải kiểm tra TỪNG cái, không chỉ config.h
@@ -461,6 +610,97 @@ is_generated() {
     return 1
 }
 
+# File mà NỘI DUNG MÀU được sinh tự động, không phải cấu hình người dùng.
+#
+# VÌ SAO CẦN: `scripts/dunstwal.sh` (chạy bởi Super+W) sửa trực tiếp màu
+# trong ~/.config/dunst/dunstrc và ~/.config/kitty/pywal.conf theo wallpaper
+# đang dùng. Nhưng repo cũng track hai file đó, kèm bảng màu của MỘT wallpaper
+# cụ thể. Chạy `./install.sh dotfiles` là ghi đè màu đang chạy bằng bảng màu
+# cũ trong repo — người dùng thấy giao diện tự đổi về màu lạ. Đã xảy ra thật
+# trên máy này: dunst 28 dòng và pywal.conf 42 dòng bị đổi, phải khôi phục từ
+# backup mới được.
+#
+# Cách xử lý: nếu hai file khác nhau CHỈ ở mã màu thì giữ bản đang chạy. Cấu
+# hình khác (kích thước, font, phím tắt…) vẫn cập nhật bình thường. Cài mới
+# hoàn toàn thì file đích chưa tồn tại nên vẫn copy bản repo — không mất mặc
+# định.
+readonly COLOR_GENERATED=(
+    dunstrc
+    pywal.conf
+)
+
+is_color_generated() {
+    local name=$1 f
+    for f in "${COLOR_GENERATED[@]}"; do
+        [[ $name == "$f" ]] && return 0
+    done
+    return 1
+}
+
+# Hai file có khác nhau KHÔNG, ngoài các mã màu hex không?
+#
+# Bỏ mọi mã `#rrggbb` / `#rgb` (kể cả 8 chữ số có alpha) rồi so phần còn
+# lại. Cùng cấu trúc, chỉ khác bảng màu -> sinh tự động, giữ bản hiện tại.
+#
+# `sed -E` thay vì `sed` vì repo cần BSD/GNU-compatible; dùng `[[:xdigit:]]`
+# để không phụ thuộc locale (đã export LC_ALL=C ở đầu script).
+color_only_diff() {
+    local a=$1 b=$2
+    [[ -f $a && -f $b ]] || return 1
+    # Khác loại file (một bên là thư mục) -> không phải trường hợp này
+    diff -q -- "$a" "$b" >/dev/null 2>&1 && return 1   # giống hệt thì không "chỉ khác màu"
+    local sa sb
+    sa=$(strip_colors < "$a")
+    sb=$(strip_colors < "$b")
+    [[ $sa == "$sb" ]]
+}
+
+# Bỏ mọi mã màu hex ra khỏi stdin.
+strip_colors() {
+    sed -E 's/#[0-9A-Fa-f]{3,8}\b//g'
+}
+
+# Cài MỘT mục dotfile, giữ nguyên file có mã màu sinh tự động.
+#
+# Cần hàm riêng vì cmd_dotfiles copy NGUYÊN THƯ MỤC (`.config/dunst/` ->
+# `~/.config/dunst/`), nên logic per-file trong install_dotfile() không bao
+# giờ nhìn thấy tên `dunstrc`. Đã kiểm chứng: thêm COLOR_GENERATED vào
+# install_dotfile() rồi chạy `./install.sh dotfiles` vẫn ghi đè — vì
+# install_dotfile() chỉ thấy đối số là thư mục.
+#
+# Khi thư mục đích ĐÃ tồn tại: đi TỪNG mục con thay vì `cp -a` cả thư mục.
+# Nhờ vậy chỉ file thật sự khác mới bị backup — không tạo bản sao lưu cả thư
+# mục mỗi lần chạy chỉ vì mấy dòng mã màu. File nào chỉ khác màu thì giữ
+# nguyên bản đang chạy.
+install_item() {
+    local src=$1 dst=$2
+    # Không phải thư mục, hoặc đích chưa có -> đường đơn giản
+    if [[ ! -d $src || ! -d $dst ]]; then
+        install_dotfile "$src" "$dst"
+        return
+    fi
+
+    local e name kept=0 changed=0
+    # "$src"/* + "$src"/.[!.]* : gồm cả file ẩn, bỏ . và ..
+    for e in "$src"/* "$src"/.[!.]*; do
+        [[ -e $e ]] || continue
+        name=${e##*/}
+        if [[ -f $e && -f $dst/$name ]] && is_color_generated "$name" \
+           && color_only_diff "$e" "$dst/$name"; then
+            info "$name: khác chỉ ở màu — giữ bản đang chạy"
+            kept=$((kept + 1))
+            continue
+        fi
+        if [[ -e $dst/$name ]] && ! same_content "$e" "$dst/$name"; then
+            changed=$((changed + 1))
+        fi
+        install_dotfile "$e" "$dst/$name"
+    done
+    if (( ! kept && ! changed )); then
+        ok "$(basename -- "$dst"): không có gì thay đổi"
+    fi
+}
+
 # So sánh nội dung, xử lý được cả file lẫn thư mục.
 # `cmp` chỉ so file: so với thư mục nó luôn trả khác, nên mọi thư mục sẽ bị
 # backup + ghi đè dù nội dung y hệt. `diff -rq` xử lý đúng cả hai.
@@ -488,6 +728,13 @@ install_dotfile() {
         if same_content "$src" "$dst"; then
             return 0   # giống hệt, không đụng
         fi
+        # Khác biệt CHỈ ở mã màu, và file đó nằm trong COLOR_GENERATED:
+        # giữ bản đang chạy. Xem color_only_diff().
+        if is_color_generated "$(basename -- "$dst")" \
+           && color_only_diff "$src" "$dst"; then
+            info "$(basename -- "$dst"): khác chỉ ở màu — giữ bản đang chạy"
+            return 0
+        fi
         # backup_path bảo đảm $bak CHƯA tồn tại. Không có nó thì `mv` đặt $dst
         # vào BÊN TRONG $bak nếu $bak đã là thư mục, thay vì thay thế nó.
         local bak
@@ -509,7 +756,7 @@ cmd_dotfiles() {
     for d in "${items[@]}"; do
         # starship.toml là file, còn lại là thư mục — install_dotfile nhận cả hai
         if [[ -e "$REPO_DIR/.config/$d" ]]; then
-            install_dotfile "$REPO_DIR/.config/$d" "$TSUKI_HOME/.config/$d"
+            install_item "$REPO_DIR/.config/$d" "$TSUKI_HOME/.config/$d"
             n=$((n + 1))
         else
             warn "thiếu .config/$d trong repo — bỏ qua"
@@ -518,15 +765,59 @@ cmd_dotfiles() {
     ok "xong ($n/${#items[@]} mục)"
 }
 
-# Thư mục gốc có thể chứa profile Firefox. Thứ tự KHÔNG quan trọng nữa vì
-# firefox_profile() đọc profiles.ini ở từng thư mục trước khi đoán.
+# Thư mục gốc có thể chứa profile Firefox. Thứ tự KHÔNG quan trọng vì
+# firefox_candidates() đọc profiles.ini ở từng thư mục trước khi đoán, rồi
+# mới hỏi người dùng khi có nhiều ứng viên.
+#
+# VÌ SAO LIỆT KÊ DÀI, VÌ SAO THỨ TỰ KHÔNG CÒN QUAN TRỌNG:
+# Firefox đặt profile ở nhiều nơi tùy cách cài và tuỳ biến, và bản "sửa" trước
+# đã hỏng vì cứ siết một đường dẫn cho một máy:
+#   - gói Arch chính thức + psd (máy này): ~/.config/mozilla/firefox
+#   - Firefox cài tay, không XDG:          ~/.mozilla/firefox
+#   - Flatpak:  ~/.var/app/org.mozilla.firefox/{.mozilla,.config}/mozilla/firefox
+#   - Snap:     ~/snap/firefox/common/{.mozilla,.config}/mozilla/firefox
+#   - Bản dev/nightly: ~/.mozilla/firefox-dev, ~/.mozilla/firefox-nightly
+#   - XDG tự đặt: $XDG_CONFIG_HOME/mozilla/firefox
+#   - Cache đĩa (KHÔNG phải profile): $XDG_CACHE_HOME/mozilla/firefox
+#
+# Nguyên tắc: thứ tự ĐÚNG là thứ tự BỘ CHỨA profiles.ini. Thư mục không có
+# profiles.ini thì chỉ được dùng ở mức dự phòng, và phải có prefs.js mới
+# tính — nếu không sẽ dính thư mục cache trùng tên.
 firefox_bases() {
+    local cfg=${XDG_CONFIG_HOME:-$TSUKI_HOME/.config}
+    local data=${XDG_DATA_HOME:-$TSUKI_HOME/.local/share}
+    local cache=${XDG_CACHE_HOME:-$TSUKI_HOME/.cache}
+    local flatpak=$TSUKI_HOME/.var/app/org.mozilla.firefox
     printf '%s\n' \
-        "$TSUKI_HOME/.config/mozilla/firefox" \
+        "$cfg/mozilla/firefox" \
         "$TSUKI_HOME/.mozilla/firefox" \
-        "${XDG_CACHE_HOME:-$TSUKI_HOME/.cache}/mozilla/firefox" \
-        "$TSUKI_HOME/.cache/mozilla/firefox" \
-        "$TSUKI_HOME/snap/firefox/common/.mozilla/firefox"
+        "$flatpak/.mozilla/firefox" \
+        "$flatpak/.config/mozilla/firefox" \
+        "$TSUKI_HOME/snap/firefox/common/.mozilla/firefox" \
+        "$TSUKI_HOME/snap/firefox/common/.config/mozilla/firefox" \
+        "$data/mozilla/firefox" \
+        "$TSUKI_HOME/.mozilla/firefox-dev" \
+        "$TSUKI_HOME/.mozilla/firefox-nightly" \
+        "$TSUKI_HOME/.mozilla/firefox-beta" \
+        "$cache/mozilla/firefox" \
+        "$TSUKI_HOME/.cache/mozilla/firefox"
+}
+
+# Một đường dẫn có trông giống thư mục CACHE của Firefox không (tức KHÔNG
+# phải profile). Cache đĩa của Firefox nằm cùng tên với profile:
+#   ~/.cache/mozilla/firefox/<hash>.default-release/{cache2,safebrowsing,thumbnails,...}
+# Ghi userChrome.css vào đó là vô nghĩa — Firefox không bao giờ đọc. Đây
+# chính là chỗ bản "sửa" trước cài nhầm trên máy này.
+firefox_looks_like_cache() {
+    local d=$1
+    [[ -d $d ]] || return 1
+    # Có prefs.js thì chắc chắn là profile.
+    [[ -f $d/prefs.js ]] && return 1
+    # base của nó có profiles.ini thì base đó là nơi quản lý profile.
+    [[ -f ${d%/*}/profiles.ini ]] && return 1
+    # Dấu hiệu đặc trưng của cache2
+    [[ -d $d/cache2 || -d $d/safebrowsing ]] && return 0
+    return 1
 }
 
 # Đọc profiles.ini — nguồn CHUẨN XÁC cho biết profile nào đang được dùng.
@@ -691,15 +982,14 @@ newest_dir() {
     ls -dt -- "$@" 2>/dev/null | sed -n '1p'
 }
 
-firefox_profile() {
-    local base p
+firefox_candidates() {
+    local base p seen=""
     local -a ini_hits=() guess_hits=() weak_hits=()
 
-    # Gom ỨNG VIÊN TỪ MỌI thư mục gốc rồi mới chọn — KHÔNG return ngay trong
-    # vòng lặp. Bản trước return ở thư mục đầu tiên tìm được, nên khi máy vừa
-    # dùng ~/.cache mà ~/.mozilla còn sót profile cũ thì chọn nhầm profile
-    # cũ. Đã tái hiện: ~/.mozilla/.../OLD (2021) vs ~/.cache/.../NEW (2026)
-    # -> bản cũ trả về OLD. Sau khi gom hết, newest_dir() chọn đúng NEW.
+    # Gom ỨNG VIÊN TỪ MỌI thư mục gốc — KHÔNG return ngay trong vòng lặp.
+    # Bản trước return ở thư mục đầu tiên tìm được, nên khi máy vừa dùng
+    # ~/.config mà ~/.mozilla còn sót profile cũ thì chọn nhầm profile cũ.
+    # Đã tái hiện: OLD (2021) vs NEW (2026) -> bản cũ trả về OLD.
     #
     # `while read` chứ không `for base in $(firefox_bases)`: word splitting
     # làm vỡ đường dẫn có khoảng trắng (ví dụ TSUKI_HOME="/home/a b").
@@ -717,17 +1007,16 @@ firefox_profile() {
         # Glob KHÔNG khớp thì "$base"/*.*/ giữ nguyên chuỗi; `[[ -d ]]` loại.
         # CHIA HAI MỨC: ưu tiên ứng viên có `prefs.js` (dấu hiệu chắc chắn là
         # profile), phần còn lại để dự phòng cho profile vừa tạo chưa thoát
-        # sạch lần nào — Firefox chỉ ghi prefs.js khi shutdown, nên profile mới
-        # mở lần đầu có thể chưa có.
+        # sạch lần nào — Firefox chỉ ghi prefs.js khi shutdown.
         #
-        # KHÔNG để mức dự phòng đứng ngang hàng vì nó dễ dính thư mục CACHE
-        # cùng tên: `~/.cache/mozilla/firefox/jnetde4e.default-release` trên
-        # máy này chứa cache2/, thumbnails/, safebrowsing/, packs ngôn ngữ —
+        # Loại thư mục cache trùng tên ở mọi mức: `~/.cache/mozilla/firefox/
+        # <hash>.default-release` chứa cache2/, thumbnails/, safebrowsing/ —
         # là cache đĩa của Firefox, KHÔNG phải profile, lại MỚI HƠN profile
         # thật nên đứng đầu khi sort mtime. Ghi userChrome.css vào đó là vô
-        # nghĩa — va day chinh la thu da "cam ung" viec cai sai cho may nay.
+        # nghĩa — và đó chính là cách bản "sửa" trước cài nhầm trên máy này.
         for p in "$base"/*.*/; do
             [[ -d $p ]] || continue
+            firefox_looks_like_cache "$p" && continue
             if [[ -f $p/prefs.js ]]; then
                 guess_hits+=("${p%/}")
             else
@@ -736,16 +1025,109 @@ firefox_profile() {
         done
     done < <(firefox_bases)
 
-    if (( ${#ini_hits[@]} )); then
-        newest_dir "${ini_hits[@]}" && return 0
+    # Thứ tự ưu tiên: profiles.ini > có prefs.js > dự phòng. Chỉ xuất ứng viên
+    # của mức CAO NHẤT đang có — trả về cả ba lớp sẽ khiến người dùng bị hỏi
+    # về một profile rỗng trong khi đã có profile thật.
+    local -a out=()
+    local -a pick=()
+    if   (( ${#ini_hits[@]} ));   then pick=("${ini_hits[@]}")
+    elif (( ${#guess_hits[@]} )); then pick=("${guess_hits[@]}")
+    elif (( ${#weak_hits[@]} )); then pick=("${weak_hits[@]}")
+    else return 1
     fi
-    if (( ${#guess_hits[@]} )); then
-        newest_dir "${guess_hits[@]}" && return 0
+
+    # Bỏ trùng (cùng một profile có thể lọt vào nhiều base, ví dụ ~/.mozilla
+    # và $XDG_CONFIG_HOME trỏ cùng chỗ).
+    for p in "${pick[@]}"; do
+        [[ -n $p ]] || continue
+        case $seen in *"|$p|"*) continue ;; esac
+        seen+="|$p|"
+        out+=("$p")
+    done
+    (( ${#out[@]} )) || return 1
+    # Truyền tham số TRỰC TIẾP, KHÔNG qua pipe. `printf ... | func` khiến
+    # "$@" của func rỗng -> `ls -dt --` không có đối số nào liệt kê thư mục
+    # hiện tại -> trả về "." -> cmd_firefox ghi userChrome.css vào $PWD.
+    # Đã mắc đúng lỗi này: in ra "profile: ." và tạo ./user.js + ./chrome/
+    # trong cây repo. Đã xoá; giữ comment để không lặp lại.
+    newest_dir_keep_all "${out[@]}"
+    return 0
+}
+
+# In tất cả đường dẫn, mới nhất trước. `newest_dir` chỉ in dòng đầu nên không
+# dùng được ở đây; `ls -dt` + `sed -n '1,$p'` đọc hết, không dính SIGPIPE.
+newest_dir_keep_all() {
+    ls -dt -- "$@" 2>/dev/null | sed -n '1,$p'
+}
+
+# Chọn 1 trong N ứng viên. Không có terminal thì lấy ứng viên ĐẦU (đã sort
+# mới nhất trước) và nói rõ — im lặng chọn bừa là nguyên nhân gốc của mọi
+# lần "cài nhầm" trước đây.
+choose_profile() {
+    local -a c=()
+    mapfile -t c < <(firefox_candidates) || true
+    (( ${#c[@]} )) || return 1
+    if (( ${#c[@]} == 1 )); then
+        printf '%s\n' "${c[0]}"
+        return 0
     fi
-    if (( ${#weak_hits[@]} )); then
-        newest_dir "${weak_hits[@]}" && return 0
+
+    if [[ ! -t 0 ]]; then
+        warn "có ${#c[@]} profile Firefox, không có terminal để hỏi."
+        warn "  Dùng: ${c[0]}"
+        warn "  (đặt FIREFOX_PROFILE=<đường dẫn> hoặc ./install.sh firefox <đường dẫn> để chỉ định)"
+        printf '%s\n' "${c[0]}"
+        return 0
     fi
-    return 1
+
+    local i n=${#c[@]}
+    warn "tìm thấy $n profile Firefox. Giao diện sẽ cài vào profile bạn chọn:"
+    for ((i = 0; i < n; i++)); do
+        printf '    %d) %s%s\n' "$((i + 1))" "${c[i]}" \
+            "$( [[ ${c[i]} == /* ]] || true)$( mark_active "${c[i]}" )"
+    done
+    local reply
+    while :; do
+        printf '  chọn [1-%d] (mặc định 1): ' "$n"
+        read -r reply || reply=''
+        [[ -z $reply ]] && reply=1
+        [[ $reply =~ ^[0-9]+$ ]] && (( reply >= 1 && reply <= n )) && break
+        printf '  nhập số từ 1 đến %d\n' "$n"
+    done
+    printf '%s\n' "${c[reply - 1]}"
+}
+
+# Gắn nhãn cho ứng viên để người dùng dễ chọn: ưu tiên hiển thị mức tin cậy.
+mark_active() {
+    local d=$1
+    if [[ -f ${d%/*}/profiles.ini ]]; then
+        printf '   <- profiles.ini chỉ định'
+    elif [[ -f $d/prefs.js ]]; then
+        printf '   <- có prefs.js'
+    else
+        printf '   <- dự phòng (chưa có prefs.js)'
+    fi
+}
+
+# Đường dẫn profile do người dùng chỉ định: tham số dòng lệnh, rồi biến môi
+# trường. Chỉ dùng khi có; không phải đoán.
+firefox_profile_override() {
+    local p=${1:-}
+    [[ -n $p ]] || p=${FIREFOX_PROFILE:-}
+    [[ -n $p ]] || return 1
+    # Cho phép truyền thư mục gốc (có profiles.ini) lẫn thẳng thư mục profile.
+    if [[ -f $p/profiles.ini ]]; then
+        local r
+        r="$(firefox_profile_ini "$p" || true)"
+        [[ -n $r ]] && { printf '%s\n' "$r"; return 0; }
+        die "$p có profiles.ini nhưng không đọc được profile nào"
+    fi
+    [[ -d $p ]] || die "đường dẫn profile không tồn tại: $p"
+    printf '%s\n' "$p"
+}
+
+firefox_profile() {
+    choose_profile
 }
 
 cmd_firefox() {
@@ -766,14 +1148,31 @@ cmd_firefox() {
         die "thiếu file trong repo: ${missing[*]}"
     fi
 
-    profile="$(firefox_profile || true)"
+    # Ưu tiên đường dẫn NGƯỜI DÙNG chỉ định (arg hoặc $FIREFOX_PROFILE);
+    # chỉ khi không có mới tự dò. Nhờ vậy máy nào cũng ép được nếu heuristic
+    # trượt — đây là lưới an toàn cho mọi trường hợp lạ mà script chưa biết.
+    profile="$(firefox_profile_override "${1:-}" || true)"
+    if [[ -z $profile ]]; then
+        profile="$(firefox_profile || true)"
+    fi
     if [[ -z $profile ]]; then
         warn "không tìm thấy thư mục profile Firefox."
         local b
-        while IFS= read -r b; do warn "  đã dò: ${b/#$TSUKI_HOME/~}"; done \
-            < <(firefox_bases)
-        warn "  Hãy MỞ FIREFOX MỘT LẦN (để nó tạo profile) rồi chạy lại ./install.sh dotfiles"
+        while IFS= read -r b; do
+            [[ -d $b ]] && warn "  đã dò: $(tilde "$b")"
+        done < <(firefox_bases)
+        warn "  Hãy MỞ FIREFOX MỘT LẦN (để nó tạo profile) rồi chạy lại ./install.sh firefox"
+        warn "  hoặc chỉ định tay:  ./install.sh firefox ~/.mozilla/firefox/xyz.default-release"
         return 0
+    fi
+
+    # Chặn ghi vào thư mục CACHE. Ở đây KHÔNG chỉ cảnh báo rồi vẫn ghi: bản
+    # "sửa" trước đã cài vào ~/.cache/mozilla/firefox/... và in "OK", người
+    # dùng tin là xong nhưng Firefox không bao giờ đọc tới. Thà báo lỗi.
+    if firefox_looks_like_cache "$profile"; then
+        die "$profile trông như CACHE đĩa của Firefox (có cache2/ hoặc safebrowsing/, không phải profile).
+       Ghi userChrome.css vào đó không có tác dụng. Chỉ định đúng profile:
+         ./install.sh firefox <đường dẫn profile có prefs.js>"
     fi
 
     dst_user="$profile/user.js"
@@ -912,6 +1311,7 @@ EOF
 # GTK3 tra theme theo đúng tên thư mục sau khi cài, KHÔNG phải Name= trong
 # index.theme — nên thư mục phải tên đúng "Miami26" / "kora-pgrey".
 cmd_themes() {
+    need git curl
     step "cài theme Miami26 + icon Kora (từ git)"
     local src="$TSUKI_HOME/.cache/tsuki-themes"
     mkdir -p "$src" "$TSUKI_HOME/.themes" "$TSUKI_HOME/.local/share/icons"
@@ -1564,6 +1964,7 @@ cmd_paru() {
 }
 
 cmd_pty() {
+    need paru git makepkg
     step "bộ gõ Lotus — tiếng Việt"
     cmd_paru
 
@@ -1670,7 +2071,8 @@ main() {
         deps)      cmd_deps ;;
         build)     cmd_build ;;
         dotfiles)  cmd_dotfiles; cmd_firefox ;;
-        firefox)   cmd_firefox ;;
+        firefox)   cmd_firefox "${2:-}" ;;
+        check)     cmd_check ;;
         themes)    cmd_themes ;;
         session)   cmd_session "${2:-}" ;;
         xlibre)    cmd_xlibre "${2:-stable}" ;;
@@ -1679,6 +2081,9 @@ main() {
         pty)       cmd_pty ;;
         uninstall) cmd_uninstall ;;
         all)
+            # Báo trước phần thiếu rồi mới làm — `all` chạy 8 bước,
+            # hỏng ở bước 6 vì thiếu `make` thì mất công vô ích.
+            cmd_check
             # Trước deps: PKG_KEYBINDS có visual-studio-code-bin và discord-ptb
             # nằm trong kho arisa. Hỏi sau khi cài deps thì hai gói đó đã bị
             # bỏ qua rồi, phải chạy lại ./install.sh deps mới lấy được.

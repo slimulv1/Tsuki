@@ -32,11 +32,17 @@ Cài Arch/CachyOS **không chọn display manager**, boot vào TTY rồi đăng 
 ```sh
 git clone https://github.com/slimulv1/Tsuki.git ~/tsuki
 cd ~/tsuki
+./install.sh check      # kiểm tra máy đã đủ công cụ chưa — không sửa gì
 ./install.sh
 ```
 
 Lệnh này cài gói phụ thuộc, build `dwm` `st` `slock` `dmenu` `slstatus`, chép
 `~/.config` và viết `~/.xinitrc`. Chỉ hỏi mật khẩu khi cần root.
+
+`./install.sh check` chạy trước `all` và báo thẳng những gì còn thiếu (OS không
+phải Arch, thiếu `make`/`gcc`, thiếu `config.h`, thư mục đích không ghi được,
+tìm thấy mấy profile Firefox) thay vì để lỗi lộ ra giữa chừng build. Chạy nó
+trên máy mới trước khi cài, hoặc dán kết quả lên issue khi cài lỗi.
 
 > Tên thư mục **không quan trọng**: `run.sh` và mọi script suy ra vị trí repo từ
 > chính `$0` (dùng `$TSUKI_DIR` nếu đã có), nên clone ở `~/Tsuki`, `~/dwm` hay

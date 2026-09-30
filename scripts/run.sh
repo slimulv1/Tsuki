@@ -955,20 +955,27 @@ while type dwm >/dev/null 2>&1; do
     # thoát. Vì sao không cho thẳng ra terminal như bản cũ: nguyên nhân chết
     # của dwm ("no fonts could be loaded.") là thứ duy nhất giúp tra, mà bản
     # cũ chỉ in ra màn hình đen rồi mất — nhật ký chỉ còn "dwm crash lần N".
-    # Ghi theo từng lần chết nên quy được lần nào hỏng vì cái gì.
+    #
+    # NHƯNG CHỈ BÁO KHI DWM CHẾT SỚP. `dwm 2>file` bắt stderr của dwm, và MỌI
+    # APP DWM MỞ ĐỀU KẾ THỪA fd đó — nên sau vài giây file đầy của thứ khác:
+    #   erresc: unknown csi ESC[>0q        <- terminal escape cua st/kitty
+    #   (node:...) DeprecationWarning       <- Electron cua Discord
+    #   ATTENTION: mesa_glthread            <- GL cua app do dwm mo
+    #   Gtk: gtk_widget_add_accelerator     <- GTK cua Discord
+    # Do tren may that: mot lan `Super+Shift+R` (dwm chay 81s roi chet 143) ghi
+    # 54 dong nhan "dwm:" — KHONG DONG NAO la cua dwm. Nhiieu hon ca loi can
+    # tra, va giong het thu la loi cua app, tieu tan dung thu ma nhieu nhat.
+    #
+    # Ly do chi bao khi chet som: chan doan CUA DWM (die() khi khong nap duoc
+    # font, khong mo duoc display) xay ra trong vai mili giay dau. dwm song
+    # >10s roi moi chet thi phan lon noi dung file la cua app con.
     _dwm_err="$XDG_RUNTIME_DIR/tsuki-dwm.err"
+    safe_touch "$_dwm_err" || true
     dwm 2>"$_dwm_err" &
     _dwm_pid=$!
     wait "$_dwm_pid"
     _rc=$?
     _dwm_pid=""
-    if [ -s "$_dwm_err" ]; then
-        while IFS= read -r _l; do
-            printf 'dwm: %s\n' "$_l" >&2
-            log "dwm: $_l"
-        done <"$_dwm_err"
-        safe_touch "$_dwm_err" || true
-    fi
 
     if [ "$_rc" -eq 0 ]; then
         info "dwm thoát bình thường (exit 0) — kết thúc session"
@@ -978,6 +985,18 @@ while type dwm >/dev/null 2>&1; do
 
     _t1=$(date +%s 2>/dev/null || echo 0)
     _ran=$(( _t1 - _t0 ))
+
+    # Chỉ đưa stderr đã bắt vào nhật ký khi dwm chết SỚP — lúc đó nó gần như
+    # chắc là của dwm, vì app con chưa kịp mở ra ghi gì. Xem giải thích dài ở
+    # khối `dwm 2>$_dwm_err` phía trên.
+    if [ "$_ran" -lt 10 ] && [ -s "$_dwm_err" ]; then
+        while IFS= read -r _l; do
+            printf 'dwm: %s\n' "$_l" >&2
+            log "dwm: $_l"
+        done <"$_dwm_err"
+    fi
+    safe_touch "$_dwm_err" || true
+
     if [ "$_ran" -ge 10 ]; then
         _crash_count=0            # đã chạy tốt rồi mới chết -> không phải lỗi cấu hình
         _delay=0.3

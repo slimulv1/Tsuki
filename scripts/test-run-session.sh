@@ -492,13 +492,62 @@ rm -f "$T/repo/config.h"
 # --- T18: stderr của dwm phải vào nhật ký ------------------------------------
 # Bản cũ cho stderr dwm thẳng ra terminal rồi mất: nhật ký chỉ còn
 # "dwm crash lần N", không có lý do. Giờ phải bắt được.
+# FAKE_DWM_FAULTS=1: stub tra 1, dung kieu dwm CHET. Neu trả 0 thi run.sh thoat
+# sach o nhanh exit 0 va KHONG bao stderr — dung y nghia, nhung khong phai
+# kich ban dang can kiem.
 : > "$FAKE_DWM_COUNT"
+export FAKE_DWM_FAULTS=1
 ( cd "$R" && timeout 60 sh scripts/run.sh >/dev/null 2>&1 )
+unset FAKE_DWM_FAULTS
 if grep -q 'dwm: no fonts could be loaded' "$TSUKI_LOG_PATH" 2>/dev/null; then
     ok "T18 lỗi của dwm được ghi vào nhật ký (trước đây mất sạch)"
 else
     bad "T18 không bắt được lỗi dwm" "log: $(grep -i dwm "$TSUKI_LOG_PATH" 2>/dev/null | head -3 | tr '\n' ';')"
 fi
+
+# --- T18b: dwm SỐNG LÂU thì KHÔNG được đổ nhiễu app con vào nhật ký --------
+# `dwm 2>file` bắt stderr của dwm, và MỌI APP DWM MỞ ĐỀU KẾ THỪA fd đó. Đo trên
+# máy thật: một lần Super+Shift+R (dwm chạy 81s rồi chết 143) ghi 54 dòng nhãn
+# "dwm:" — erresc của terminal, DeprecationWarning của Electron/Discord,
+# mesa_glthread, gtk_widget_add_accelerator. KHÔNG dòng nào của dwm.
+# Nhiều hơn cả lỗi cần tra, và giong hệt thứ của app khác.
+#
+# Nên: chỉ đưa vào nhật ký khi dwm chết DƯỚI 10s, lúc đó app con chưa kịp mở.
+# PHẢI ghi vào $T/repo/dwm, KHÔNG CHỈ $T/bin/dwm. run.sh đặt $TSUKI_DIR trước
+# PATH nên `type dwm` tìm thấy $T/repo/dwm — bản sao làm lúc dựng sandbox.
+# Bản đầu chỉ sửa $T/bin/dwm nên stub 12s KHÔNG BAO GIỜ chạy, và T18b "PASS"
+# vì lý do sai: stub nhanh thoát 0 ngay, không ghi gì ra stderr.
+cp "$T/repo/dwm" "$T/repo/dwm.fast"
+cat > "$T/repo/dwm" <<'STUB'
+#!/bin/sh
+# Không dùng tên biến tự bịa: lần đầu viết : >> "$DWM_MARK" (biến này không
+# tồn tại) -> chuyển hướng lỗi làm dash CHẾT ngay dòng 2, sleep 12 không bao
+# giờ chạy, _ran=0s. T18b vẫn "PASS" vì lý do sai: run.sh đúng ra đã phải báo
+# nhiễu vì dwm chết sớm, nhưng cả hai dấu hiệu đều không xuất hiện nên test
+# xanh. Dùng ${VAR:-/dev/null} để không bao giờ chết vì biến rỗng.
+printf 'ran\n' >> "${FAKE_DWM_COUNT:-/dev/null}"
+sleep 12
+printf 'erresc: unknown csi ESC[>0q\n' >&2
+printf '(node:1) DeprecationWarning: punycode\n' >&2
+exit 143
+STUB
+chmod +x "$T/repo/dwm"
+: > "$FAKE_DWM_COUNT"
+( cd "$R" && timeout 90 sh scripts/run.sh >/dev/null 2>&1 )
+if grep -qE 'dwm: (erresc|.*DeprecationWarning)' "$TSUKI_LOG_PATH" 2>/dev/null; then
+    bad "T18b nhiễu app con bị ghi vào nhật ký" "$(grep -m2 'dwm: ' "$TSUKI_LOG_PATH" | tr '\n' ';')"
+else
+    ok "T18b dwm sống >10s: nhiễu app con KHÔNG vào nhật ký"
+fi
+# nhưng dòng "dwm chết sau Ns" vẫn phải có — không mất thông tin thật
+if grep -q 'dwm chết sau 1[0-9]s' "$TSUKI_LOG_PATH" 2>/dev/null; then
+    ok "T18c dòng 'dwm chết sau Ns' vẫn được ghi (không mất thông tin thật)"
+else
+    bad "T18c mất dòng báo dwm chết" "LOG=[$(tr '\n' ';' < "$TSUKI_LOG_PATH" 2>/dev/null | tail -c 400)]"
+fi
+# PHẢI khôi phục stub nhanh — T19..T23 chạy sau, stub ngủ 12s sẽ làm chúng
+# chậm và có thể hỏng. Lần đầu quên, T19 tốn 12s mỗi vòng lặp.
+mv "$T/repo/dwm.fast" "$T/repo/dwm"
 
 # --- T19: KHÔNG được tham chiếu biến chưa đặt (set -u) ở bất kỳ đâu ----------
 # run.sh chạy `set -u`. Tham chiếu biến chưa đặt KHÔNG phải cảnh báo mà là

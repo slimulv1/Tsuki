@@ -49,6 +49,7 @@ Xong thì gõ `dwm`. Thoát về TTY bằng `Super+Ctrl+Q`.
 | `Super+w` | Đổi wallpaper và theme |
 | `Super+Shift+R` | Build lại dwm |
 | `Super+Ctrl+Q` | Thoát |
+| `Super+/` | Bật bảng Keybinds |
 
 Trong `st`: lăn chuột để cuộn, hoặc kéo chuột giữ tới mép trên/dưới để tự
 cuộn. `Shift+PgUp`/`Shift+PgDn` cuộn theo trang.

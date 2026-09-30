@@ -26,6 +26,10 @@ TSUKI_LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tsuki"
 mkdir -p "$TSUKI_LOG_DIR" 2>/dev/null || TSUKI_LOG_DIR="${TMPDIR:-/tmp}"
 TSUKI_LOG="$TSUKI_LOG_DIR/session.log"
 : >"$TSUKI_LOG" 2>/dev/null || TSUKI_LOG=/dev/null
+# Nhật ký ghi tên các tiến trình, phiên, đường dẫn profile — thông tin riêng
+# của máy. Đặt mode 600 tường minh thay vì dựa vào `umask` toàn cục, xem
+# khối "quyền mặc định" bên dưới để biết vì sao không dùng cách đó.
+chmod 600 "$TSUKI_LOG" 2>/dev/null || true
 export TSUKI_LOG
 
 log()  { printf '%s\n' "$*" >>"$TSUKI_LOG" 2>/dev/null || :; }
@@ -138,8 +142,6 @@ fi
 # export WAYLAND_DISPLAY=wayland-1
 
 # --- phụ đơn vị: chạy nền, chết thì session vẫn sống --------------------------
-# Mỗi thứ một hàm + pidfile: không thêm process group mới, nên khi dwm chết
-# (rebuild) các daemon này vẫn sống và không bị nhân bản.
 # Mỗi thứ một hàm + khoá: không thêm process group mới, nên khi dwm chết
 # (rebuild) các daemon này vẫn sống và không bị nhân bản.
 #
@@ -273,11 +275,27 @@ else
     fi
 fi
 
-# Quyền mặc định. Không đặt thì file app tạo mang quyền tuỳ ý của umask cha
-# (systemd hay đặt 0022, nhưng không bảo đảm), và ~/.cache/thumbnails cần
-# 0700 đúng spec — run.sh tự chmod ở khối thumbnail, nhưng các file khác
-# (cache, log) vẫn cần một umask đoán trước.
-umask 077 2>/dev/null || true
+# Quyền mặc định: 0022 — file 644, thư mục 755. Đặt tường minh để không phụ
+# thuộc vào umask mà startx/login để lại.
+#
+# BẢN CŨ ĐẶT `umask 077` ở ĐÂY. SAI, ĐÃ GỠ. Lý do:
+#
+#   umask là TRẠNG THÁI TOÀN CỤC của tiến trình và mọi tiến trình con đều kế
+#   thừa — kể cả dwm, rồi từ dwm tới mọi app người dùng mở. Đo trên máy
+#   thật: `Umask: 0077` trong /proc/<pid>/status của dwm, slstatus, tumblerd;
+#   /tmp/.bun-*.so tạo trong phiên đó là -rw-------.
+#   Nghĩa là file người dùng lưu ra bị khoá 600 và thư mục 700, thay vì 644
+#   và 755 — app nào tôn trọng umask thì bị, app nào tự đặt mode thì không.
+#
+#   Tệ hơn: umask đặt ở đây KHÔNG bảo vệ được thứ nó sinh ra để bảo vệ.
+#   session.log được tạo ở DÒNG 28, trước dòng này, nên ra mode theo umask
+#   lúc đó là 644 — đúng như đã đo được trên máy. ~/.cache/thumbnails thì
+#   run.sh đã chmod 700 tường minh ở khối thumbnail, không cần umask.
+#   Tức là `umask 077` không bảo vệ được gì, chỉ siết file của người dùng.
+#
+# Nên bảo vệ từng thứ bằng mode tường minh: session.log chmod 600 ở trên,
+# ~/.cache/thumbnails chmod 700 ở khối thumbnail.
+umask 022 2>/dev/null || true
 
 # --- nền desktop ------------------------------------------------------------
 # xrdb -merge nạp font + màu X. Chạy ĐỒNG BỘ (bản cũ để `&`): nó mất chưa

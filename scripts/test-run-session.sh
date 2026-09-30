@@ -29,6 +29,12 @@ cat > "$T/bin/dwm" <<'EOF'
 n=$(cat "$FAKE_DWM_COUNT" 2>/dev/null); n=${n:-0}
 n=$((n + 1))
 printf '%s\n' "$n" > "$FAKE_DWM_COUNT"
+# GHI LẠI umask mà dwm kế thừa được từ run.sh, cộng thêm mode thật của một
+# file mà "app" tạo ra. dwm giả đóng vai dwm thật: nó là con trực tiếp của
+# run.sh, nên nó thừa hưởng đúng cái umask mà mọi app dwm mở ra cũng thừa
+# hưởng. File thật thì chắc chắn hơn đọc /proc/<pid>/status.
+: > "$FAKE_UMASK_PROBE" 2>/dev/null
+( umask; stat -c %a "$FAKE_UMASK_PROBE" 2>/dev/null || echo "?" ) > "$FAKE_UMASK_OUT" 2>/dev/null
 # Số lần chết nhanh từ biến môi trường; lần đó trả 1, còn lại trả 0
 if [ "$n" -le "${FAKE_DWM_FAULTS:-0}" ]; then
     exit 1
@@ -42,6 +48,12 @@ export HOME="$T/home"
 export XDG_RUNTIME_DIR="$T/run"
 export XDG_CACHE_HOME="$T/home/.cache"
 export FAKE_DWM_COUNT="$T/dwm.count"
+# Hai biến cho probe umask của T8. PHẢI export ngay từ đầu chứ không để tới
+# T8 mới set: stub dwm chạy cả trong T1..T7, nơi biến còn rỗng thì
+# `: > "$FAKE_UMASK_PROBE"` hỏng và làm stub trả mã khác 0 -> dwm "crash" giả,
+# T1/T6/T6c cùng hỏng theo. Đã mắc đúng lỗi này.
+export FAKE_UMASK_PROBE="$T/probe.dat"
+export FAKE_UMASK_OUT="$T/umask.out"
 export NO_COLOR=1
 : > "$FAKE_DWM_COUNT"
 
@@ -130,8 +142,14 @@ fi
 # Và phải TĂNG DẦN, không phải hằng số: đọc delay ghi trong log phiên.
 LOG6="$XDG_CACHE_HOME/tsuki/session.log"
 # Dòng log kết thúc bằng "nghỉ <số>s" — trường cuối là số giây. Không grep
-# theo chữ có dấu ("nghi" vs "nghỉ") vì dễ sai.
-delays=$(grep 'dwm crash' "$LOG6" 2>/dev/null | awk '{print $NF}' | tr -d 's' | tr '\n' ' ')
+# theo chữ có dấu ("nghi" vs "nghỉ") vì dễ sai; lọc bằng đuôi `<số>.<số>s`.
+#
+# Phải lọc thêm chứ không chỉ `grep 'dwm crash'`: dòng báo DỪNG
+# ("FAIL  dwm crash liên tiếp N lần, ... — DỪNG") CŨNG chứa "dwm crash", và
+# trường cuối của nó là chữ "DỪNG" -> awk không parse được ("invalid char in
+# expression") và T6c FAIL oan. Chuyện này chỉ lộ ra khi vòng lặp đi tới ngưỡng
+# 10 lần, tức đúng lúc T7 chạy. Đã mắc.
+delays=$(grep 'dwm crash' "$LOG6" 2>/dev/null | grep -E '[0-9]+\.[0-9]s$' | awk '{print $NF}' | tr -d 's' | tr '\n' ' ')
 first=$(printf '%s' "$delays" | awk '{print $1}')
 last=$(printf '%s' "$delays" | awk '{print $NF}')
 if [ -n "$first" ] && [ -n "$last" ] && awk "BEGIN{exit !($last > $first)}"; then
@@ -156,6 +174,44 @@ if printf '%s\n' "$out2" | grep -q 'crash liên tục'; then
     ok "T7b in nguyên nhân ra thay vì im lặng"
 else
     bad "T7b thông báo crash loop" "không tìm thấy trong output"
+fi
+
+# --- T8: umask của session KHÔNG được siết lại toàn cục ---------------------
+# run.sh từng đặt `umask 077` ở giữa file. umask là TRẠNG THÁI TOÀN CỤC và
+# mọi tiến trình con đều kế thừa — kể cả dwm, rồi từ dwm tới Firefox, Thunar,
+# mọi app người dùng mở. Hậu quả: file người dùng lưu ra là 600, thư mục là
+# 700, thay vì 644/755. Đo trên máy thật: dwm có Umask=0077 trong
+# /proc/<pid>/status, và /tmp/.bun-*.so tạo trong phiên đó là -rw-------.
+#
+# Ý đồ của dòng umask đó là bảo vệ cache/log của chính run.sh — nhưng log được
+# tạo ở DÒNG 28, trước umask, nên umask không bảo vệ được nó (session.log thật
+# là 644). Còn ~/.cache/thumbnails thì run.sh đã chmod 700 tường minh. Tức là
+# umask 077 không bảo vệ được gì mà lại siết chặt file của người dùng.
+: > "$FAKE_DWM_COUNT"
+( cd "$R" && timeout 60 sh scripts/run.sh >/dev/null 2>&1 )
+if [ -s "$FAKE_UMASK_OUT" ]; then
+    um_val=$(sed -n 1p "$FAKE_UMASK_OUT")
+    mode_val=$(sed -n 2p "$FAKE_UMASK_OUT")
+    if [ "$um_val" = "0022" ] && [ "$mode_val" = "644" ]; then
+        ok "T8 dwm kế thừa umask 0022 — file người dùng lưu ra là 644"
+    else
+        bad "T8 umask bị siết toàn cục" "dwm thấy umask=$um_val, file tạo ra mode=$mode_val (mong đợi 0022/644)"
+    fi
+else
+    bad "T8 không đọc được umask của dwm" "stub dwm không ghi ra $FAKE_UMASK_OUT"
+fi
+
+# --- T9: session.log vẫn phải là 600 dù không còn umask 077 toàn cục --------
+# Nếu bỏ umask 077 thì phải bảo vệ log bằng cách khác, nếu không lại mất.
+if [ -f "$TSUKI_LOG_PATH" ]; then
+    lm=$(stat -c %a "$TSUKI_LOG_PATH" 2>/dev/null)
+    if [ "$lm" = "600" ]; then
+        ok "T9 session.log mode 600 — vẫn riêng tư sau khi bỏ umask toàn cục"
+    else
+        bad "T9 session.log không riêng tư" "mode=$lm (mong đợi 600)"
+    fi
+else
+    bad "T9 không có session.log" "$TSUKI_LOG_PATH"
 fi
 
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"

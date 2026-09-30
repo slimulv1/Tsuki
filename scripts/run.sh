@@ -47,10 +47,35 @@ have() { command -v "$1" >/dev/null 2>&1; }
 #
 # `exit 0` trong vòng lặp dwm cũng đi qua trap EXIT, nên nhánh thoát chủ động
 # vẫn dọn đúng (không cần gọi stop_daemons thủ công, nhưng gọi vẫn vô hại).
+#
+# PHẢI CHUYỂN TIẾP TÍN HIỆU CHO dwm, không chỉ tự dọn. Xem khối "dwm" cuối
+# file: dwm chạy NỀN + `wait`, nên khi run.sh nhận tín hiệu, `wait` bị ngắt và
+# trap chạy ngay. Nếu trap chỉ dọn daemon rồi thoát mà không báo dwm, dwm sống
+# mồ côi giữ X server — người dùng thấy màn hình đen nhưng dwm vẫn giữ cửa sổ.
+_dwm_pid=""
+
+_dwm_forward() {
+    # $1 = TERM | HUP | INT. Chỉ khi dwm còn sống và khác chính ta.
+    if [ -n "$_dwm_pid" ] && [ "$_dwm_pid" -ne "$$" ] 2>/dev/null; then
+        kill -"$1" "$_dwm_pid" 2>/dev/null
+    fi
+    :
+}
+
+# POSIX quy định trap BỊ HOÃN khi shell đang chờ một lệnh foreground. Bản cũ
+# chạy `dwm` ở foreground nên `kill -TERM <pid run.sh>` KHÔNG làm gì cả: đo thật
+# ở sandbox, sau 3 giây run.sh vẫn sống, dwm vẫn sống, và dòng "run.sh nhận
+# SIGTERM" không hề có trong log. Nay dwm chạy nền + `wait` nên trap chạy
+# ngay (đo cùng cách: trap chạy, `wait` trả 143).
+#
+# Lưu ý an toàn khi ngắm dwm ra nền: shell KHÔNG có job control (không phải
+# shell tương tác) nên lệnh `&` KHÔNG tạo process group mới — dwm vẫn cùng
+# pgid với run.sh, nên SIGHUP từ đóng terminal vẫn tới cả hai như cũ. Đo trên
+# máy thật: run.sh pid 2845 pgid 2845, dwm pid 3215 pgid 2845.
 trap 'stop_daemons 2>/dev/null; :' EXIT
-trap 'info "run.sh nhận SIGTERM — dọn daemon"; stop_daemons 2>/dev/null; exit 143' TERM
-trap 'info "run.sh nhận SIGHUP (logout) — dọn daemon"; stop_daemons 2>/dev/null; exit 129' HUP
-trap 'info "run.sh nhận SIGINT"; stop_daemons 2>/dev/null; exit 130' INT
+trap '_dwm_forward TERM; info "run.sh nhận SIGTERM — dọn daemon"; stop_daemons 2>/dev/null; exit 143' TERM
+trap '_dwm_forward HUP; info "run.sh nhận SIGHUP (logout) — dọn daemon"; stop_daemons 2>/dev/null; exit 129' HUP
+trap '_dwm_forward INT; info "run.sh nhận SIGINT"; stop_daemons 2>/dev/null; exit 130' INT
 
 # `warn_cursor` từng được gọi 3 lần ở khối con trỏ mà KHÔNG ĐỊNH NGHĨA ở đâu
 # cả. Trong sh, gọi lệnh chưa định nghĩa chỉ in "command not found" rồi đi
@@ -570,11 +595,24 @@ mkdir -p "$_thumb_dir" 2>/dev/null && chmod 700 "$_thumb_dir" 2>/dev/null
 # màn hình đen. 0.3+0.6+1.2+2×6 = 14.1s thì đủ nhanh mà vẫn chịu được một
 # sự cố tạm thời. Nhánh `killall dwm` khi rebuild KHÔNG bị ảnh hưởng: dwm đã
 # chạy hàng giờ nên `_ran >= 10` -> nghỉ 0.3s như cũ.
+# dwm chạy NỀN + `wait` thay vì foreground. Lý do: POSIX hoãn trap khi shell
+# chờ lệnh foreground, mà dwm chạy vô tận — nên `kill -TERM <pid run.sh>`
+# không làm gì (đo thật trong sandbox: run.sh sống, dwm sống, trap không chạy).
+# Với `wait`, tín hiệu ngắt được `wait`, trap chạy ngay và chuyển tiếp tín
+# hiệu cho dwm qua _dwm_forward.
+#
+# KHÔNG tạo process group mới: shell không có job control nên `&` giữ nguyên
+# pgid, SIGHUP khi đóng terminal vẫn tới cả hai. `wait` trả đúng exit status
+# của dwm, nên phần dưới y hệt bản foreground — dwm chết non-zero (bị SIGTERM
+# từ rebuild.sh, hoặc crash) là nạp lại, dwm trả 0 là kết thúc session.
 _crash_count=0
 while type dwm >/dev/null 2>&1; do
     _t0=$(date +%s 2>/dev/null || echo 0)
-    dwm
+    dwm &
+    _dwm_pid=$!
+    wait "$_dwm_pid"
     _rc=$?
+    _dwm_pid=""
 
     if [ "$_rc" -eq 0 ]; then
         info "dwm thoát bình thường (exit 0) — kết thúc session"

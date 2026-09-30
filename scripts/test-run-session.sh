@@ -39,6 +39,13 @@ printf '%s\n' "$n" > "$FAKE_DWM_COUNT"
 if [ "$n" -le "${FAKE_DWM_FAULTS:-0}" ]; then
     exit 1
 fi
+# FAKE_DWM_EXIT: ép trả mã cụ thể (143 = bị SIGTERM, đúng đường Super+Shift+R
+# -> rebuild.sh -> killall dwm). FAKE_DWM_LINGER: ở lại mãi để test tín hiệu.
+[ -n "${FAKE_DWM_EXIT:-}" ] && exit "$FAKE_DWM_EXIT"
+if [ "${FAKE_DWM_LINGER:-0}" = 1 ]; then
+    printf '%s\n' "$$" > "$FAKE_DWM_PID"
+    while :; do sleep 0.2; done
+fi
 exit 0
 EOF
 chmod +x "$T/bin/dwm"
@@ -213,6 +220,100 @@ if [ -f "$TSUKI_LOG_PATH" ]; then
 else
     bad "T9 không có session.log" "$TSUKI_LOG_PATH"
 fi
+
+# --- T10: dwm chết bằng SIGTERM (143) = đúng đường Super+Shift+R -----------
+# rebuild.sh gọi `killall dwm` -> dwm chết với exit status 143. run.sh phải
+# nạp lại dwm, KHÔNG được coi là kết thúc session. Đường này trước đây chưa
+# hề được test: T6/T7 chỉ dùng exit 1.
+: > "$FAKE_DWM_COUNT"
+export FAKE_DWM_EXIT=143
+( cd "$R" && timeout 60 sh scripts/run.sh >/dev/null 2>&1 )
+unset FAKE_DWM_EXIT
+n143=$(cat "$FAKE_DWM_COUNT" 2>/dev/null); n143=${n143:-0}
+if [ "$n143" -ge 2 ]; then
+    ok "T10 dwm chết 143 (SIGTERM) được nạp lại, không kết thúc session ($n143 lần)"
+else
+    bad "T10 xử lý exit 143" "chạy $n143 lần — mong đợi >= 2 (1 lần chết + 1 lần nạp lại)"
+fi
+
+# --- T11: SIGTERM gửi RIÊNG cho run.sh phải dọn được, và dwm không mồ côi ---
+# POSIX hoãn trap khi shell chờ lệnh foreground. Bản cũ chạy `dwm` foreground
+# nên `kill -TERM <pid run.sh>` không làm gì cả — đo thật trong sandbox: sau 3
+# giây run.sh vẫn sống, dwm vẫn sống, log không có dòng "run.sh nhận SIGTERM".
+# Nay dwm chạy nền + `wait` nên trap phải chạy ngay.
+export FAKE_DWM_LINGER=1
+export FAKE_DWM_PID="$T/dwm_linger.pid"
+: > "$FAKE_DWM_COUNT"; rm -f "$FAKE_DWM_PID"
+( cd "$R" && sh scripts/run.sh >/dev/null 2>&1 ) &
+RUNPID=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ -s "$FAKE_DWM_PID" ] && break
+    sleep 0.5
+done
+dwmpid=$(cat "$FAKE_DWM_PID" 2>/dev/null)
+if [ -n "$dwmpid" ] && kill -0 "$dwmpid" 2>/dev/null; then
+    ok "T11 dwm giả chạy nền, pid $dwmpid"
+else
+    bad "T11 dwm giả không lên" "pid='$dwmpid'"
+fi
+kill -TERM "$RUNPID" 2>/dev/null
+waited=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$RUNPID" 2>/dev/null || { waited=1; break; }
+    sleep 0.5
+done
+if [ "$waited" = 1 ]; then
+    ok "T11b SIGTERM chỉ cho run.sh — trap chạy, run.sh thoát"
+else
+    bad "T11b run.sh không thoát sau SIGTERM" "vẫn sống sau 5s — trap bị hoãn (lỗi foreground)"
+    kill -9 "$RUNPID" 2>/dev/null
+fi
+sleep 1
+if [ -n "$dwmpid" ] && kill -0 "$dwmpid" 2>/dev/null; then
+    bad "T11c dwm thành mồ côi" "dwm $dwmpid vẫn sống sau khi run.sh thoát"
+    kill -9 "$dwmpid" 2>/dev/null
+else
+    ok "T11c dwm bị chuyển tiếp tín hiệu, không thành mồ côi"
+fi
+unset FAKE_DWM_LINGER FAKE_DWM_PID
+
+# --- T12: SIGHUP gửi riêng cho run.sh cũng phải dọn --------------------------
+# Cần nói rõ: test này gửi SIGHUP cho PID run.sh, KHÔNG phải cả process group.
+# Logout thật thì terminal gửi SIGHUP cho cả nhóm foreground nên dwm chết
+# trước, rồi trap của run.sh mới chạy — đường đó đã hoạt động từ trước và
+# không cần dwm nền. Test này cố tình khó hơn: chỉ run.sh nhận HUP thì dwm
+# không ai giết, nếu trap bị hoãn thì cả hai cùng treo. Cần giữ để chắc đổi
+# dwm sang nền không làm hỏng gì.
+export FAKE_DWM_LINGER=1
+export FAKE_DWM_PID="$T/dwm_hup.pid"
+: > "$FAKE_DWM_COUNT"; rm -f "$FAKE_DWM_PID"
+( cd "$R" && sh scripts/run.sh >/dev/null 2>&1 ) &
+RUNPID=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ -s "$FAKE_DWM_PID" ] && break
+    sleep 0.5
+done
+hpid=$(cat "$FAKE_DWM_PID" 2>/dev/null)
+kill -HUP "$RUNPID" 2>/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$RUNPID" 2>/dev/null || break
+    sleep 0.5
+done
+if ! kill -0 "$RUNPID" 2>/dev/null; then
+    ok "T12 SIGHUP (logout) — run.sh thoát sạch"
+else
+    bad "T12 SIGHUP không dọn" "run.sh vẫn sống"
+    kill -9 "$RUNPID" 2>/dev/null
+fi
+sleep 1
+if [ -n "$hpid" ] && kill -0 "$hpid" 2>/dev/null; then
+    bad "T12b dwm mồ côi sau SIGHUP" "dwm $hpid còn sống"
+    kill -9 "$hpid" 2>/dev/null
+else
+    ok "T12b dwm không còn sống sau SIGHUP"
+fi
+unset FAKE_DWM_LINGER FAKE_DWM_PID
+wait 2>/dev/null || true
 
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

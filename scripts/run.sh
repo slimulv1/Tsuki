@@ -295,6 +295,20 @@ fi
 #
 # Nên bảo vệ từng thứ bằng mode tường minh: session.log chmod 600 ở trên,
 # ~/.cache/thumbnails chmod 700 ở khối thumbnail.
+#
+# ĐÃ KIỂM TRÊN MÁY THẬT, sau khi logout rồi đăng nhập lại (boot 21:05:48):
+#   /proc/<pid>/status của dwm                    Umask: 0022   (trước: 0077)
+#   ~/.cache/tsuki/session.log                    mode 600      (trước: 644)
+#   /tmp/node-compile-cache, /tmp/opencode         755           (trước: 700)
+#   file thường tạo trong phiên                    644
+#   ~/.cache/tsuki/session.log                     600 — vẫn riêng tư như cũ
+#
+# Vẫn thấy 600/700 trong /tmp nhưng KHÔNG phải do umask:
+#   /tmp/st-images-*, /tmp/scoped_dir*   700 — mkdtemp(), POSIX BẮT BUỘC 0700
+#                                         bất kể umask (đã thử với umask 022:
+#                                         mkdtemp ra 700, file thường bên
+#                                         trong vẫn 644)
+#   /tmp/.bun-*.so                        600 — bun tự đặt, binary private
 umask 022 2>/dev/null || true
 
 # --- nền desktop ------------------------------------------------------------

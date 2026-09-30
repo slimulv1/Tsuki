@@ -66,6 +66,8 @@ Lệnh con — xem tự giải thích bằng `./install.sh --help`:
 | `./install.sh session --dm` | thêm màn hình đăng nhập GDM/SDDM/LightDM |
 | `./install.sh xlibre beta` | thử XLibre beta — nâng cấp cả hệ thống |
 
+Có sự cố: [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
 ---
 
 MIT — [LICENSE](LICENSE). `dwm` `st` `slock` `dmenu` `slstatus` thuộc

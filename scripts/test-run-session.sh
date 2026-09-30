@@ -41,39 +41,31 @@ export PATH="$T/bin:/usr/bin:/bin"
 export HOME="$T/home"
 export XDG_RUNTIME_DIR="$T/run"
 export XDG_CACHE_HOME="$T/home/.cache"
-export TSUKI_DIR="$R"
 export FAKE_DWM_COUNT="$T/dwm.count"
 export NO_COLOR=1
 : > "$FAKE_DWM_COUNT"
 
-# run.sh tự prepend "/usr/local/bin" vào PATH (dòng 27) — nên dwm THẬT ở đó
-# thắng stub của ta, và test sẽ vô tình chạy window manager thật (nó chỉ báo
-# "another window manager is already running" rồi thoát, nhưng đó không phải
-# thứ ta muốn kiểm). Không tránh được bằng môi trường, nên tạo một BẢN SAO
-# của run.sh với đúng hai dòng khai báo PATH trỏ sang thư mục stub. Mọi logic
-# khác — toàn bộ nội dung run.sh — là nguyên văn file thật.
-python3 - "$R/scripts/run.sh" "$T/run.sh" <<'PY'
-import sys
-src, dst = sys.argv[1], sys.argv[2]
-text = open(src, encoding="utf-8").read()
-text = text.replace('PATH="/usr/local/bin:$PATH"',
-                    'PATH="$TSUKI_STUB:$PATH"', 1)
-text = text.replace('export PATH="$TSUKI_DIR/dmenu:$TSUKI_DIR:$PATH"',
-                    'export PATH="$TSUKI_STUB:$TSUKI_DIR/dmenu:$TSUKI_DIR:$PATH"', 1)
-open(dst, "w", encoding="utf-8").write(text)
-PY
-if grep -q 'PATH="/usr/local/bin:$PATH"' "$T/run.sh"; then
-    echo "SAI: chưa trung hoá được PATH" >&2
-    exit 1
-fi
-export TSUKI_STUB="$T/bin"
+# run.sh đặt PATH theo thứ tự:  $TSUKI_DIR/dmenu : $TSUKI_DIR : /usr/local/bin : $PATH
+# (dòng 37 và 27). Nên dwm thật ở /usr/local/bin sẽ bị che nếu ta đặt dwm giả
+# trong $TSUKI_DIR. run.sh tôn trọng biến môi trường TSUKI_DIR
+# (`TSUKI_DIR="${TSUKI_DIR:-...}"`), nên không cần vá dòng nào trong file thật —
+# đây là cách sạch hơn hẳn việc sed lên bản sao.
+#
+# Repo giả: scripts/ trỏ tới repo thật (cần update dmm, dumpeven), còn lại là
+# rỗng — đúng tình huống "vừa git clone, chưa build".
+mkdir -p "$T/repo"
+ln -s "$R/scripts" "$T/repo/scripts"
+cp "$T/bin/dwm" "$T/repo/dwm"; chmod +x "$T/repo/dwm"
+# slstatus giả: nếu thiếu thì run.sh sẽ cảnh báo "không tìm thấy slstatus" —
+# đúng như máy thật khi chưa build. Để nguyên.
+export TSUKI_DIR="$T/repo"
 TSUKI_LOG_PATH="$XDG_CACHE_HOME/tsuki/session.log"
 export TSUKI_STUB="$T/bin"
 TSUKI_LOG_PATH="$XDG_CACHE_HOME/tsuki/session.log"
 
 # --- T1: chạy trọn vẹn, thoát sạch, ghi nhật ký -----------------------------
 printf '  (chạy run.sh thật, dwm giả trả 0 ngay)\n'
-out=$(cd "$R" && timeout 60 sh "$T/run.sh" 2>&1)
+out=$(cd "$R" && timeout 60 sh "$R/scripts/run.sh" 2>&1)
 rc=$?
 if [ "$rc" -eq 0 ]; then
     ok "T1 run.sh chạy trọn vẹn và thoát 0"
@@ -116,29 +108,42 @@ else
 fi
 
 # --- T6: vòng lặp dwm CÓ backoff khi crash liên tiếp --------------------------
+# 5 lần crash nhanh rồi lần 6 exit 0. Backoff cố ý là 0.3 → 0.6 → 1.2 → 2 → 2
+# (cap 2s) = 6.1s, thay vì 1.5s nếu cứ `sleep 0.3` như bản cũ.
 : > "$FAKE_DWM_COUNT"
-export FAKE_DWM_FAULTS=5     # 5 lần crash nhanh, lần 6 thì exit 0
+export FAKE_DWM_FAULTS=5
 t0=$(date +%s)
-( cd "$R" && timeout 120 sh "$T/run.sh" >/dev/null 2>&1 )
+( cd "$R" && timeout 120 sh scripts/run.sh >/dev/null 2>&1 )
 t1=$(date +%s)
 n=$(cat "$FAKE_DWM_COUNT" 2>/dev/null); n=${n:-0}
 elapsed=$((t1 - t0))
-# backoff 0.3+0.6+1.2+2.4+4.8 = 9.3s cho 5 lần crash
 if [ "$n" -eq 6 ]; then
-    ok "T6 dwm crash $n lần rồi thoát sạch (đúng số lần)"
+    ok "T6 dwm chạy $n lần (5 crash + 1 thoát sạch)"
 else
     bad "T6 số lần chạy dwm" "chạy $n lần, mong đợi 6"
 fi
-if [ "$elapsed" -ge 8 ]; then
-    ok "T6b backoff có tác dụng: 5 lần crash mất ${elapsed}s (không phải 1.5s như bản cũ)"
+if [ "$elapsed" -ge 5 ]; then
+    ok "T6b backoff có tác dụng: 5 lần crash mất ${elapsed}s (bản cũ chỉ 1.5s)"
 else
-    bad "T6b backoff" "chỉ ${elapsed}s — có vẻ không nghỉ"
+    bad "T6b backoff" "chỉ ${elapsed}s — nhỏ hơn cả bản cũ"
+fi
+# Và phải TĂNG DẦN, không phải hằng số: đọc delay ghi trong log phiên.
+LOG6="$XDG_CACHE_HOME/tsuki/session.log"
+# Dòng log kết thúc bằng "nghỉ <số>s" — trường cuối là số giây. Không grep
+# theo chữ có dấu ("nghi" vs "nghỉ") vì dễ sai.
+delays=$(grep 'dwm crash' "$LOG6" 2>/dev/null | awk '{print $NF}' | tr -d 's' | tr '\n' ' ')
+first=$(printf '%s' "$delays" | awk '{print $1}')
+last=$(printf '%s' "$delays" | awk '{print $NF}')
+if [ -n "$first" ] && [ -n "$last" ] && awk "BEGIN{exit !($last > $first)}"; then
+    ok "T6c delay tăng dần: $delays"
+else
+    bad "T6c delay tăng dần" "chuỗi delay: [$delays]"
 fi
 
 # --- T7: crash VÔ HẠN thì phải dừng, không quay vòng mãi ---------------------
 : > "$FAKE_DWM_COUNT"
 export FAKE_DWM_FAULTS=999   # luôn crash
-out2=$( (cd "$R" && timeout 90 sh "$T/run.sh" 2>&1) )
+out2=$( (cd "$R" && timeout 90 sh "$R/scripts/run.sh" 2>&1) )
 rc2=$?
 unset FAKE_DWM_FAULTS
 n2=$(cat "$FAKE_DWM_COUNT" 2>/dev/null); n2=${n2:-0}

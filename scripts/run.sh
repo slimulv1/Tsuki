@@ -77,6 +77,34 @@ export PATH
 # Nếu repo chưa build (mới clone) thì rơi về /usr/local/bin như cũ, an toàn.
 export PATH="$TSUKI_DIR/dmenu:$TSUKI_DIR:$PATH"
 
+# Kiểm tra TSUKI_DIR CÓ THẬT trước khi mọi thứ bên dưới đọc file trong đó.
+# Không có bước này thì khi repo bị đổi tên / di chuyển / xoá, các lệnh đọc
+# "$TSUKI_DIR/..." chỉ ra rỗng và fail im lặng: ảnh nền rỗng, xsettingsd không
+# có config, updates-loop/mediacard không chạy — bề mặt thì session vẫn lên,
+# bên trong thì nửa cấu hình là cấu hình chết. Nay nói thẳng ngay từ đầu.
+if [ ! -d "$TSUKI_DIR" ]; then
+    printf 'tsuki: TSUKI_DIR không tồn tại: %s\n' "$TSUKI_DIR" >&2
+    printf '       startx gọi ~/.xinitrc, kiểm tra xem nó trỏ đúng repo không.\n' >&2
+    exit 1
+fi
+if [ ! -d "$TSUKI_DIR/scripts" ]; then
+    printf 'tsuki: %s không phải repo Tsuki (thiếu thư mục scripts/)\n' "$TSUKI_DIR" >&2
+    exit 1
+fi
+info "TSUKI_DIR: $TSUKI_DIR"
+
+# Locale. Không đặt thì app GTK/GLib in cảnh báo "Failed to connect to the
+# bus"/"locale not supported" và hiển thị sai ngày/giờ. Ưu tiên giữ nguyên thứ
+# người dùng đã đặt (qua ~/.xinitrc hoặc locale.conf); chỉ đặt khi rỗng.
+# `C.UTF-8` có sẵn trên mọi Arch và xử lý đủ UTF-8, kể cả khi
+# en_US.UTF-8 chưa được sinh trong /etc/locale.gen.
+if [ -z "${LANG:-}" ]; then
+    LANG=${LC_ALL:-C.UTF-8}
+    export LANG
+    info "LANG chưa đặt — dùng $LANG"
+fi
+[ -n "${LC_CTYPE:-}" ] || { LC_CTYPE=${LANG}; export LC_CTYPE; }
+
 # --- danh tính session ------------------------------------------------------
 # GDM kế thừa nguyên bộ biến của session GNOME cho mọi session nó khởi chạy.
 # Ta là dwm + X11, nên phải tự ghi đè trước khi bất kỳ tiến trình nào kế thừa.
@@ -184,6 +212,13 @@ stop_daemons() {
         esac
         rm -f "$_f"
     done
+    # File trạng thái của mediacard.sh: nó ghi vào $XDG_RUNTIME_DIR nhưng không
+    # tự dọn (không có trap trong file đó). XDG_RUNTIME_DIR bị xoá khi logout
+    # nên chỉ còn sót qua vòng lặp rebuild trong cùng phiên — nhưng để lại
+    # cũng không có lý do.
+    rm -f "$XDG_RUNTIME_DIR/nowplaying-art" \
+          "$XDG_RUNTIME_DIR/nowplaying-last" \
+          "$XDG_RUNTIME_DIR/pulse" 2>/dev/null || true
 }
 
 # --- systemd user manager: đưa DISPLAY/XAUTHORITY vào môi trường -------------
@@ -228,7 +263,17 @@ fi
 umask 077 2>/dev/null || true
 
 # --- nền desktop ------------------------------------------------------------
-[ -f "$HOME/.Xresources" ] && xrdb -merge "$HOME/.Xresources" &
+# xrdb -merge nạp font + màu X. Chạy ĐỒNG BỘ (bản cũ để `&`): nó mất chưa
+# tới 50ms, nhưng nếu chạy nền thì app mở ra ngay sau có thể đọc X server
+# TRƯỚC khi font được nạp -> dwm dựng bar bằng font dự phòng rồi mới nhảy sang
+# font thật, thấy giật. Đồng bộ thì không có cửa sổ trắng lúc nạp.
+if [ -f "$HOME/.Xresources" ]; then
+    if have xrdb; then
+        xrdb -merge "$HOME/.Xresources" 2>/dev/null || warn "xrdb -merge thất bại"
+    else
+        warn "thiếu xorg-xrdb — ~/.Xresources không được nạp"
+    fi
+fi
 
 WALLPAPER=$(cat "$TSUKI_DIR/scripts/.wallpaper" 2>/dev/null)
 _needs_wallpaper_msg=0
@@ -467,12 +512,16 @@ mkdir -p "$_thumb_dir" 2>/dev/null && chmod 700 "$_thumb_dir" 2>/dev/null
 # nghiêm trọng — config.h sai cú pháp, thiếu font, X hết chỗ — nó crash ngay
 # lập tức, và 3 lần/giây × cả buổi là hàng trăm nghìn lần ghi log, đầy đĩa,
 # vẫn không bao giờ lên được. Nay:
-#   - crash liên tiếp nhanh (<10s) -> nghỉ tăng dần: 0.3 → 0.6 → 1.2 → … cap 5s
+#   - crash liên tiếp nhanh (<10s) -> nghỉ tăng dần 0.3 → 0.6 → 1.2 → cap 2s
 #   - chạy được >10s rồi mới chết -> coi là bình thường, nghỉ 0.3s như cũ
-#   - liên tục 20 lần mà vẫn không lên -> dừng hẳn, in nguyên nhân ra
-#     cuối log thay vì quay vòng vô tận
+#   - liên tụp 10 lần mà vẫn không lên -> dừng hẳn, in nguyên nhân
+#
+# Con số 10 và cap 2s chọn có chủ đích. Cap 5s/ngưỡng 20 như lần đầu thì phải
+# chờ ~90 giây mới thấy thông báo — quá lâu cho người dùng đang ngồi nhìn
+# màn hình đen. 0.3+0.6+1.2+2×6 = 14.1s thì đủ nhanh mà vẫn chịu được một
+# sự cố tạm thời. Nhánh `killall dwm` khi rebuild KHÔNG bị ảnh hưởng: dwm đã
+# chạy hàng giờ nên `_ran >= 10` -> nghỉ 0.3s như cũ.
 _crash_count=0
-_dwm_up=""
 while type dwm >/dev/null 2>&1; do
     _t0=$(date +%s 2>/dev/null || echo 0)
     dwm
@@ -493,15 +542,16 @@ while type dwm >/dev/null 2>&1; do
     else
         _crash_count=$((_crash_count + 1))
         _delay=$(awk -v n="$_crash_count" -v t=0.3 'BEGIN{
-            d = t; for (i = 1; i < n; i++) { d *= 2; if (d > 5) { d = 5; break } }
+            d = t; for (i = 1; i < n; i++) { d *= 2; if (d > 2) { d = 2; break } }
             printf "%.1f", d }')
         log "dwm crash lần $_crash_count sau ${_ran}s (exit $_rc), nghỉ ${_delay}s"
     fi
 
-    if [ "$_crash_count" -ge 20 ]; then
+    if [ "$_crash_count" -ge 10 ]; then
         fail "dwm crash liên tục $_crash_count lần, không dậy nổi — DỪNG"
         fail "Nhật ký phiên: $TSUKI_LOG"
         fail "Nếu vừa sửa config.h: git restore config.h && make && sudo make install"
+        fail "Nếu chưa build lần nào:    ./install.sh build"
         stop_daemons
         exit 1
     fi

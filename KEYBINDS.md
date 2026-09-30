@@ -3,7 +3,6 @@
 > MODKEY = Super (Windows key)
 
 ## Launch apps
-
 | Keybinding    | Action                    |
 |---------------|---------------------------|
 | Super + Enter | st (term)                 |
@@ -156,3 +155,29 @@ nhập lại — `scripts/run.sh` sẽ tự khởi động daemon này.
 | Giữ chuột trái, kéo tới mép trên/dưới | Tự cuộn liên tục        |
 | Shift + PgUp / PgDn             | Cuộn 1 trang                    |
 | Alt + lăn chuột                 | Gửi `\031` (page up) tới app   |
+
+## Khi có sự cố
+
+`scripts/run.sh` ghi lại toàn bộ phiên vào `~/.cache/tsuki/session.log`
+(ghi đè mỗi lần đăng nhập). Xem nó là bước đầu tiên khi con trỏ không đổi,
+phím volume không hiện OSD, hộp thoại lưu file của Firefox không dựng, hoặc
+thumbnail Thunar không có:
+
+```sh
+less ~/.cache/tsuki/session.log
+```
+
+Những gì `run.sh` khởi động: nền (`feh`), `picom`, `xrdb`, con trỏ
+(`xsetroot -xcf`), tốc độ lặp phím (`xset r rate`), dunst, xdg-desktop-portal,
+polkit-gnome, fcitx5, xsettingsd, slstatus, tumblerd, và hai script nền
+`updates-loop.sh` / `mediacard.sh`.
+
+Mỗi daemon giữ một khoá `flock` trong `$XDG_RUNTIME_DIR`, nên gọi lại
+`run.sh` không sinh bản thứ hai. Muốn dừng tay:
+
+```sh
+pkill -f 'run\.sh$'; pkill -x tumblerd; pkill -x xsettingsd; pkill -x fcitx5
+```
+
+Nếu `dwm` không lên được, `run.sh` **tự dừng** sau 10 lần crash liên tiếp
+thay vì quay vòng vô tận, và in trong log hướng khôi phục.

@@ -79,6 +79,15 @@ info() { log "INFO  $*"; }
 fail() { printf 'tsuki: %s\n' "$*" >&2; log "FAIL  $*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 stop_daemons() {
+    # CHỈ dọn khi run.sh thực sự GIỮ phiên. Xem khối khoá cấp phiên bên dưới:
+    # bản thứ hai bị từ chối rồi `exit 1`, nhưng trap EXIT đã đặt TRƯỚC đó nên
+    # stop_daemons vẫn chạy — xoá tsuki-session.claim/.owner, xoá lock/pid và
+    # `kill` daemon CỦA BẢN THỨ NHẤT. Đo được: sau khi bản thứ hai thoát,
+    # tsuki-session.owner bốc hơi trong khi bản thứ nhất vẫn sống. Khoá phiên
+    # như vậy chỉ là hình thức.
+    # Mặc định 1 để gọi trực tiếp (test-run-daemons.sh trích hàm này ra dùng)
+    # vẫn dọn bình thường; run.sh tự đặt 0 ngay sau khi đặt trap.
+    [ "${_OWNS_SESSION:-1}" = 1 ] || return 0
     # Cờ "đang tắt" đặt TRƯỚC mọi thứ khác. Watchdog thấy cờ là thoát
     # ngay, nên không có trường hợp nó hồi sinh daemon trong lúc ta đang dọn
     # (race thật: watchdog đang ngủ 15s, thức dậy giữa lúc dọn).
@@ -146,6 +155,12 @@ stop_daemons() {
     rm -f "$XDG_RUNTIME_DIR/tsuki-stopping" \
           "$XDG_RUNTIME_DIR"/tsuki-retry-* \
           "$XDG_RUNTIME_DIR"/tsuki-gaveup-* 2>/dev/null || true
+    # File khoá cấp phiền. Xoá ở CUỐI: fd 6 của chính run.sh vẫn đang giữ, và
+    # unlink một inode đang khoá thì khoá vẫn còn cho tới khi run.sh thoát —
+    # xoá sớm hơn sẽ tạo lỗ hổng: một run.sh khác tạo file cùng tên là lấy
+    # được inode mới, khoá trống, tưởng phiên trống rồi khởi động chồng.
+    rm -f "$XDG_RUNTIME_DIR/tsuki-session.claim" 2>/dev/null || true
+    rm -f "$XDG_RUNTIME_DIR/tsuki-session.owner" 2>/dev/null || true
 }
 
 # `stop_daemons` và `_dwm_forward` phải ĐỊNH NGHĨA TRƯỚC khối trap bên dưới.
@@ -190,6 +205,11 @@ _dwm_pid=""
 # pgid với run.sh, nên SIGHUP từ đóng terminal vẫn tới cả hai như cũ. Đo trên
 # máy thật: run.sh pid 2845 pgid 2845, dwm pid 3215 pgid 2845.
 trap 'stop_daemons 2>/dev/null; :' EXIT
+# Từ đây tới khi khoá cấp phiên thành công, run.sh KHÔNG sở hữu phiên nào, nên
+# mọi đường thoát sớm (sai cấu hình, thiếu binary, bị từ chối vì đã có run.sh
+# khác) tuyệt đối không được dọn đồ của người khác. Đặt ở đây, ngay SAU trap —
+# đặt trước thì trap chưa có, đặt sau khối khoá thì lỡ thoát sớm thì mất.
+_OWNS_SESSION=0
 trap '_dwm_forward TERM; info "run.sh nhận SIGTERM — dọn daemon"; stop_daemons 2>/dev/null; exit 143' TERM
 trap '_dwm_forward HUP; info "run.sh nhận SIGHUP (logout) — dọn daemon"; stop_daemons 2>/dev/null; exit 129' HUP
 trap '_dwm_forward INT; info "run.sh nhận SIGINT"; stop_daemons 2>/dev/null; exit 130' INT
@@ -381,6 +401,73 @@ if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "${XDG_RUNTIME_DIR:-/nonexistent}" ];
     info "XDG_RUNTIME_DIR dựng lại: $XDG_RUNTIME_DIR"
 fi
 
+# --- khoá cấp phiên: chỉ một run.sh được giữ $XDG_RUNTIME_DIR ----------------
+#
+# VÌ SAO CẦN. Trước đây không có gì chặn hai run.sh cùng chạy trong một phiên.
+# run.sh thứ hai sẽ chạy stop_daemons khi thoát, mà stop_daemons xoá
+# tsuki-*.lock + tsuki-*.pid và giết pid ghi trong đó — TẤT CẢ đều thuộc về
+# run.sh thứ nhất. Hậu quả đo được: daemon của phiên đang chạy bị giết hết,
+# watchdog thấy khoá biến mất nên hồi sinh (picom 2901->386318, tumbler
+# 3254->387427, polkit chết hẳn sau trần 5 lần), session.log bị ghi đè, và
+# fcitx5 rơi vào trạng thái mất dấu.
+#
+# Không chỉ là chuyện lý thuyết: bộ test của chính repo này đã vô tình chạy
+# run.sh thứ hai ở /run/user/1000 và làm đúng những hậu quả trên.
+#
+# TÊN FILE CỐ Ý KHÔNG khớp glob `tsuki-*.lock` / `tsuki-*.pid`. Nếu tên là
+# tsuki-session.lock thì stop_daemonS mới thêm sẽ dùng `fuser` giết đúng
+# người giữ nó — tức giết chính run.sh đang chạy. Dấu chấm nên không lọt vào
+# glob nào; ta tự dọn ở cuối stop_daemons.
+#
+# FD 6: 7 là watchdog, 8 là khoá daemon, 9 là quy ước script con tự khoá.
+# Mọi subshell sinh tiến trình đều `exec 6>&-` để không kế thừa — nếu daemon
+# (kể cả daemon tự fork như fcitx5 -d) giữ fd này thì khoá phiên không bao
+# giờ được thả, và lần khởi động lại trong cùng phiên sẽ bị từ chối oan.
+#
+# File cũ sót lại không sao: run.sh thoát là kernel thả khoá. File chỉ là chỗ
+# để flock bám vào, không phải trạng thái.
+if have flock; then
+    # PHẢI mở fd 6 ở chính process này. Bản đầu viết
+    #   ( exec 6>...; flock -n 6 )
+    # trong subshell — subshell thoát là kernel thả khoá ngay, nên khoá không
+    # bao giờ có tác dụng và hai run.sh vẫn cùng chạy. Đã phát hiện khi đọc
+    # lại, không cần chạy thử cũng thấy.
+    _claim="$XDG_RUNTIME_DIR/tsuki-session.claim"
+    # File ghi chủ phiên. Tên CỐ Ý dùng dấu chấm: `tsuki-*.pid` là glob mà
+    # stop_daemons quét để `kill`, nếu đặt tên tsuki-session.pid thì lúc dọn
+    # nó sẽ kill đúng pid run.sh đang chạy — tự giết mình giữa chừng.
+    _owner="$XDG_RUNTIME_DIR/tsuki-session.owner"
+    safe_touch "$_claim" || true
+    if exec 6>"$_claim"; then
+        if ! flock -n 6 2>/dev/null; then
+            # `have fuser` trước: không có thì bỏ trống, đừng để
+            # "fuser: command not found" lọt vào nhật ký rồi in ra chỗ lệch.
+            _claim_owner=$(head -1 "$_owner" 2>/dev/null)
+            case ${_claim_owner:-} in ''|*[!0-9]*)
+                _claim_owner=""
+                have fuser && _claim_owner=$(fuser "$_claim" 2>/dev/null | tr -cd '0-9\n' | sed -n 1p)
+                ;;
+            esac
+            warn "đã có run.sh khác đang giữ phiên này${_claim_owner:+ (pid $_claim_owner)} — không khởi động lần hai"
+            exit 1
+        fi
+        # Chỉ ghi sau khi đã khoá: nếu ghi trước, bản thứ hai ghi đè mất thông
+        # tin của bản đang giữ, và thông báo "đã có run.sh khác" lại chỉ ra
+        # chính nó.
+        printf '%s\n' "$$" >"$_owner" 2>/dev/null || true
+        _OWNS_SESSION=1
+    else
+        warn "không mở được $_claim — bỏ qua khoá cấp phiên"
+        # Không khoá được thì coi như có quyền dọn, giữ hành vi cũ. Nếu đặt 0,
+        # máy thiếu flock sẽ không bao giờ dọn daemon lúc logout — rò rỉ
+        # daemon sang phiên sau, tệ hơn nhiều so với mất khoá.
+        _OWNS_SESSION=1
+    fi
+else
+    # Không có flock: không khoá được phiên, nhưng vẫn phải dọn được lúc thoát.
+    _OWNS_SESSION=1
+fi
+
 # --- XWayland: KHÔNG dùng ---------------------------------------------------
 # Tsuki chạy X11 thuần, không bật XWayland. Gói xorg-xwayland chỉ cài binary
 # /usr/bin/Xwayland chứ không có hook nào bật trong X session, nên nếu muốn thì
@@ -471,6 +558,11 @@ start_daemon() {
         # Đóng ở đây chỉ ảnh hưởng con; watchdog giữ fd 7 của riêng nó.
         # `exec 7>&-` khi fd 7 không mở thì không báo lỗi.
         exec 7>&-
+        # TƯƠNG TỰ cho fd 6 (khoá cấp phiên): daemon không được giữ khoá phiên.
+        # Quan trọng với daemon TỰ FORK như `fcitx5 -d` — nó sống lâu hơn
+        # run.sh, và nếu giữ fd 6 thì khoá phiên không bao giờ được thả trong
+        # lần khởi động lại sau này (dwm bị rebuild chẳng hạn) sẽ bị từ chối oan.
+        exec 6>&-
         exec "$@"
     ) >/dev/null 2>&1 &
     printf '%s\n' "$!" >"$_pidf"
@@ -542,6 +634,9 @@ _start_watchdog() {
     (
         exec 7>"$XDG_RUNTIME_DIR/tsuki-watchdog.lock"
         flock -n 7 || exit 0
+        # Watchdog sống cả phiên nên cũng phải thả khoá phiên (fd 6), lý do
+        # giống hệt dòng `exec 6>&-` trong start_daemon.
+        exec 6>&-
         # Vòng đầu chỉ để chờ: daemon vừa spawn có thể chưa kịp giữ khoá. Dù
         # chưa kịp thì cũng vô hại — trong start_daemon, subshell tự `flock -n 8
         # || exit 0` nên bản thứ hai tự thoát, không sinh trùng thật.

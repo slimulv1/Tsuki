@@ -706,5 +706,102 @@ else
     ok "T23 cả $n_feh lời gọi feh đều có --no-fehbg"
 fi
 
+# --- T24: hai run.sh cùng XDG_RUNTIME_DIR — bản thứ hai phải bị từ chối -------
+# Trước đây không có gì chặn. run.sh thứ hai thoát thì trap EXIT gọi
+# stop_daemons, mà stop_daemons xoá tsuki-*.lock + tsuki-*.pid rồi `kill` pid
+# ghi trong đó — TẤT CẢ thuộc về run.sh thứ nhất.
+#
+# Hậu quả đo được trên phiên thật lúc 00:13 (bộ test chạy nhầm vào
+# /run/user/1000): daemon thật bị giết hết, watchdog thấy khoá biến mất nên
+# hồi sinh (picom 2901->386318, tumbler 3254->387427, polkit chết hẳn sau trần
+# 5 lần), session.log bị ghi đè, fcitx5 mất dấu.
+export FAKE_DWM_LINGER=1
+export FAKE_DWM_PID="$T/dwm_first.pid"
+( cd "$R" && sh scripts/run.sh >/dev/null 2>&1 ) &
+_first_wrapper=$!
+_t=0
+while [ ! -f "$XDG_RUNTIME_DIR/tsuki-session.owner" ] && [ "$_t" -lt 40 ]; do
+    sleep 0.25; _t=$((_t + 1))
+done
+_owner1=$(head -1 "$XDG_RUNTIME_DIR/tsuki-session.owner" 2>/dev/null || echo '')
+if [ -n "$_owner1" ] && kill -0 "$_owner1" 2>/dev/null; then
+    ok "T24 bản thứ nhất giữ khoá phiên (pid $_owner1)"
+else
+    bad "T24 bản thứ nhất không giữ khoá phiên" "owner='$_owner1'"
+fi
+# bản thứ hai: cùng XDG_RUNTIME_DIR, phải từ chối
+( cd "$R" && sh scripts/run.sh >"$T/second.out" 2>&1 )
+_rc2=$?
+if [ "$_rc2" -ne 0 ] && grep -q 'đã có run.sh khác' "$T/second.out" 2>/dev/null; then
+    ok "T24 bản thứ hai bị từ chối (exit $_rc2) và báo rõ lý do"
+else
+    bad "T24 bản thứ hai KHÔNG bị từ chối" "exit=$_rc2 out=$(head -1 "$T/second.out" 2>/dev/null)"
+fi
+# điểm mấu chốt: bản thứ nhất phải còn nguyên
+if kill -0 "$_owner1" 2>/dev/null; then
+    ok "T24 bản thứ nhất vẫn sống sau khi bản thứ hai thoát"
+else
+    bad "T24 bản thứ nhất bị giết" "pid $_owner1 không còn"
+fi
+_owner2=$(head -1 "$XDG_RUNTIME_DIR/tsuki-session.owner" 2>/dev/null || echo '')
+if [ "$_owner2" = "$_owner1" ]; then
+    ok "T24 file chủ phiên không bị bản thứ hai ghi đè/xoá"
+else
+    bad "T24 file chủ phiên bị hỏng" "trước=$_owner1 sau=$_owner2"
+fi
+if [ -f "$XDG_RUNTIME_DIR/tsuki-picom.lock" ]; then
+    ok "T24 lock daemon của bản thứ nhất còn nguyên"
+else
+    bad "T24 lock daemon bị xoá" "tsuki-picom.lock không còn"
+fi
+# dọn bản thứ nhất
+kill "$_owner1" 2>/dev/null
+kill "$_first_wrapper" 2>/dev/null
+wait "$_first_wrapper" 2>/dev/null
+sleep 0.6
+unset FAKE_DWM_LINGER FAKE_DWM_PID
+# PHẢI khôi phục stub nhanh cho các test sau
+mv "$T/repo/dwm.fast" "$T/repo/dwm" 2>/dev/null || true
+
+# --- T24b: chứng minh T24 bắt được lỗi thật ---------------------------------
+# Bỏ cờ _OWNS_SESSION trong bản sao của run.sh thì bản thứ hai sẽ chạy
+# stop_daemons trong trap và dọn sạch đồ của bản thứ nhất. Nếu T24 vẫn xanh
+# ở đây thì nó không kiểm được gì.
+cp "$R/scripts/run.sh" "$T/run_noguard.sh"
+sed -i 's/^    \[ "\${_OWNS_SESSION:-1}" = 1 \] || return 0$/    : # guard bi go/' \
+    "$T/run_noguard.sh"
+grep -q 'guard bi go' "$T/run_noguard.sh" || bad "T24b sed thất bại" "khong go duoc guard"
+mkdir -p "$T/repo2/.config/xsettingsd"
+ln -sfn "$R/scripts" "$T/repo2/scripts"
+# PHẢI có dwm thật (giả) trong repo2, và phải LINGERING — nếu không, bản thứ
+# nhất thoát ngay khi dwm trả 0, tự dọn trước khi bản thứ hai kịp chạy, và
+# T24b xanh vì lý do sai. Đã mắc lỗi này ở bản đầu: nó cp "$T/dwm" (không tồn
+# tại) nên repo2 không có dwm, run.sh dừng ở vòng `while type dwm`.
+cp "$T/bin/dwm" "$T/repo2/dwm"; chmod +x "$T/repo2/dwm"
+: > "$T/repo2/.config/xsettingsd/xsettingsd.conf"
+cp "$R/config.h" "$T/repo2/config.h"
+export FAKE_DWM_LINGER=1
+export FAKE_DWM_PID="$T/dwm_noguard.pid"
+( cd "$R" && TSUKI_DIR="$T/repo2" sh "$T/run_noguard.sh" >/dev/null 2>&1 ) &
+_w2=$!
+_t=0
+while [ ! -f "$T/run/tsuki-session.owner" ] && [ "$_t" -lt 60 ]; do
+    sleep 0.25; _t=$((_t + 1))
+done
+_o=$(head -1 "$T/run/tsuki-session.owner" 2>/dev/null || echo '')
+_lock_before=$([ -f "$T/run/tsuki-picom.lock" ] && echo co || echo khong)
+( cd "$R" && TSUKI_DIR="$T/repo2" sh "$T/run_noguard.sh" >/dev/null 2>&1 )
+sleep 0.6
+if [ -n "$_o" ] && kill -0 "$_o" 2>/dev/null && [ -f "$T/run/tsuki-picom.lock" ]; then
+    bad "T24b bản KHÔNG guard vẫn giữ được phiên" "lock trước=$_lock_before — T24 không bắt được lỗi gì"
+else
+    ok "T24b bản KHÔNG guard ĐÃ phá phiên (lock trước=$_lock_before) — T24 có giá trị"
+fi
+kill "$_o" 2>/dev/null; kill "$_w2" 2>/dev/null
+wait "$_w2" 2>/dev/null
+pkill -f "$T/run_noguard.sh" 2>/dev/null
+sleep 0.5
+unset FAKE_DWM_LINGER FAKE_DWM_PID
+
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

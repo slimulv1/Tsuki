@@ -1,7 +1,7 @@
 # Gói cài đặt
 
-`./install.sh` cài **73 gói** (không tính trùng lặp, toàn bộ bảy mảng), khoảng
-**2.9 GiB** đã cài trên máy. Danh sách này rút từ bảy mảng gói trong
+`./install.sh` cài **78 gói** (không tính trùng lặp, toàn bộ tám mảng), khoảng
+**2.9 GiB** đã cài trên máy. Danh sách này rút từ tám mảng gói trong
 `install.sh` — mỗi mảng là một nhóm, và nhóm quyết định **lúc nào** được cài.
 
 Muốn xem nhanh: `./install.sh -h`. Muốn biết cài gì: trang này.
@@ -126,6 +126,27 @@ Nên `unrar` là bắt buộc, không phải tuỳ chọn.
 tầng trừu tượng trong khi `7z` đã làm hết việc. **Không cài GUI** (`file-roller`,
 `engrampa`, `ark`, `xarchiver`) — chúng kéo theo cả GNOME/KDE/MATE, thừa cho
 dwm không có DE.
+
+## 3c. `PKG_HARDWARE` — phần cứng ngoài vi (5 gói, 27 MiB)
+
+Không nằm trong `all` — cài riêng bằng `./install.sh hardware`.
+
+| Gói | Vai trò |
+|---|---|
+| `fwupd` | cập nhật firmware thiết bị qua LVFS |
+| `blueman` | đồng bộ và ghép nối Bluetooth (có GUI) |
+| `acpid` | sự kiện ACPI: nút nguồn, nút media, đèn bàn phím |
+| `gvfs-mtp` | điện thoại Android trong Thunar |
+| `gvfs-smb` | thư mục chia sẻ Windows trong Thunar |
+
+**USB không hỏng.** Đo trước khi thêm nhóm này: 15 thiết bị USB trên
+`/sys/bus/usb/devices`, tất cả đều `configured`, và
+`journalctl -k -p err | grep -icE 'usb|acpi'` cho **0** dòng lỗi. Nhóm này bổ
+sung phần mềm quản lý, không phải sửa lỗi nhận diện.
+
+**Không cài `cups`** (12.8 MiB, kéo `cups-filters` + `libpaper`): không thấy máy
+in nào trong `/dev`. **Không cài `tlp`/`xfce4-power-manager`**: `/sys/class/power_supply`
+rỗng — máy tĩnh, không có pin, nên quản lý pin vô dụng.
 
 ## 4. `PKG_KEYBINDS` — app mở bằng phím tắt (23 gói, 1.8 GiB)
 

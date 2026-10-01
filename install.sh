@@ -9,6 +9,7 @@
 #   ./install.sh paru         # cài paru để dùng AUR                           [root]
 #   ./install.sh pty          # bộ gõ Lotus (tiếng Việt)                       [root][paru]
 #   ./install.sh archive      # công cụ nén/giải nén: 7z, zip, unrar          [root]
+#   ./install.sh hardware     # firmware, Bluetooth, ACPI, MTP/SMB             [root]
 #   ./install.sh userdirs     # tạo + khai báo ~/Documents, ~/Videos, ...
 #   ./install.sh build        # chỉ build + cài binary vào /usr/local/bin      [root]
 #   ./install.sh dotfiles     # chỉ copy ~/.config
@@ -528,6 +529,43 @@ readonly PKG_CONFIG=(
     xsettingsd   # .config/xsettingsd/
 )
 
+# --- 3c. phần cứng ngoài vi ---
+# Tách riêng vì đây là THIẾT BỊ NGOÀI VI, không phải app, không phải dotfile.
+# Cùng nhóm với PKG_ARCHIVE ở chỗ: đều là công cụ dùng tay, cài khi cần.
+#
+# ĐO TRÊN MÁY NÀY trước khi thêm (desktop, GPU AMD RX 7800 XT):
+#   15 thiết bị USB, TẤT CẢ đều "configured"; journalctl -k -p err grep
+#   usb|acpi cho 0 dòng. Nên USB KHÔNG hỏng — chỉ thiếu phần mềm quản lý.
+#   /sys/class/power_supply rỗng => không có pin => KHÔNG cài TLP hay
+#   xfce4-power-manager (quản lý pin, vô dụng trên máy tĩnh).
+#
+#   fwupd — cập nhật firmware qua LVFS. Máy này có hub USB ASM107x, quạt
+#     LianLi-UNI FAN, AURA LED Controller, hub âm thanh ASM107x: đều là
+#     thiết bị có firmware trong LVFS. Lớn nhất trong nhóm (19.4 MiB) vì
+#     kèm bộ dữ liệu firmware và `passim` để chặn truy cập sai quyền.
+#   blueman — GUI Bluetooth. `bluez` + `bluetoothctl` (CLI) ĐÃ CÀI và chạy
+#     tốt, nên đây chỉ là tiện ích, không phải sửa lỗi gì.
+#     LƯU Ý: dwm không có panel nên `blueman-applet` không có chỗ hiện; dùng
+#     app độc lập của blueman hoặc quay lại `bluetoothctl`.
+#   acpid — xử lý sự kiện ACPI (nút nguồn, nút media, đèn bàn phím). Máy này
+#     có input device "Eee PC WMI hotkeys" trong /dev/input.
+#   gvfs-mtp — điện thoại Android trong Thunar.
+#   gvfs-smb — thư mục chia sẻ Windows trong Thunar.
+#
+# KHÔNG thêm `cups` (12.8 MiB): không thấy máy in nào trong /dev, và nó kéo
+# thêm cups-filters + libpaper. Cài khi thật sự có máy in.
+#
+# bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
+# (xem ghi chuc dau muc "packages")
+# shellcheck disable=SC2034
+readonly PKG_HARDWARE=(
+    fwupd
+    blueman
+    acpid
+    gvfs-mtp
+    gvfs-smb
+)
+
 # --- 3b. công cụ nén / giải nén ---
 # Tách khỏi PKG_CONFIG vì đây là công cụ DÙNG TAY, không phải app có dotfile
 # trong ~/.config — nhét vào PKG_CONFIG sẽ làm sai nghĩa nhóm đó.
@@ -805,6 +843,35 @@ check_disk_space() {
     fi
     info "đĩa: cần ~$(human_bytes "$need_b"), còn $(human_bytes "$free") trên $cachedir"
     return 0
+}
+
+cmd_hardware() {
+    # Gọi riêng, KHÔNG gộp vào cmd_deps: 27 MiB cho thiết bị ngoài vi thì không
+    # nên ép vào `all`. Người cần thì `./install.sh hardware`.
+    detect_sudo
+    install_pkgs PKG_HARDWARE "hardware"
+    fwupd_note
+}
+
+# Gợi ý kiểm tra firmware SAU khi cài. Không tự chạy `fwupmgr upgrade`:
+# nó cần `fwupdmgr refresh` tải dữ liệu từ mạng trước, và người dùng nên tự
+# quyết định lúc nào. Chỉ nói khi lệnh có sẵn.
+fwupd_note() {
+    if ! command -v fwupdmgr >/dev/null 2>&1; then
+        return 0
+    fi
+    step "firmware"
+    # `fwupdmgr get-devices` không cần mạng, nên an toàn để chạy thử. Nếu
+    # daemon fwupd chưa lên, lệnh này tự kích hoạt nó qua D-Bus.
+    local dev
+    if dev=$(fwupdmgr get-devices 2>/dev/null) && [[ -n $dev ]]; then
+        local n
+        n=$(printf '%s\n' "$dev" | grep -cE '^Device ID:' || true)
+        info "$n thiết bị trong cơ sở dữ liệu LVFS"
+        info "xem firmware nào chờ cập nhật:  fwupdmgr get-updates"
+    else
+        info "chưa thấy thiết bị LVFS nào (bình thường với phần cứng không có firmware cập nhật)"
+    fi
 }
 
 cmd_archive() {
@@ -2750,6 +2817,7 @@ main() {
         paru)      cmd_paru ;;
         pty)       cmd_pty ;;
         archive)   cmd_archive ;;
+        hardware)  cmd_hardware ;;
         userdirs)  cmd_userdirs ;;
         uninstall) cmd_uninstall ;;
         all)
@@ -2774,6 +2842,8 @@ main() {
             cmd_themes
             cmd_firefox
             cmd_session
+            # KHÔNG gọi cmd_hardware trong `all`: 27 MiB cho thiết bị ngoài
+            # vi. Người cần thì `./install.sh hardware`. Đã hỏi và chọn vậy.
             ;;
         -h|--help|help) usage ;;
         *) die "lệnh lạ: $cmd  (xem --help)" ;;

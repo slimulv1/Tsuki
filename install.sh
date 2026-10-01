@@ -190,6 +190,18 @@ cmd_check() {
         for c in "${cands[@]}"; do printf '    %s\n' "$(tilde "$c")"; done
     fi
 
+    # flock là TUỲ CHỌN nên không vào `warns`. Bỏ vào đó thì máy thiếu flock bị
+    # báo "còn N điểm cần xử lý" + "chạy ./install.sh deps" — tức coi một thứ
+    # không bắt buộc là lỗi, và đúng kiểu báo động giả mà script này hay mắc.
+    # Chỉ mất khoá quanh phần sửa pacman.conf, tức chỉ hỏng khi có hai lần chạy
+    # trùng nhau. util-linux thường có sẵn trên Arch, nhưng `all` gọi
+    # cmd_arisa TRƯỚC cmd_deps nên trên máy mới thì chưa chắc.
+    if command -v flock >/dev/null 2>&1; then
+        ok "repo-lock: flock (khoá khi sửa pacman.conf)"
+    else
+        info "repo-lock: chưa có flock — sẽ sửa pacman.conf KHÔNG khoá (thường là do chưa cài util-linux)"
+    fi
+
     printf '\n'
     if (( ${#warns[@]} )); then
         warn "còn ${#warns[@]} điểm cần xử lý: ${warns[*]}"
@@ -1674,8 +1686,18 @@ $list     Gỡ bớt rồi chạy lại. Xoá cả dòng [xlibre-...] lẫn file
         # Cùng lý do và cùng cách khoá với arisa_add_repo: đọc thêm
         # Include vào /etc/pacman.conf là read-modify-write, chạy song song sẽ
         # mất cập nhật. Xem giải thích dài ở đó.
-        exec 9>/run/lock/tsuki-pacman-conf.lock
-        flock -w 60 9 || { echo "  ! tiến trình khác đang sửa pacman.conf — thử lại sau" >&2; exit 1; }
+        # flock là TUỲ CHỌN. Nó thuộc gói util-linux, mà `all` gọi
+        # cmd_arisa TRƯỚC cmd_deps — nên trên máy mới chưa có util-linux thì
+        # lệnh này sẽ chết. Bản đầu viết thẳng `flock -w 60 9 || exit 1`,
+        # tức thiếu flock là hỏng CÀ luôn, với thông báo "flock: command not
+        # found" rất khó hiểu. Mất khoá thì chỉ còn khả năng mất cập nhật khi
+        # hai lần chạy trùng nhau; không có khoá thì chắc chắn hỏng khi đó.
+        if command -v flock >/dev/null 2>&1; then
+            exec 9>/run/lock/tsuki-pacman-conf.lock
+            flock -w 60 9 || { echo "  ! tiến trình khác đang sửa pacman.conf — thử lại sau" >&2; exit 1; }
+        else
+            echo "  ! không có flock (chưa cài util-linux) — chạy không khoá" >&2
+        fi
         f=/etc/pacman.d/xlibre.conf
         install -d -m 755 /etc/pacman.d
         # Tạo file TẠM trong CÙNG thư mục (/etc/pacman.d) để `mv` thành rename
@@ -1970,8 +1992,18 @@ $list     Gỡ bớt rồi chạy lại."
         # (pacman, make, git, script maintainer) đều kế thừa fd và có thể giữ
         # khoá tới lâu sau khi install.sh đã thoát. Chỉ khoá đúng đoạn sửa file
         # thì thời gian giữ tính bằng mili-giây.
-        exec 9>/run/lock/tsuki-pacman-conf.lock
-        flock -w 60 9 || { echo "  ! tiến trình khác đang sửa pacman.conf — thử lại sau" >&2; exit 1; }
+        # flock là TUỲ CHỌN. Nó thuộc gói util-linux, mà `all` gọi
+        # cmd_arisa TRƯỚC cmd_deps — nên trên máy mới chưa có util-linux thì
+        # lệnh này sẽ chết. Bản đầu viết thẳng `flock -w 60 9 || exit 1`,
+        # tức thiếu flock là hỏng CÀ luôn, với thông báo "flock: command not
+        # found" rất khó hiểu. Mất khoá thì chỉ còn khả năng mất cập nhật khi
+        # hai lần chạy trùng nhau; không có khoá thì chắc chắn hỏng khi đó.
+        if command -v flock >/dev/null 2>&1; then
+            exec 9>/run/lock/tsuki-pacman-conf.lock
+            flock -w 60 9 || { echo "  ! tiến trình khác đang sửa pacman.conf — thử lại sau" >&2; exit 1; }
+        else
+            echo "  ! không có flock (chưa cài util-linux) — chạy không khoá" >&2
+        fi
         f=/etc/pacman.conf
         # Cùng lý do như backup_path ở ngoài: date chỉ chính xác tới giây, và
         # $bak đã là thư mục thì `cp -a file $bak` sẽ chép VÀO trong nó.

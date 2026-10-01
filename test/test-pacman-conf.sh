@@ -218,5 +218,48 @@ else
     bad "C9c" "sau khi thả khoá vẫn không ghi — hàm bị bỏ rơi"
 fi
 
+# --- C10: flock phải là TUỲ CHỌN ----------------------------------------------
+# Bản đầu viết thẳng `flock -w 60 9 || exit 1` — install.sh TRƯỚC ĐÓ chưa từng
+# dùng flock, nên đó là phụ thuộc cứng MỚI do tôi thêm mà không khai báo.
+# flock thuộc util-linux, và `all` gọi cmd_arisa TRƯỚC cmd_deps, nên trên máy
+# mới chưa có util-linux thì kho arisa không bao giờ được thêm. Thiếu flock ->
+# "command not found" -> exit 1, thông báo rất khó hiểu.
+for f in arisa_add_repo xlibre_add_repo; do
+    body=$(sed -n "/^${f}() {/,/^}/p" "$R/install.sh")
+    if printf '%s\n' "$body" | grep -q 'command -v flock'; then
+        ok "C10 $f co kiem tra 'command -v flock' (khoá la tuỳ chọn)"
+    else
+        bad "C10 $f" "gọi flock thẳng mà không kiểm tra — thiếu flock là chết cứng"
+    fi
+done
+
+# --- C11: thiếu flock thì VẪN ghi được, chỉ mất khoá --------------------------
+mkdir -p "$T/nobin"
+for b in bash sh sed grep cat head tail printf echo cp mv chmod mkdir rm \
+         dirname basename mktemp diff cmp install date find sort tr cut; do
+    [[ -x "$(command -v "$b" 2>/dev/null)" ]] && ln -sf "$(command -v "$b")" "$T/nobin/$b"
+done
+# Bản đầu viết ngược: máy CÓ flock thì lại báo "không giả lập được", trong khi
+# PATH đã cắt nên không có flock — đó mới là điều kiện cần. Kiểm đúng thứ mình
+# vừa dựng, không kiểm máy thật.
+if env PATH="$T/nobin" bash -c 'command -v flock' >/dev/null 2>&1; then
+    bad "C11 môi trường thử" "PATH đã cắt mà vẫn thấy flock — ca này không kiểm được gì"
+else
+    ok "C11 PATH thử thực sự không có flock"
+fi
+printf '[core]\nHoldPkg = pacman\n' > "$T/etc/pacman.conf"
+chmod 644 "$T/etc/pacman.conf"
+_b4=$(md5sum "$T/etc/pacman.conf" | cut -d' ' -f1)
+env PATH="$T/nobin" bash "$T/arisa.sh" >"$T/no" 2>"$T/ne"
+rc3=$?
+_af=$(md5sum "$T/etc/pacman.conf" | cut -d' ' -f1)
+if [ "$_b4" != "$_af" ] && [ "$rc3" -eq 0 ]; then
+    ok "C11 không có flock: vẫn ghi được pacman.conf, chỉ mất khoá"
+elif [ "$rc3" -ne 0 ]; then
+    bad "C11 thiếu flock thì hỏng" "exit=$rc3: $(head -1 "$T/ne")"
+else
+    bad "C11" "không ghi được gì dù không có flock"
+fi
+
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

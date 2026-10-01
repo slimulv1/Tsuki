@@ -149,6 +149,66 @@ else
     bad "C8c fwupd_note không có đường thoát khi thiếu fwupdmgr" "sẽ lỗi trên máy chưa cài"
 fi
 
+# --- C8d: đếm thiết bị KHÔNG neo đầu dòng -----------------------------------
+# LỖI THẬT, phát hiện sau khi người dùng chạy `./install.sh hardware` rồi
+# reboot: `fwupdmgr get-devices` in 22 thiết bị, nhưng fwupd_note báo "0 thiết
+# bị". Nguyên nhân: `grep -cE '^Device ID:'` neo đầu dòng, mà fwupdmgr in ra
+# giữa cây với tiền tố "│ │   ". Số liệu thật đo trực tiếp: 22 dòng "Device ID".
+#
+# Ca này dùng DỮ LIỆU THẬT của fwupdmgr, không dùng stub — vì lỗi nằm ở
+# chính hình dạng đầu ra thật (có tiền tố cây), stub sạch sẽ không lộ ra.
+real=$(timeout 90 fwupdmgr get-devices 2>/dev/null | grep -c 'Device ID:' || true)
+if [[ ! $real =~ ^[0-9]+$ ]] || (( real == 0 )); then
+    printf '  --   bỏ qua C8d: máy này không có thiết bị LVFS để so sánh\n'
+else
+    # Chạy fwupd_note thật và đối chiếu con số nó in ra.
+    { cat "$T/note.sh"
+      printf '%s\n' 'step(){ :; }'
+      printf '%s\n' 'info(){ printf "%s\n" "$*"; }'
+      printf '%s\n' 'fwupd_note'
+    } > "$T/note_run.sh"
+    got=$(timeout 120 bash "$T/note_run.sh" 2>/dev/null |
+          sed -n 's/^\([0-9]\+\) thiết bị.*/\1/p' | head -1)
+    if [[ $got == "$real" ]]; then
+        ok "C8d đếm đúng $got/$real thiết bị LVFS (không neo '^Device ID:')"
+    else
+        bad "C8d đếm sai: script báo ${got:-rỗng}, thật là $real" \
+            "fwupdmgr in thiết bị trong cây nên có tiền tố '│ │   ', ^Device ID: khớp 0"
+    fi
+    # Và cấm quay lại dạng neo đầu dòng.
+    if grep -qE "grep -c[^|]*\^Device ID" "$T/note.sh"; then
+        bad "C8e code quay lại grep neo '^Device ID:'" "luôn ra 0 trên đầu ra thật"
+    else
+        ok "C8e không còn grep neo đầu dòng cho 'Device ID:'"
+    fi
+
+    # --- C8f: KHÔNG kết luận "0 thiết bị" khi đầu ra không khớp mẫu --------
+    # Ca rỗng nếu chỉ dựa vào máy thật: ở đây luôn có 22 thiết bị nên nhánh
+    # `n == 0` không bao giờ chạy, bỏ guard đi test vẫn 20/20 xanh. Phải dựng
+    # fwupdmgr giả trả nội dung có dấu cây nhưng KHÔNG có "Device ID:" — đúng
+    # tình huống định dạng đã đổi — rồi đòi script phải nói "không đọc ra số
+    # thiết bị", KHÔNG được nói "0 thiết bị".
+    mkdir -p "$T/stub"
+    cat > "$T/stub/fwupdmgr" <<'STUB'
+#!/usr/bin/env bash
+printf 'Total:%s\n' '3'
+printf 'ASUS\n'
+printf '│ ├─Internal SPI:\n'
+printf '│ │   Vendor:  Intel (PCI:0x8086)\n'
+STUB
+    chmod +x "$T/stub/fwupdmgr"
+    out=$(PATH="$T/stub:$PATH" timeout 60 bash "$T/note_run.sh" 2>/dev/null)
+    if printf '%s\n' "$out" | grep -q '^0 thiết bị'; then
+        bad "C8f đầu ra không khớp mẫu nhưng vẫn kết luận 0 thiết bị" \
+            "$out" \
+            "0 nghĩa là không có thiết bị; khác hẳn với không đọc được số"
+    elif printf '%s\n' "$out" | grep -q 'không đọc ra số thiết bị'; then
+        ok "C8f đầu ra lạ -> nói 'không đọc ra số', không nói '0 thiết bị'"
+    else
+        bad "C8f không xử lý đầu ra không khớp mẫu" "$out"
+    fi
+fi
+
 # --- C9: help + tài liệu ----------------------------------------------------
 if ./install.sh --help 2>/dev/null | grep -q 'install.sh hardware'; then
     ok "C9 --help có liệt kê ./install.sh hardware"

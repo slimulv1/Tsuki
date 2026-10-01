@@ -961,8 +961,18 @@ fwupd_note() {
     local dev
     if dev=$(fwupdmgr get-devices 2>/dev/null) && [[ -n $dev ]]; then
         local n
-        n=$(printf '%s\n' "$dev" | grep -cE '^Device ID:' || true)
-        info "$n thiết bị trong cơ sở dữ liệu LVFS"
+        # KHÔNG neo `^Device ID:`. Đo trên máy này: `fwupdmgr get-devices` in
+        # 22 thiết bị, mọi dòng đều nằm trong cây với tiền tố "│ │   ", nên
+        # `^Device ID:` khớp 0 dòng và script báo "0 thiết bị" — sai hoàn toàn
+        # so với thực tế. Đếm theo chuỗi con, không theo vị trí đầu dòng.
+        n=$(printf '%s\n' "$dev" | grep -c 'Device ID:' || true)
+        if (( n > 0 )); then
+            info "$n thiết bị trong cơ sở dữ liệu LVFS"
+        else
+            # Không phải "không có thiết bị" — đầu ra có nội dung nhưng không
+            # khớp mẫu. Nói đúng việc thay vì kết luận sai.
+            info "fwupdmgr trả về nội dung nhưng không đọc ra số thiết bị (định dạng đã đổi?)"
+        fi
         info "xem firmware nào chờ cập nhật:  fwupdmgr get-updates"
     else
         info "chưa thấy thiết bị LVFS nào (bình thường với phần cứng không có firmware cập nhật)"

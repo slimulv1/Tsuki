@@ -164,12 +164,27 @@ else
     else
         bad "C10 media_verify không báo ffmpeg" "$out"
     fi
-    # Cảnh báo phải nói rõ khi thiếu, không im lặng — mpv chưa cài ở đây nên
-    # phải xuất hiện dòng cảnh báo.
-    if printf '%s' "$out" | grep -q 'mpv chưa có'; then
-        ok "C10b báo rõ mpv chưa có (đúng — máy chưa cài)"
+    # CA RỖNG — đã dính lần này. Bản đầu đòi `out` phải chứa "mpv chưa có",
+    # đúng vì lúc viết máy chưa cài mpv. Sau khi người dùng chạy
+    # `./install.sh media` rồi reboot, mpv ĐÃ có nên dòng cảnh báo biến mất —
+    # và ca FAIL dù code vẫn đúng. Ca test phụ thuộc trạng thái máy thì hỏng
+    # theo thời gian. Sửa: đòi nhánh phản ứng đúng với chính máy này — có mpv
+    # thì phải in dòng `ok`, không có thì phải cảnh báo. Cả hai đều đúng.
+    if command -v mpv >/dev/null 2>&1; then
+        if printf '%s' "$out" | grep -q 'mpv chưa có'; then
+            bad "C10b cảnh báo mpv thiếu dù mpv đã có" \
+                "$out" "máy đã cài mpv — nhánh else phải im"
+        elif printf '%s' "$out" | grep -q 'mpv:'; then
+            ok "C10b mpv đã có -> in dòng ok, không cảnh báo (đúng)"
+        else
+            bad "C10b mpv đã có nhưng không in gì về mpv" "$out"
+        fi
     else
-        bad "C10b không báo mpv thiếu" "$out"
+        if printf '%s' "$out" | grep -q 'mpv chưa có'; then
+            ok "C10b mpv chưa có -> cảnh báo rõ (đúng)"
+        else
+            bad "C10b mpv thiếu mà không cảnh báo" "$out"
+        fi
     fi
 fi
 

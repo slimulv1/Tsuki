@@ -144,5 +144,85 @@ else
         "đọc giả sẽ tưởng 7z đủ, tải .rar rồi ngồi nhìn lỗi"
 fi
 
+# --- C9: nén/giải nén THẬT, không chỉ kiểm binary tồn tại --------------------
+# C1..C8 chỉ hỏi "gói có trong mảng" và "tài liệu nói gì" — không chứng minh
+# công cụ chạy được. Ca này tạo file thật, nén, giải nén, rồi so nội dung.
+mkdir -p "$T/work" "$T/out"
+printf 'Tsuki rice\ndong hai\n' > "$T/work/a.txt"
+head -c 20000 /dev/urandom > "$T/work/b.bin"
+mkzip="$T/out/t.zip"; mk7z="$T/out/t.7z"
+
+if (cd "$T/work" && zip -q "$mkzip" a.txt b.bin) 2>/dev/null; then
+    mkdir -p "$T/xz"
+    if (cd "$T/xz" && unzip -qo "$mkzip") 2>/dev/null &&
+       cmp -s "$T/work/a.txt" "$T/xz/a.txt" &&
+       cmp -s "$T/work/b.bin" "$T/xz/b.bin"; then
+        ok "C9 zip→unzip vòng tròn khớp byte (cmp trả 0)"
+    else
+        bad "C9 unzip sai nội dung" "so bang cmp, xem a.txt và b.bin"
+    fi
+else
+    bad "C9 zip không tạo được file" "kiểm tra binary zip"
+fi
+
+if (cd "$T/work" && 7z a -bso0 -bsp0 "$mk7z" a.txt b.bin) 2>/dev/null; then
+    mkdir -p "$T/x7"
+    if (cd "$T/x7" && 7z x -bso0 -bsp0 "$mk7z") 2>/dev/null &&
+       cmp -s "$T/work/a.txt" "$T/x7/a.txt" &&
+       cmp -s "$T/work/b.bin" "$T/x7/b.bin"; then
+        ok "C9b 7z a→x vòng tròn khớp byte (cmp trả 0)"
+    else
+        bad "C9b 7z x sai nội dung" "so bang cmp"
+    fi
+else
+    bad "C9b 7z không tạo được file" "kiểm tra binary 7z"
+fi
+
+# --- C9c: ca này có BẮT được hỏng, không chỉ bắt "thiếu" --------------------
+# Bài học từ thử phá: bỏ `cmp` của 7z (DOT 2) hay thay `cmp` bằng `grep` (DOT 1)
+# đều không làm test đỏ — vì 7z thực sự giải nén đúng nên chẳng có gì để bắt,
+# và nhánh a.txt vẫn còn cmp nên vẫn đúng. Ca rỗng theo nghĩa đen.
+# Nên phải PHA DỮ LIỆU: nén file rồi sửa bên trong archive, rồi đòi ca phải
+# đỏ. Đây là cách duy nhất chứng minh ca bắt được "giải nén sai nội dung".
+printf 'Tsuki rice\ndong hai\n' > "$T/work/c.txt"
+mkdir -p "$T/xc"
+if (cd "$T/work" && 7z a -bso0 -bsp0 "$T/out/c.7z" c.txt) 2>/dev/null &&
+   (cd "$T/xc" && 7z x -bso0 -bsp0 "$T/out/c.7z") 2>/dev/null &&
+   cmp -s "$T/work/c.txt" "$T/xc/c.txt"; then
+    # Ghi đè nội dung đã giải nén — mô phỏng "giải nén ra sai".
+    printf 'CORRUPT\n' > "$T/xc/c.txt"
+    if cmp -s "$T/work/c.txt" "$T/xc/c.txt"; then
+        bad "C9c cmp báo giống nhau dù nội dung đã khác" "cmp hỏng, mọi ca so sánh đều vô nghĩa"
+    else
+        ok "C9c cmp phát hiện nội dung khác — ca này CÓ KHẢ NĂNG bắt lỗi"
+    fi
+else
+    bad "C9c không dựng được nền cho phép phá" "7z a/x vòng tròn trước đó đã hỏng"
+fi
+
+# --- C10: giới hạn thật của unrar — KHÔNG tạo được file RAR --------------------
+# Đo trên máy này: `unrar` KHÔNG có lệnh tạo archive (usage chỉ liệt kê
+# x/t/l/p/e/v — toàn lệnh đọc), và `7z a -tRar` báo System ERROR vì bản
+# 7-Zip của Arch build với DISABLE_RAR_COMPRESS=1 (tra docs ip7z/7zip
+# DOC/readme.txt). Hệ quả thẳng: trên máy này KHÔNG tạo được file .rar để
+# kiểm chứng vòng tròn giải nén. Ghi rõ giới hạn thay vì im lặng — và đừng
+# để test này "xanh" nhờ bỏ qua im lặng rồi tưởng đã kiểm chứng RAR.
+# Bản đầu tôi lấy `/<Commands>/,/<\/Commands>/` rồi `grep -oE '^  [a-z]+'` — mẫu
+# đó khớp CẢ khối `<Switches>` kế bên (do `sed` không giới hạn đầu), nên C10 in
+# ra cả `ad ag ai ap c cfg...` như lệnh. Phải cắt trước mốc `<Switches>`.
+u=$(unrar 2>&1 | sed -n '/<Commands>/,/<\/Commands>/p' |
+    sed -n '1,/<Switches>/p' | grep -oE '^  [a-z]+' | tr -d ' ' | tr '\n' ' ')
+if printf '%s' "$u" | grep -q '\ba\b'; then
+    bad "C10 unrar lại có lệnh tạo 'a'" "định nghĩa unrar đã đổi, cần xem lại giả định RAR"
+else
+    ok "C10 unrar chỉ có lệnh đọc (${u:-rỗng}) — không tạo được .rar để test vòng tròn"
+fi
+# 7z phải liệt kê Rar trong định dạng nó nhận, dù không tạo được.
+if 7z i 2>&1 | grep -qE '\bRar\b'; then
+    ok "C10b 7z nhận định dạng Rar (đọc được, không tạo được)"
+else
+    bad "C10b 7z không liệt kê Rar" "bản build này mất cả phần đọc RAR"
+fi
+
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

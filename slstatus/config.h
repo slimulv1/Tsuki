@@ -69,8 +69,8 @@ static const char unknown_str[] = "";
  * Truyền xuống battery_bar() qua setenv (xem slstatus.c), vì battery_bar()
  * trả về cả icon lẫn màu trong MỘT chuỗi để ẩn trọn khối khi không có pin.
  */
-static const char bat_colour[] = "#d7425b";
-static const char bat_state_colour[] = "#ec7d90";
+static const char bat_colour[] = "#6742d7";
+static const char bat_state_colour[] = "#9f8adf";
 
 static const struct arg args[] = {
     // Màu theo theme wal: dwmwal.sh thay sentinel XXX_HEX bằng #RRGGBB mỗi khi
@@ -83,14 +83,14 @@ static const struct arg args[] = {
     // tai sinh config.h TU FILE NAY moi lan doi hinh nen.
 
 /* function       format                          argument */
-{ updates,       "%s", "#d7cbd4 #952579" },  /* ON=trang khi co update, OFF=xanh khi khong */
-{ cpu_perc,      " ^c#eb72cd^󰻠 %s%%^d^ ",        nullptr },
-{ ram_used,      "^c#e9677e^ %s^d^ ",           nullptr },
-{ disk_perc,     "^c#ec7d90^󰋊 %s%%^d^ ",        "/" },
-{ run_command, "^c#ef92a2^󱩱 %s°C^d^ ",        "\"$TSUKI_DIR/scripts/cpu_temp.sh\"" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
+{ updates,       "%s", "#d3cfcf #493684" },  /* ON=trang khi co update, OFF=xanh khi khong */
+{ cpu_perc,      " ^c#9881dc^󰻠 %s%%^d^ ",        nullptr },
+{ ram_used,      "^c#9077da^ %s^d^ ",           nullptr },
+{ disk_perc,     "^c#9f8adf^󰋊 %s%%^d^ ",        "/" },
+{ run_command, "^c#af9de4^󱩱 %s°C^d^ ",        "\"$TSUKI_DIR/scripts/cpu_temp.sh\"" }, /* x86_pkg_temp = CPU thật (zone0 là acpitz, sai) */
 { net_icon,      "^c#7842d7^ %s ",               nullptr },  /* icon internet: MAU CO DINH #7842d7 — KHONG dung sentinel nen khong doi theo wallpaper; chi click vao icon (marker trong net_icon.c) -> netpanel.sh */
 { wifi_panel,    "%s",                           nullptr },  /* Wi-Fi Mini: chỉ tên mạng đang kết nối; màu nằm trong wifi_panel.c (#define) nên cũng cố định */
 { battery_bar,   "%s",                           "BAT1" },
   /* Trả cả khối (icon + % + ký hiệu) hoặc rỗng nếu máy không lắp pin. */
-{ datetime,      "^c#ec7d90^󰸗 %s^d^",          "%a, %d/%m, %H:%M" },
+{ datetime,      "^c#9f8adf^󰸗 %s^d^",          "%a, %d/%m, %H:%M" },
 };

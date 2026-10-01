@@ -227,6 +227,62 @@ Nếu Thunar vẫn không có thumbnail sau khi daemon chạy, xoá cache rồi 
 rm -rf ~/.cache/thumbnails
 ```
 
+## Thunar không có mục "Thùng rác" / "Giải nén" / ổ USB trong sidebar
+
+**Cần khởi động lại Thunar sau khi cài gói.** Đây là cạm bẫy hay gặp nhất, vì
+cài xong mọi thứ vẫn *thấy* thiếu mà không có lỗi nào báo.
+
+Lý do: sidebar không phải đọc cấu hình rồi vẽ. Nó dựng **model một lần** lúc
+mở cửa sổ — `thunar_shortcuts_model_places()` trong `thunar-shortcuts-model.c`,
+gọi từ `thunar_shortcuts_model_new()`. Hàm đó kiểm từng thứ rồi mới thêm:
+
+| Mục sidebar | Điều kiện | Cần gói |
+|---|---|---|
+| Thùng rác | `thunar_g_vfs_is_uri_scheme_supported("trash")` | `gvfs` |
+| Giải nén (chuột phải) | plugin có wrapper `.tap` cho app | `thunar-archive-plugin` + `file-roller` |
+| Ổ USB / đĩa cỡi được | GVolumeMonitor hỏi `udisks2` qua system bus | `udisks2` |
+
+Thunar mở trước khi cài xong thì nó đã bỏ qua các nhánh đó, và model **không tự
+dựng lại** khi có gói mới. Cài xong mà không đóng lại Thunar thì cứ tưởng cài
+hỏng.
+
+```sh
+pkill -x Thunar   # tên tiến trình viết HOA chữ T đầu
+```
+
+**Cạm bẫy khi tự chẩn đoán:** `pgrep -a thunar` **không** thấy Thunar, vì tên
+tiến trình là `Thunar` (hoa chữ T) còn lệnh gõ chữ thường — `pgrep` phân biệt
+hoa thường. Dùng:
+
+```sh
+pgrep -a -x Thunar                  # có đang mở không
+ps -eo lstart,comm | grep -i thunar # mở từ lúc nào
+ps -eo lstart,comm | grep -E 'gvfsd|udisksd'   # daemon khởi động lúc nào
+```
+
+So sánh hai mốc thời gian đó. Nếu Thunar mở **trước** daemon, đó chính là
+nguyên nhân — đóng lại là xong, không phải cài thêm gì. Nếu Thunar mở **sau**
+mà vẫn thiếu, kiểm backend có thật sự không:
+
+```sh
+gio list trash://    # phải không lỗi
+gio mount -l         # phải thấy ổ USB
+```
+
+## Menu "Giải nén" không có dù đã cài đủ mọi gói
+
+`thunar-archive-plugin` **không** gọi `7z`. Nó dò file wrapper
+`/usr/lib/xfce4/thunar-archive-plugin/<tên>.tap` cho từng app đăng ký với
+mime type, rồi loại app không có wrapper. Ở bản 0.6.0 chỉ có wrapper cho `ark`,
+`engrampa`, `file-roller`, `peazip` — **không có `7z.tap`**.
+
+Nên cài `7z`/`zip`/`unrar` (nhóm `PKG_ARCHIVE`) sẽ **không** tạo ra mục này.
+Phải có đúng một app trong danh sách bốn app trên.
+
+```sh
+ls /usr/lib/xfce4/thunar-archive-plugin/
+```
+
 ## `dwm` không lên được
 
 `run.sh` không quay vòng vô tận. Ba hành vi, tất cả đều ghi vào `session.log`:

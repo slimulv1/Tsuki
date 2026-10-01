@@ -884,6 +884,19 @@ cmd_deps() {
     install_pkgs PKG_SESSION    "session"
     install_pkgs PKG_CONFIG     "config-apps"
     install_pkgs PKG_KEYBINDS   "keybind-apps"
+
+    # Thunar nạp plugin và dựng sidebar model ĐÚNG MỘT LẦN lúc mở cửa sổ.
+    # Cài `thunar-archive-plugin`/`gvfs` xong mà Thunar vẫn đang mở thì nó
+    # không tự thêm lại gì. Đo được trên máy này: Thunar PID 255569 mở lúc
+    # 11:45:12, gvfsd mở lúc 13:24:21 — Thunar cũ hơn 1 giờ 43 phút, nên
+    # sidebar của nó không có mục Thùng rác dù backend đã sẵn sàng.
+    #
+    # Tên tiến trình là `Thunar` (HOA chữ T đầu). `pgrep thunar` KHÔNG thấy vì
+    # pgrep phân biệt hoa thường — tôi đã mắc đúng lỗi này lúc chẩn đoán.
+    if pgrep -x Thunar >/dev/null 2>&1; then
+        warn "Thunar đang mở — sidebar của nó không tự làm mới sau khi cài gói mới"
+        warn "đóng hẳn Thunar rồi mở lại:  pkill -x Thunar"
+    fi
 }
 
 # ------------------------------------------------------------------ build ---

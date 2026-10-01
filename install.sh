@@ -8,6 +8,7 @@
 #   ./install.sh arisa        # hỏi rồi thêm kho arisa (Super+C, Super+D)      [root]
 #   ./install.sh paru         # cài paru để dùng AUR                           [root]
 #   ./install.sh pty          # bộ gõ Lotus (tiếng Việt)                       [root][paru]
+#   ./install.sh archive      # công cụ nén/giải nén: 7z, zip, unrar          [root]
 #   ./install.sh build        # chỉ build + cài binary vào /usr/local/bin      [root]
 #   ./install.sh dotfiles     # chỉ copy ~/.config
 #   ./install.sh firefox      # chỉ nạp giao diện vào profile Firefox
@@ -494,6 +495,33 @@ readonly PKG_CONFIG=(
     xsettingsd   # .config/xsettingsd/
 )
 
+# --- 3b. cong cu nen / giai nen ---
+# Tach khoi PKG_CONFIG vi day la cong cu DUNG TAY, khong phai app co dotfile
+# trong ~/.config — nhet vao PKG_CONFIG se lam sai nghia nhom do.
+#
+# Chon gi, do tren may nay (CachyOS):
+#   7z    — da dinh dang: 7z, zip, tar.*, gz, bz2, xz, zst, iso, wim.
+#           KHONG tao/nen duoc RAR: ma giai nen RAR "khong hoan toan tu do"
+#           (DOC/readme.txt cua 7-Zip: DISABLE_RAR_COMPRESS=1 loai dung phan
+#           do), nen Arch tach plugin ra goi rieng. Goi `p7zip-rar` KHONG co
+#           trong kho CachyOS (do: pacman -Si p7zip-rar -> not found).
+#   unrar — doc RAR that. Day la CACH DUY NHAT giai nen .rar.
+#   zip   — 7z tao duoc .zip, nhung `zip` tuong thich voi script khac va nhanh
+#           hon nhieu voi .zip don gian.
+#
+# KHONG them atool/patool: chung chi la wrapper goi lenh con, cong them mot
+# tang truong tuong trong khi 7z da lam het. Cung khong them GUI (file-roller,
+# engrampa, ark, xarchiver) — chung keo theo ca GNOME/KDE/MATE, thua cho dwm
+# khong co DE.
+# bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
+# (xem ghi chuc dau muc "packages")
+# shellcheck disable=SC2034
+readonly PKG_ARCHIVE=(
+    zip
+    7zip
+    unrar
+)
+
 # --- 4. app mở bằng phím tắt ---
 # Mỗi dòng là một SHCMD(...) trong config.h. Không kèm gói cho `st` `slock`
 # `dmenu_run` — ba cái đó build từ chính repo.
@@ -737,6 +765,14 @@ check_disk_space() {
     fi
     info "đĩa: cần ~$(human_bytes "$need_b"), còn $(human_bytes "$free") trên $cachedir"
     return 0
+}
+
+cmd_archive() {
+    # Goi rieng, KHONG gop vao cmd_deps: 3 goi ~5 MiB cho viec dung tay thi khong
+    # nen la bat buoc khi lam `./install.sh all`. Nguoi can thi goi
+    # `./install.sh archive`.
+    detect_sudo
+    install_pkgs PKG_ARCHIVE "archive"
 }
 
 cmd_deps() {
@@ -2606,6 +2642,7 @@ main() {
         arisa)     cmd_arisa ;;
         paru)      cmd_paru ;;
         pty)       cmd_pty ;;
+        archive)   cmd_archive ;;
         uninstall) cmd_uninstall ;;
         all)
             # Báo trước phần thiếu rồi mới làm — `all` chạy 8 bước,
@@ -2620,6 +2657,8 @@ main() {
             cmd_pty
             cmd_build
             cmd_dotfiles
+            # KHONG goi cmd_archive trong `all`: 3 goi ~5 MiB cho viec dung tay.
+            # Nguoi can thi `./install.sh archive`. Da hoi va chon nhu vay.
             cmd_themes
             cmd_firefox
             cmd_session

@@ -1,6 +1,6 @@
 # Gói cài đặt
 
-`./install.sh` cài **67 gói** (không tính trùng lặp), khoảng **2.9 GiB** đã cài
+`./install.sh` cài **67 gói** trong `all` + 3 gói nếu gọi `archive`, khoảng **2.9 GiB** đã cài
 trên máy. Danh sách này rút từ sáu mảng gói trong `install.sh` — mỗi mảng là
 một nhóm, và nhóm quyết định **lúc nào** được cài.
 
@@ -104,6 +104,26 @@ một thư mục `.config/<tên>/` được chép sang.
 | `picom` | `.config/picom/` |
 | `starship` | `.config/starship.toml` |
 | `xsettingsd` | `.config/xsettingsd/` |
+
+## 3b. `PKG_ARCHIVE` — công cụ nén / giải nén (3 gói, 4.6 MiB)
+
+Không nằm trong `all` — cài riêng bằng `./install.sh archive`.
+
+| Gói | Vai trò |
+|---|---|
+| `7zip` | đa định dạng: 7z, zip, tar.*, gz, bz2, xz, zst, iso, wim |
+| `zip` | tạo `.zip` — nhanh hơn 7z nhiều với file zip đơn giản |
+| `unrar` | **cách duy nhất giải nén `.rar`** trên kho CachyOS |
+
+**Về RAR, đọc kỹ trước khi tìm cách khác.** `7z` không tạo/nén được RAR: mã
+giải nén RAR "không hoàn toàn tự do", nên Arch tách nó ra gói `p7zip-rar` riêng.
+Gói đó **không có trong kho CachyOS** (đo: `pacman -Si p7zip-rar` → *not found*).
+Nên `unrar` là bắt buộc, không phải tuỳ chọn.
+
+**Không cài `atool`/`patool`** — chúng chỉ là wrapper gọi lệnh con, thêm một
+tầng trừu tượng trong khi `7z` đã làm hết việc. **Không cài GUI** (`file-roller`,
+`engrampa`, `ark`, `xarchiver`) — chúng kéo theo cả GNOME/KDE/MATE, thừa cho
+dwm không có DE.
 
 ## 4. `PKG_KEYBINDS` — app mở bằng phím tắt (23 gói, 1.8 GiB)
 

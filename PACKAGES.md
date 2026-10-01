@@ -1,6 +1,6 @@
 # Gói cài đặt
 
-`./install.sh` cài **82 gói** (không tính trùng lặp, toàn bộ chín mảng), khoảng
+`./install.sh` cài **83 gói** (không tính trùng lặp, toàn bộ chín mảng), khoảng
 **2.9 GiB** đã cài trên máy. Danh sách này rút từ chín mảng gói trong
 `install.sh` — mỗi mảng là một nhóm, và nhóm quyết định **lúc nào** được cài.
 
@@ -154,10 +154,11 @@ Không nằm trong `all` — cài riêng bằng `./install.sh media`.
 
 | Gói | Vai trò |
 |---|---|
-| `mpv` | trình phát cho dwm — phím tắt, có IPC để script điều khiển, giải mã bằng `ffmpeg` |
+| `mpv` | trình phát cho dwm — phím tắt, có IPC để script điều khiển, giải mã bằng `ffmpeg`. Xem `.config/mpv/mpv.conf` để biết nó được cấu hình thế nào |
 | `celluloid` | giao diện GTK cho `mpv`, thân chỉ 1.2 MiB vì phần lớn nằm ở `mpv` |
 | `gst-plugins-good` | bù gói con `wavpack` còn thiếu |
 | `gst-plugins-base` | bù gói con `cdparanoia` còn thiếu |
+| `wiremix` | mixer cho PipeWire — 2 phụ thuộc đã có sẵn (`gcc-libs`, `libpipewire`) |
 
 **Codec đã có sẵn gần hết — đo trước khi thêm nhóm này:**
 
@@ -182,6 +183,22 @@ Không nằm trong `all` — cài riêng bằng `./install.sh media`.
 
 **Thiếu lớn nhất là không có trình phát nào** — không `mpv`, không `vlc`, không
 `celluloid`. Đó mới là thứ duy nhất phải cài để giải trí.
+
+### Vì sao `wiremix`, không phải `easyeffects`
+
+Đo: PipeWire không nạp module DSP nào (`pactl list short modules` → 0 dòng
+`filter-chain`, 0 dòng `lv2`), nên không có cân bằng hay compressor.
+
+`easyeffects` giải quyết được, nhưng nó kéo `breeze-icons` (82.84 MiB giải nén,
+7.92 MiB tải) — và `breeze-icons` **ghi đè** `/usr/share/icons/breeze-dark` cùng
+`/usr/share/icons/breeze`, hai thư mục hiện đến từ `fcitx5-lotus-bin` (AUR), không
+phải gói chính thức. YAMO khai `Inherits` có `breeze-dark`, nên để bản chính thức
+thay bản AUR là hợp lý hơn — nhưng đã **hỏi và người dùng chọn không cài** để
+không đụng cấu hình đang chạy.
+
+`wiremix` nặng 3.51 MiB, phụ thuộc đã có hết, không kéo KDE. Đánh đổi: không có
+compressor/limiter/bass boost. Nếu sau này đổi ý, `./install.sh media` cài thêm
+được mà không phải sửa gì.
 
 ## 3e. Icon theme — YAMO (chính) + Buuf (dự phòng)
 

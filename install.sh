@@ -576,6 +576,15 @@ readonly PKG_MEDIA=(
     celluloid
     gst-plugins-good
     gst-plugins-base
+    # wiremix — mixer cho PipeWire. KHÔNG dùng easyeffects: nó kéo
+    # breeze-icons (82.84 MiB giải nén), và breeze-icons sẽ ghi đè
+    # /usr/share/icons/breeze-dark + breeze — hai thư mục hiện đến từ
+    # `fcitx5-lotus-bin`, không phải gói chính thức. YAMO khai
+    # `Inherits` có breeze-dark (nguồn dự phòng cho 4 icon nó thiếu), nên
+    # để bản chính thức thay bản AUR là hợp lý hơn — nhưng đã hỏi và chọn
+    # không cài để không đụng cấu hình đang chạy. Đã hỏi, người dùng chọn.
+    # 2 phụ thuộc đã có sẵn.
+    wiremix
 )
 
 # --- 3c. phần cứng ngoài vi ---
@@ -1358,11 +1367,26 @@ cmd_dotfiles() {
         rm -rf -- "${stale[@]}" 2>/dev/null || true
         warn "dọn ${#stale[@]} thư mục tạm .tsuki-tmp-* sót từ lần chạy bị giết trước"
     fi
-    # Danh sách này phải khớp PKG_CONFIG: mỗi gói ở đó có đúng một mục ở đây,
-    # và ngược lại. Thêm dotfile mới thì sửa cả hai chỗ — nếu không sẽ có
-    # dotfile được copy tới ~/.config mà không cài gói nào, hoặc cài gói mà
-    # không dotfile nào dùng tới.
-    local -a items=(dunst fastfetch firefox fish gtk-3.0 kitty picom starship.toml xsettingsd)
+    # Danh sách này khớp PKG_CONFIG theo ĐẶC TÍNH dotfile, không theo tên mảng:
+    # mỗi gói trong PKG_CONFIG có đúng một mục ở đây và ngược lại — TRỪ `mpv`,
+    # thuộc PKG_MEDIA chứ không phải PKG_CONFIG.
+    #
+    # Sửa chú thích cũ vì nó SAI: nó đòi khớp cứng theo tên, nhưng `gtk3` (gói)
+    # khác `gtk-3.0` (thư mục) ngay từ đầu, chứ không phải lỗi từ hôm nay. Đo lại:
+    #   PKG_CONFIG 9 gói: dunst fastfetch firefox fish gtk3 kitty picom starship
+    #                     xsettingsd
+    #   items      10 mục: cộng mpv
+    # Khớp đặc tính 1-1; lệch đúng một cặp do khác tên.
+    #
+    # `mpv.conf` có tác dụng kể cả khi mpv chưa cài — mpv đọc
+    # ~/.config/mpv/mpv.conf dù file có hay không. Nên mpv ở PKG_MEDIA (cài
+    # riêng bằng `./install.sh media`), còn mpv.conf nằm ở đây và không động
+    # vào `all`: copy file cấu hình 0 MB thì rẻ, nhưng nếu sau này mpv.conf đòi
+    # một gói chưa cài thì hỏng im lặng.
+    # Đã đo trước khi thêm: trước khi có `mpv` trong items,
+    # `install.sh dotfiles` KHÔNG copy .config/mpv — đúng như thiết kế.
+    local -a items=(dunst fastfetch firefox fish gtk-3.0 kitty mpv picom \
+                    starship.toml xsettingsd)
     local n=0 d
     for d in "${items[@]}"; do
         # starship.toml là file, còn lại là thư mục — install_dotfile nhận cả hai

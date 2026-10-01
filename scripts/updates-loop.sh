@@ -18,6 +18,14 @@ upd_cache="$HOME/.cache/dwm-updates"
 exec 9>"$HOME/.cache/dwm-updates.lock"
 flock -n 9 || exit 0
 
+# Dọn file tạm sót từ lần chạy TRƯỚC bị giết (SAU khi đã giữ khoá — dọn trước
+# khoá thì xoá nhầm file của tiến trình song song). Hậu tố là $$ của tiến
+# trình đã chết nên glob là đủ; không đụng `dwm-updates` bản thật.
+for _u in "$HOME/.cache/dwm-updates.tsuki-new."*; do
+    [ -f "$_u" ] && rm -f -- "$_u" 2>/dev/null
+done
+unset _u
+
 cache="$HOME/.cache/dwm-updates"
 paclog=/var/log/pacman.log
 last_paclog=""
@@ -35,7 +43,19 @@ while :; do
       else
         count=0
       fi
-      printf "%s\n" "$count" > "$cache"
+      # Ghi qua file tạm rồi mv. slstatus đọc file này (components/updates.c,
+      # qua config.h) mỗi lần thanh cập nhật — thường là mỗi giây. Nếu bị
+      # giết giữa lúc ghi, lần đọc kế có thể thấy file rỗng và thanh báo sai.
+      # File chỉ vài byte nên cửa sổ hẹp, nhưng rename(2) miễn phí và loại
+      # hẳn khả năng đó.
+      # tmp CÙNG THƯ MỤC (không phải /tmp) để mv là rename trong cùng
+      # filesystem — khác fs thì mv phải copy, mất tính nguyên tử.
+      _utmp="$cache.tsuki-new.$$"
+      if printf "%s\n" "$count" > "$_utmp" 2>/dev/null; then
+          mv -f "$_utmp" "$cache" 2>/dev/null || rm -f "$_utmp"
+      else
+          rm -f "$_utmp" 2>/dev/null
+      fi
       last_check=$now
       last_paclog=$pm2
     else

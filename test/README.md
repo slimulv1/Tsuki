@@ -14,6 +14,7 @@ for t in test/test-*.sh; do printf '%-28s ' "$t"; "$t" 2>&1 | tail -1; done
 | `test-run-daemons.sh` | `start_daemon`/`stop_daemons` trích thẳng từ `run.sh`, kể cả daemon tự fork như `fcitx5 -d` |
 | `test-firefox-profile.sh` | Dò profile Firefox qua `profiles.ini`/`installs.ini` |
 | `test-dwmwal-build.sh` | `_build_check` của `dwmwal.sh`: build hỏng thì phải báo chứ không giết daemon đang chạy |
+| `test-packages-doc.sh` | `PACKAGES.md` phải khớp `install.sh`: mọi gói trong 6 mảng phải có trong tài liệu, và con số tổng phải đúng |
 | `test-install-help.sh` | `install.sh` tự giải thích đủ không: mọi lệnh con trong `main()` phải có trong `-h`, lệnh cần root phải được đánh dấu, cảnh báo `xlibre` không được bị cắt mất |
 
 ## Công cụ kiểm, không phải test tự động

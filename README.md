@@ -39,6 +39,9 @@ cd ~/tsuki
 Lệnh này cài gói phụ thuộc, build `dwm` `st` `slock` `dmenu` `slstatus`, chép
 `~/.config` và viết `~/.xinitrc`. Chỉ hỏi mật khẩu khi cần root.
 
+Muốn biết trước nó sẽ cài những gì nào, bao nhiêu dung lượng, và gói nào đến từ
+kho thứ ba: [PACKAGES.md](PACKAGES.md).
+
 Xong thì gõ `dwm`. Thoát về TTY bằng `Super+Ctrl+Q`.
 
 | Phím | |

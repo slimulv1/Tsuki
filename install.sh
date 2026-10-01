@@ -1929,7 +1929,41 @@ write_xinitrc() {
         cp -aL -- "$TSUKI_HOME/.xinitrc" "$bak"
         warn ".xinitrc đã tồn tại -> backup: ${bak##*/}"
     fi
-    cat >"$TSUKI_HOME/.xinitrc" <<EOF
+    # GHI QUA FILE TẠM RỒI mv, không `cat >` thẳng vào ~/.xinitrc.
+    #
+    # VÌ SAO: .xinitrc là file quyết định có vào được desktop không — sai nó
+    # thì startx không chạy session. Đo 3 nguyên nhân hỏng:
+    #   1) install.sh bị SIGKILL (mất điện, OOM) giữa lúc ghi -> file nửa vời.
+    #   2) Đĩa đầy / chạm RLIMIT_FSIZE giữa lúc ghi -> cat báo lỗi, file dở.
+    #      Đo bằng `ulimit -f 1` (giới hạn 512 byte): cat > báo
+    #      "File size limit exceeded" và file chỉ còn 1024 byte so với ~4000
+    #      cần có. LƯU Ý: bash chết bằng SIGXFSZ, `set -e` KHÔNG kịp chạy —
+    #      nên không có chỗ nào báo cho người dùng biết file đã hỏng.
+    #   3) Người dùng Ctrl-C đúng lúc đó.
+    # `mv` cùng thư mục dùng rename(2) — POSIX bảo đảm thay thế nguyên tử —
+    # nên file là BẢN CŨ HOẶC BẢN MỚI, không bao giờ là bản dở. Nhờ vậy kể cả
+    # khi bị giết, ~/.xinitrc cũ vẫn chạy được.
+    # ĐÍCH CỦA mv PHẢI LÀ FILE ĐÃ RESOLVE, KHÔNG PHẢI ĐƯỜNG DẪN CÓ SYMLINK.
+    #
+    # Đo trên cả hai cách (file đích là symlink -> kho dotfiles):
+    #   cat > ~/.xinitrc          symlink CON, nội dung kho dotfiles ĐƯỢC ghi
+    #   tmp + mv ~/.xinitrc       symlink BỊ PHÁ, kho dotfiles KHÔNG đổi
+    # mv thay chính symlink bằng file thật, nên làm mất đúng thứ symlink_guard
+    # hỏi người dùng trước khi ghi ("vẫn ghi đè file đích?"), và ghi vào đâu
+    # đó không ai biết. Đó là lỗi tôi tự gây khi thêm atomic write.
+    #
+    # Sửa: nếu đích là symlink, mv vào FILE THẬT mà nó trỏ tới. kho dotfiles
+    # được cập nhật đúng như ý người dùng, symlink giữ nguyên, và rename(2)
+    # vẫn nguyên tử vì file tạm nằm CÙNG THƯ MỤC với file thật.
+    local _xdst=$TSUKI_HOME/.xinitrc
+    if [[ -L $TSUKI_HOME/.xinitrc ]]; then
+        local _xr
+        _xr=$(readlink -f -- "$TSUKI_HOME/.xinitrc" 2>/dev/null) || _xr=
+        [[ -n $_xr && -f $_xr ]] && _xdst=$_xr
+    fi
+    # File tạm nằm cùng thư mục với _xdst — cùng filesystem nên rename(2) nguyên tử.
+    _xtmp="$_xdst.tsuki-new.$$"
+    cat >"$_xtmp" <<EOF
 # ~/.xinitrc — do Tsuki install.sh tạo. Chạy session dwm từ TTY: startx
 #
 # startx không nạp ~/.profile nên PATH phỏng vọng; make install đặt binary vào
@@ -1938,7 +1972,29 @@ write_xinitrc() {
 export PATH="$PREFIX/bin:\$PATH"
 exec "$REPO_DIR/scripts/run.sh"
 EOF
-    chmod 644 "$TSUKI_HOME/.xinitrc"
+    # Đặt quyền TRƯỚC khi mv: rename(2) giữ nguyên quyền của file nguồn, nên
+    # phải chmod file tạm. Làm sau mv thì có khoảnh thời gian .xinitrc tồn
+    # tại với quyền mặc định của umask (thường 0600).
+    chmod 644 "$_xtmp"
+    # PHẢI KIỂM FILE TẠM TRƯỚC KHI mv. Đo bằng `ulimit -f 20` (10 KiB):
+    # heredoc lớn hơn giới hạn thì bash báo "cannot create temp file for
+    # here-document: No space left on device" và KHÔNG tạo ra file — nhưng lệnh
+    # mv vẫn chạy tiếp và thay .xinitrc bằng file 0 byte. Nghĩa là chỉ ghi qua
+    # .tmp thôi là chưa đủ: phải bảo đảm .tmp CÓ NỘI DUNG đúng trước khi nó
+    # thay thế .xinitrc đang chạy tốt.
+    if [[ ! -s $_xtmp ]]; then
+        rm -f -- "$_xtmp"
+        # SC2088 dương tính giả: "~" ở đây là chuỗi hiển thị cho người đọc,
+        # KHÔNG phải đường dẫn để mở (đường dẫn thật là $_xtmp phía trên).
+        # shellcheck disable=SC2088
+        die "~/.xinitrc tạo ra rỗng (đĩa đầy hoặc bị giới hạn) — file cũ giữ nguyên"
+    fi
+    # Nếu mv hỏng (đĩa đầy, quyền), .xinitrc CŨ vẫn nguyên — nhờ đây là bản
+    # nguyên tử. Dọn file tạm rồi báo, không im lặng để lần sau còn sót.
+    if ! mv -f -- "$_xtmp" "$_xdst"; then
+        rm -f -- "$_xtmp"
+        die "ghi ~/.xinitrc thất bại — file cũ vẫn nguyên vẹn, thử lại"
+    fi
     # "~/.xinitrc" là chuỗi hiển thị cho người đọc, KHÔNG phải đường dẫn cần
     # mở — nên cố ý không dùng $HOME. shellcheck báo SC2088 ở đây là dương
     # tính giả.
@@ -1997,7 +2053,22 @@ install_desktop_entry() {
         set -e
         d=/usr/share/xsessions
         install -d -m 755 "$d"
-        cat > "$d/Tsuki.desktop" <<EOF
+        # Đích cũng phải resolve symlink, cùng lý do .xinitrc: mv sẽ thay chính
+        # symlink bằng file thật. Ở đây thường là file thật, nhưng /usr/share
+        # có thể bị admin (hoặc image tối giản) đặt symlink — đừng phá.
+        dst="$d/Tsuki.desktop"
+        if [ -L "$dst" ]; then
+            r=$(readlink -f -- "$dst" 2>/dev/null) || r=
+            [ -n "$r" ] && [ -f "$r" ] && dst="$r"
+        fi
+        d=${dst%/*}
+        # Ghi qua file tạm rồi mv: file này nằm trong /usr/share, display
+        # manager quét nó MỖI LẦN vẽ màn hình đăng nhập. Nếu cat > bị giết
+        # giữa lúc ghi (Ctrl-C, mất điện) thì GDM/SDDM đọc file dở — màn hình
+        # đăng nhập mất mục Tsuki, và người dùng tưởng session hỏng. rename(2)
+        # nguyên tử nên chỉ thấy bản cũ hoặc bản mới, không có bản dở.
+        t="$d/.Tsuki.desktop.new.$$"
+        cat > "$t" <<EOF
 [Desktop Entry]
 Name=Tsuki
 Comment=Tsuki — dwm session (wallpaper-aware)
@@ -2006,8 +2077,24 @@ Icon=preferences-desktop
 Terminal=false
 Type=Application
 EOF
-        chmod 644 "$d/Tsuki.desktop"
-        echo "  + $d/Tsuki.desktop"
+        # chmod trước mv: rename giữ quyền của file nguồn.
+        chmod 644 "$t"
+        # Phải kiểm file tạm CÓ NỘI DUNG trước khi mv. Đo bằng `ulimit -f 20`:
+        # heredoc vượt giới hạn thì bash báo "cannot create temp file" và KHÔNG
+        # tạo file, nhưng mv vẫn chạy và thay Tsuki.desktop đang tốt bằng file
+        # 0 byte -> display manager mất mục Tsuki. Chỉ ghi qua .tmp là chưa đủ.
+        if [ ! -s "$t" ]; then
+            rm -f -- "$t"
+            echo "  lỗi: tạo $t rỗng (đĩa đầy?) — $dst giữ nguyên" >&2
+            exit 1
+        fi
+        # mv cùng thư mục nên nguyên tử. set -e ở trên chết nếu mv hỏng,
+        # nhưng dọn file tạm trước để không sót lại /usr/share.
+        if ! mv -f -- "$t" "$dst"; then
+            rm -f -- "$t"
+            exit 1
+        fi
+        echo "  + $dst"
     ' _ "$REPO_DIR"
 }
 

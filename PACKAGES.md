@@ -1,7 +1,7 @@
 # Gói cài đặt
 
-`./install.sh` cài **78 gói** (không tính trùng lặp, toàn bộ tám mảng), khoảng
-**2.9 GiB** đã cài trên máy. Danh sách này rút từ tám mảng gói trong
+`./install.sh` cài **82 gói** (không tính trùng lặp, toàn bộ chín mảng), khoảng
+**2.9 GiB** đã cài trên máy. Danh sách này rút từ chín mảng gói trong
 `install.sh` — mỗi mảng là một nhóm, và nhóm quyết định **lúc nào** được cài.
 
 Muốn xem nhanh: `./install.sh -h`. Muốn biết cài gì: trang này.
@@ -147,6 +147,41 @@ sung phần mềm quản lý, không phải sửa lỗi nhận diện.
 **Không cài `cups`** (12.8 MiB, kéo `cups-filters` + `libpaper`): không thấy máy
 in nào trong `/dev`. **Không cài `tlp`/`xfce4-power-manager`**: `/sys/class/power_supply`
 rỗng — máy tĩnh, không có pin, nên quản lý pin vô dụng.
+
+## 3d. `PKG_MEDIA` — giải trí: trình phát + codec (4 gói, 28 MiB)
+
+Không nằm trong `all` — cài riêng bằng `./install.sh media`.
+
+| Gói | Vai trò |
+|---|---|
+| `mpv` | trình phát cho dwm — phím tắt, có IPC để script điều khiển, giải mã bằng `ffmpeg` |
+| `celluloid` | giao diện GTK cho `mpv`, thân chỉ 1.2 MiB vì phần lớn nằm ở `mpv` |
+| `gst-plugins-good` | bù gói con `wavpack` còn thiếu |
+| `gst-plugins-base` | bù gói con `cdparanoia` còn thiếu |
+
+**Codec đã có sẵn gần hết — đo trước khi thêm nhóm này:**
+
+- `ffmpeg` 9.0.2 build với `--enable-gpl --enable-libx264 --enable-libx265
+  --enable-libvpx --enable-libaom --enable-librav1e --enable-libsvtav1
+  --enable-libopus --enable-libvorbis --enable-libtheora --enable-libmp3lame
+  --enable-libfdk-aac --enable-libass --enable-libbluray --enable-libmodplug
+  --enable-libopenmpt`. Đã **giải mã thật** (không chỉ đọc tên): h264.mp4,
+  hevc.mp4, vp9.webm, av1.mkv đều sạch; phụ đề srt và ass burn-in OK.
+- GStreamer 1.28.7 đã có **188 plugin**, gồm `gst-plugins-bad`, `ugly`, `libav`.
+  `gst-inspect-1.0` tìm thấy `avdec_h264`, `avdec_aac`, `avdec_mpeg4`,
+  `avdec_flac`, `avdec_mp3`. Thiếu đúng **2 gói con**.
+
+**Không thêm gì cho `ffmpeg`**, và hai thứ đã có sẵn nên không thêm trùng:
+
+- `ttf-dejavu` 2.37 đã cài. `fc-match "DejaVu Sans"` trả `DejaVuSans.ttf`, và
+  render phụ đề ASS với font đó chạy OK.
+- `libdvdnav` 7.0.0 đã cài, nhưng **vô dụng**: `ffmpeg -h protocol=dvd` trả
+  về *Unknown protocol 'dvd'*. `ffmpeg` 9 ở bản đóng gói này không có `dvd`
+  protocol, và gói `dvdnav` không có trong kho. Đây là giới hạn của ffmpeg 9,
+  không phải thiếu cài đặt.
+
+**Thiếu lớn nhất là không có trình phát nào** — không `mpv`, không `vlc`, không
+`celluloid`. Đó mới là thứ duy nhất phải cài để giải trí.
 
 ## 4. `PKG_KEYBINDS` — app mở bằng phím tắt (23 gói, 1.8 GiB)
 

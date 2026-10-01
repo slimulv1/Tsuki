@@ -10,6 +10,7 @@
 #   ./install.sh pty          # bộ gõ Lotus (tiếng Việt)                       [root][paru]
 #   ./install.sh archive      # công cụ nén/giải nén: 7z, zip, unrar          [root]
 #   ./install.sh hardware     # firmware, Bluetooth, ACPI, MTP/SMB             [root]
+#   ./install.sh media        # trình phát mpv + celluloid, codec GStreamer    [root]
 #   ./install.sh userdirs     # tạo + khai báo ~/Documents, ~/Videos, ...
 #   ./install.sh build        # chỉ build + cài binary vào /usr/local/bin      [root]
 #   ./install.sh dotfiles     # chỉ copy ~/.config
@@ -529,6 +530,53 @@ readonly PKG_CONFIG=(
     xsettingsd   # .config/xsettingsd/
 )
 
+# --- 3d. giải trí: trình phát + codec ---
+# Cùng nhóm với PKG_ARCHIVE và PKG_HARDWARE ở chỗ: công cụ dùng tay, cài khi
+# cần, KHÔNG ép vào `all`.
+#
+# ĐO TRƯỚC KHI THÊM, và KẾT LUẬN NGƯỢC VỚI DỰ ĐOÁN: phần lớn codec ĐÃ CÓ SẴN.
+#
+#   ffmpeg 9.0.2 — build config co --enable-gpl --enable-libx264 --enable-libx265
+#     --enable-libvpx --enable-libaom --enable-librav1e --enable-libsvtav1
+#     --enable-libopus --enable-libvorbis --enable-libtheora --enable-libmp3lame
+#     --enable-libfdk-aac --enable-libass --enable-libbluray --enable-libdvdread
+#     --enable-libfribidi --enable-libharfbuzz --enable-libmodplug
+#     --enable-libopenmpt --enable-libfreetype --enable-fontconfig
+#     --enable-vulkan. Đã GIẢI MÃ THẬT (không chỉ đọc tên): h264.mp4, hevc.mp4,
+#     vp9.webm, av1.mkv đều decode sạch; phụ đề srt và ass burn-in OK.
+#     => KHÔNG thêm gì cho ffmpeg.
+#
+#   GStreamer 1.28.7 — đã có 188 plugin, gst-plugins-bad + ugly + gst-libav đều
+#     cài. `gst-inspect-1.0` tìm thấy avdec_h264, avdec_aac, avdec_mpeg4,
+#     avdec_flac, avdec_mp3. Thiếu đúng 2 gói con: `wavpack` (của
+#     gst-plugins-good) và `cdparanoia` (của gst-plugins-base). Cài hai gói meta
+#     này là xong, và nó tự kéo gói con còn thiếu.
+#
+#   KHÔNG thêm `ttf-dejavu`: đã cài 2.37, `fc-match "DejaVu Sans"` ra
+#     DejaVuSans.ttf, và render ASS với font đó chạy OK. Thêm nữa là trùng.
+#
+#   KHÔNG thêm gói DVD: ffmpeg 9.0.2 ở bản này KHÔNG CÓ `dvd` protocol —
+#     `ffmpeg -h protocol=dvd` trả về "Unknown protocol 'dvd'". `libdvdnav` 7.0.0
+#     đã cài sẵn cũng vô dụng vì protocol không tồn tại, và gói `dvdnav` (công
+#     cụ đọc cấu trúc đĩa) KHÔNG có trong kho. Đây là giới hạn của ffmpeg 9 ở
+#     bản đóng gói này, không phải thiếu cài đặt.
+#
+#   mpv — trình phát cho dwm: điều khiển bằng phím, có IPC để script điều
+#     khiển được, giải mã bằng chính ffmpeg (đã đầy đủ ở trên). Kéo
+#     libsixel (ảnh sáu chấm trong terminal), libxpresent, mujs, uchardet.
+#   celluloid — giao diện GTK cho mpv, cho người không muốn nhớ phím tắt. Bản
+#     thân chỉ 1.2 MiB vì phần lớn công việc nằm ở mpv; gtk3 máy đã có.
+#
+# bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
+# (xem ghi chuc dau muc "packages")
+# shellcheck disable=SC2034
+readonly PKG_MEDIA=(
+    mpv
+    celluloid
+    gst-plugins-good
+    gst-plugins-base
+)
+
 # --- 3c. phần cứng ngoài vi ---
 # Tách riêng vì đây là THIẾT BỊ NGOÀI VI, không phải app, không phải dotfile.
 # Cùng nhóm với PKG_ARCHIVE ở chỗ: đều là công cụ dùng tay, cài khi cần.
@@ -843,6 +891,53 @@ check_disk_space() {
     fi
     info "đĩa: cần ~$(human_bytes "$need_b"), còn $(human_bytes "$free") trên $cachedir"
     return 0
+}
+
+cmd_media() {
+    detect_sudo
+    install_pkgs PKG_MEDIA "media"
+    media_verify
+}
+
+# Kiểm SAU khi cài bằng hành vi thật, không chỉ kiểm "đã cài". Dùng
+# `gst-inspect-1.0` tìm plugin giải mã và `ffmpeg -decoders` tìm bộ giải mã —
+# cả hai đều là câu hỏi cho hệ thống, không phải đọc danh sách gói.
+media_verify() {
+    step "kiểm codec"
+    local -a el=() dec=()
+    local e
+    # GStreamer: những gì app đi qua GStreamer cần có.
+    for e in avdec_h264 avdec_aac avdec_mpeg4 avdec_flac avdec_mp3; do
+        gst-inspect-1.0 "$e" >/dev/null 2>&1 && el+=("$e")
+    done
+    # ffmpeg: trình phát mpv và mọi thứ dùng ffmpeg đi qua đây.
+    local d
+    for d in h264 aac mp3 flac opus vorbis; do
+        ffmpeg -hide_banner -decoders 2>/dev/null | sed -n '3,$p' |
+            awk '{print $2}' | grep -qx "$d" && dec+=("$d")
+    done
+    if ((${#dec[@]} >= 5)); then
+        ok "ffmpeg giải mã: ${dec[*]}"
+    else
+        warn "ffmpeg chỉ thấy ${#dec[@]} bộ giải mã: ${dec[*]:-không có} — cài gói lỗi?"
+    fi
+    # Tách số đếm ra biến, KHÔNG viết ${#el[@]} bên trong $(( )). Đo trên bản
+    # nhỏ: `echo "x $(( 5 - ${#e[@]} )/${#e[@]} y"` -> "unexpected EOF while
+    # looking for matching `"`". Bash dừng quét số học ở dấu `)` rồi gặp
+    # `${#el[@]}` ngay sau đó nên lệch ngoặc. Còn `$(( 5 - ${#e[@]} ))` thì
+    # chạy được — tức lỗi chỉ xuất hiện khi có phần tử SAU dấu `)`. Với
+    # biến tạm thì cả hai đều ổn, và đọc dễ hơn.
+    local el_n=${#el[@]}
+    if (( el_n >= 5 )); then
+        ok "GStreamer giải mã: ${el[*]}"
+    else
+        warn "GStreamer thiếu plugin: $(( 5 - el_n ))/$el_n — gst-plugins-good chưa cài hết?"
+    fi
+    if command -v mpv >/dev/null 2>&1; then
+        ok "mpv: $(mpv --version 2>/dev/null | head -1)"
+    else
+        warn "mpv chưa có — không cài được"
+    fi
 }
 
 cmd_hardware() {
@@ -2818,6 +2913,7 @@ main() {
         pty)       cmd_pty ;;
         archive)   cmd_archive ;;
         hardware)  cmd_hardware ;;
+        media)     cmd_media ;;
         userdirs)  cmd_userdirs ;;
         uninstall) cmd_uninstall ;;
         all)
@@ -2842,6 +2938,10 @@ main() {
             cmd_themes
             cmd_firefox
             cmd_session
+            # Cũng KHÔNG gọi cmd_media: 28 MiB cho trình phát, và codec
+            # chính (`ffmpeg`) đã được cài từ `deps` vì Firefox phụ thuộc
+            # vào nó. Người cần thì `./install.sh media`.
+            #
             # KHÔNG gọi cmd_hardware trong `all`: 27 MiB cho thiết bị ngoài
             # vi. Người cần thì `./install.sh hardware`. Đã hỏi và chọn vậy.
             ;;

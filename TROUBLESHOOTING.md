@@ -14,6 +14,42 @@ less ~/.cache/tsuki/session.log
 Ghi trực tiếp từ `run.sh:27`. Nếu file không tồn tại thì `run.sh` chưa từng chạy
 trong phiên này — thường là vì `.xinitrc` chưa trỏ tới nó.
 
+## `/var/cache/pacman/pkg` phình to
+
+Cần sudo — bạn tự chạy:
+
+```sh
+sudo systemctl enable --now paccache.timer
+```
+
+Gói Arch đã có sẵn timer này (`/usr/lib/systemd/system/paccache.timer`,
+`OnCalendar=weekly`), chỉ đang `disabled`. Không cần viết file mới.
+
+Nó chạy `paccache -r` — mặc định `-k3`, giữ 3 bản mỗi gói.
+
+**Đo trước khi bật, vì con số dễ gây hiểu nhầm:**
+
+| Lệnh | Kết quả |
+|---|---|
+| `paccache -d -k1` | 23 ứng viên, **653.66 MiB** |
+| `paccache -d -k2` | 0 ứng viên |
+| `paccache -d -k3` | 0 ứng viên |
+
+Cache có 2480 gói (~4.5 GiB) và **1218 gói có nhiều bản**, nhưng `paccache -k2`
+vẫn nói không có ứng viên. Không phải `paccache` hỏng: mặc định
+`CleanMethod = KeepInstalled` giữ lại bản đang cài, mà hầu hết cache là bản
+đang dùng, nên mỗi gói chỉ còn đúng một bản. Xem `man pacman.conf`, mục
+`CleanMethod`.
+
+Muốn giữ ít hơn, sửa `/etc/conf.d/pacman-contrib`:
+
+```sh
+PACCACHE_ARGS=-rk2
+```
+
+`-k0` thì nguy hiểm — có thể xoá cả gói đang cài. Timer mặc định `-k3` là chọn
+đúng.
+
 ## Đổi icon theme xong mà icon không đổi
 
 Icon chính khai ở **`.config/xsettingsd/xsettingsd.conf`**, không phải ở

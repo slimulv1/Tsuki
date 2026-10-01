@@ -1375,17 +1375,24 @@ cmd_dotfiles() {
     # khác `gtk-3.0` (thư mục) ngay từ đầu, chứ không phải lỗi từ hôm nay. Đo lại:
     #   PKG_CONFIG 9 gói: dunst fastfetch firefox fish gtk3 kitty picom starship
     #                     xsettingsd
-    #   items      10 mục: cộng mpv
-    # Khớp đặc tính 1-1; lệch đúng một cặp do khác tên.
+    #   items      12 mục: cộng mpv và paru — hai mục ngoại lệ, xem dưới
+    # Khớp đặc tính 1-1 cho 9 gói PKG_CONFIG; hai mục còn lại là ngoại lệ có
+    # chủ đích:
     #
     # `mpv.conf` có tác dụng kể cả khi mpv chưa cài — mpv đọc
     # ~/.config/mpv/mpv.conf dù file có hay không. Nên mpv ở PKG_MEDIA (cài
     # riêng bằng `./install.sh media`), còn mpv.conf nằm ở đây và không động
     # vào `all`: copy file cấu hình 0 MB thì rẻ, nhưng nếu sau này mpv.conf đòi
     # một gói chưa cài thì hỏng im lặng.
+    # `paru.conf` cũng vậy: paru đọc ~/.config/paru/paru.conf kể cả khi chưa
+    # cấu hình — thiếu file thì chạy toàn mặc định, tức build AUR không hỏi.
+    # Cũng không động vào `all`: cài paru là quyết định của người dùng
+    # (paru là AUR, mã nguồn do người lạ đẩy lên).
     # Đã đo trước khi thêm: trước khi có `mpv` trong items,
-    # `install.sh dotfiles` KHÔNG copy .config/mpv — đúng như thiết kế.
-    local -a items=(dunst fastfetch firefox fish gtk-3.0 kitty mpv picom \
+    # `install.sh dotfiles` KHÔNG copy .config/mpv — đúng như thiết kế. Tương
+    # tự với `paru`: viết .config/paru/paru.conf xong chạy dotfiles thì KHÔNG
+    # được copy, vì `paru` chưa có trong danh sách.
+    local -a items=(dunst fastfetch firefox fish gtk-3.0 kitty mpv paru picom \
                     starship.toml xsettingsd)
     local n=0 d
     for d in "${items[@]}"; do

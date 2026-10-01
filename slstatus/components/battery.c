@@ -44,6 +44,14 @@
 
 		if (esnprintf(path, sizeof(path), POWER_SUPPLY_CAPACITY, bat) < 0)
 			return nullptr;
+		/* Máy không lắp pin: file không tồn tại. pscanf() gọi warn() khi
+		 * fopen() hỏng, tức 1 dòng lỗi trên stderr MỖI LẦN slstatus vẽ lại
+		 * (người dùng đo được 25 dòng/lần chạy). Trả nullptr là đúng — đó là
+		 * kịch bản được xử lý. Dùng đúng mẫu `pick()` ngay trong file này:
+		 * kiem tra access() TRƯỚC, rồi mới đọc. KHÔNG sửa pscanf() — nó là hàm
+		 * dùng chung, và fopen hỏng ở chỗ khác vẫn là lỗi thật cần báo. */
+		if (access(path, R_OK) != 0)
+			return nullptr;
 		if (pscanf(path, "%d", &cap_perc) != 1)
 			return nullptr;
 
@@ -66,6 +74,10 @@
 		char path[PATH_MAX], state[13];
 
 		if (esnprintf(path, sizeof(path), POWER_SUPPLY_STATUS, bat) < 0)
+			return nullptr;
+		/* Xem battery_perc: access() trước, không để pscanf warn khi không có
+		 * pin. */
+		if (access(path, R_OK) != 0)
 			return nullptr;
 		if (pscanf(path, "%12[a-zA-Z ]", state) != 1)
 			return nullptr;
@@ -101,6 +113,11 @@
 
 		if (esnprintf(path, sizeof(path), POWER_SUPPLY_CAPACITY, bat) < 0)
 			return nullptr;
+		/* Xem battery_perc: access() trước, không để pscanf warn khi không có
+		 * pin. Đây là hàm config.h dùng (battery_bar); thiếu bước này thì
+		 * desktop in lỗi ra stderr mãi dù hàm vẫn trả nullptr đúng. */
+		if (access(path, R_OK) != 0)
+			return nullptr;
 		if (pscanf(path, "%d", &cap_perc) != 1)
 			return nullptr;
 
@@ -124,6 +141,10 @@
 		char path[PATH_MAX], state[13];
 
 		if (esnprintf(path, sizeof(path), POWER_SUPPLY_STATUS, bat) < 0)
+			return nullptr;
+		/* Xem battery_perc: access() trước, không để pscanf warn khi không có
+		 * pin. */
+		if (access(path, R_OK) != 0)
 			return nullptr;
 		if (pscanf(path, "%12[a-zA-Z ]", state) != 1)
 			return nullptr;

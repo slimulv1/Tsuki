@@ -47,6 +47,42 @@ if command -v flock >/dev/null 2>&1; then
     fi
 fi
 
+# ---------------------------------------------------------------------------
+# 0b) Dọn file tạm sót từ lần chạy TRƯỚC bị giết không cứu được
+# ---------------------------------------------------------------------------
+# Sau khi đã giữ khoá: nếu dọn trước khi khoá thì xoá nhầm file của lượt đang
+# chạy song song.
+#
+# LÝ DO: các khối ghi dùng file tạm rồi `mv` (rename(2), nguyên tử). Nếu bị
+# SIGKILL/mất điện/OOM giữa lúc `cat >` thì file tạm đọng lại. install.sh có
+# `sweep_tmp_stale` nhưng nó CHỈ quét /etc và /etc/pacman.d — đo bằng cách tạo
+# file .tmp trong repo rồi chạy sweep: 4 file vẫn còn nguyên. Tức là 6 file tạm
+# của dwmwal.sh sẽ đọng vĩnh viễn. Không làm hỏng gì ngay, nhưng chúng là rác
+# trong repo (làm `git status` nhiễu) và trong ~/.config.
+#
+# Chỉ xoá đúng tên file tạm CỦA dwmwal.sh, có hậu tố `.$$` — không đụng file
+# backup `.tsuki-bak-<giây>` vì đó là thứ CẦN giữ. Mẫu khớp bao gồm cả phiên
+# bản cũ `.tsuki-new.$$` nên dọn được cả file do bản trước để lại.
+_sweep_n=0
+for _st in \
+    "$TSUKI_DIR/themes/wal.h.tmp" \
+    "$SCRIPTS/bar_themes/wal.tmp" \
+    "$CACHE/colors.css.tmp" \
+    "$CACHE/colors.fish.tmp" \
+    "$HOME/.config/kitty/pywal.conf.tsuki-new."* \
+    "$HOME/.config/opencode/themes/pywal.json.tsuki-new."*
+do
+    [ -f "$_st" ] || continue
+    rm -f -- "$_st" 2>/dev/null && _sweep_n=$((_sweep_n + 1))
+done
+if [ "$_sweep_n" -gt 0 ]; then
+    # notify-send chứ không phải hàm `warn`: file này không có hàm tiện ích
+    # nào (chỉ _build_check), mọi thông báo khác đều đi qua notify-send.
+    # Mức `normal` vì đây không phải lỗi — nó là dọn rác.
+    notify-send "dwmwal" "dọn $_sweep_n file tạm sót từ lần đổi wallpaper trước bị giết"
+fi
+unset _st _sweep_n
+
 # build rồi báo nếu hỏng. Tách riêng để test trích được từ file thật (giống
 # cách test/test-run-daemons.sh trích start_daemon/stop_daemons từ run.sh) thay vì
 # chép lại logic. $1 = thư mục, $2 = tên để hiện trong thông báo.

@@ -509,6 +509,47 @@ fi
 # --- G5: mkdir phải được bọc if, không thể `|| true` rồi ghi vào hư không ---
 # Nếu không tạo được thư mục mà vẫn `cat >` thì lỗi "Directory nonexistent"
 # rồi mv vẫn chạy — đúng kiểu lỗi đã dính ở dwmwal.lock.
+# --- G8: phải dọn file tạm sót từ lần chạy trước bị giết -------------------
+# Khối ghi dùng .tmp + mv. Bị SIGKILL giữa `cat >` thì file tạm đọng lại.
+# install.sh có sweep_tmp_stale nhưng ĐO thấy nó CHỈ quét /etc và
+# /etc/pacman.d: tạo file .tmp trong repo rồi chạy sweep -> 4 file vẫn còn.
+# Tức là 6 file tạm của dwmwal.sh sẽ đọng vĩnh viễn (rác trong repo, làm
+# `git status` nhiễu, và trong ~/.config).
+if grep -q 'file tạm sót từ lần chạy TRƯỚC' "$DW" \
+   || grep -q 'file tạm sót từ lần đổi wallpaper trước' "$DW"; then
+    ok "G8 dwmwal.sh có khối dọn file tạm sót từ lần chạy trước"
+else
+    bad "G8 dwmwal.sh KHÔNG dọn file tạm sót" \
+        "sweep_tmp_stale của install.sh chỉ quét /etc — file .tmp trong repo và ~ sẽ đọng"
+fi
+# phải nằm SAU khối khoá, nếu không sẽ xoá nhầm file của lượt đang chạy song song
+_sw=$(grep -n 'dọn.*file tạm sót từ lần chạy TRƯỚC\|_sweep_n=0' "$DW" | head -1 | cut -d: -f1)
+_lk=$(grep -n 'flock -w 30 9' "$DW" | head -1 | cut -d: -f1)
+if [ -n "$_sw" ] && [ -n "$_lk" ] && [ "$_sw" -gt "$_lk" ]; then
+    ok "G8b khối dọn nằm SAU khối khoá (dòng $_sw > $_lk)"
+else
+    bad "G8b khối dọn nằm TRƯỚC khối khoá" \
+        "dọn trước khi khoá thì xoá nhầm file tạm của lượt đang chạy song song"
+fi
+# KHÔNG được đụng file backup — "$f.tsuki-bak-<giây>" là thứ CẦN giữ, mất
+# nó thì mất đường khôi phục cấu hình.
+if grep -qE 'rm -f .*tsuki-bak' "$DW"; then
+    bad "G8b2 dwmwal.sh xoá file .tsuki-bak" "backup là thứ CẦN giữ, mất thì mất đường phục hồi"
+else
+    ok "G8b2 không xoá file .tsuki-bak (thứ cần giữ để khôi phục)"
+fi
+# phải nêu đủ các file tạm thật sự dùng
+for f in 'themes/wal.h.tmp' 'bar_themes/wal.tmp'; do
+    if grep -q "$f" "$DW"; then
+        ok "G8c khối dọn có $f"
+    else
+        bad "G8c khối dọn thiếu $f" "file này sẽ đọng nếu bị giết giữa lúc ghi"
+    fi
+done
+
+# --- G5: mkdir phải được bọc if, không thể `|| true` rồi ghi vào hư không ---
+# Nếu không tạo được thư mục mà vẫn `cat >` thì lỗi "Directory nonexistent"
+# rồi mv vẫn chạy — đúng kiểu lỗi đã dính ở dwmwal.lock.
 if grep -q 'if mkdir -p "\$HOME/\.config/opencode/themes" 2>/dev/null; then' "$DW"; then
     ok "G5 mkdir opencode/themes bọc trong if (bỏ qua gọn khi không tạo được)"
 else

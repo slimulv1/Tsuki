@@ -58,7 +58,7 @@ Tên thư mục clone **không quan trọng** — `run.sh` suy ra vị trí repo
 echo "$HOME/Pictures/Wallpapers/<tên>.jpg" > ~/tsuki/scripts/.wallpaper
 ```
 
-Lệnh con — xem tự giải thích bằng `./install.sh --help`:
+Lệnh con — xem tự giải thích bằng `./install.sh -h`:
 
 | Lệnh | |
 |---|---|

@@ -4,25 +4,30 @@
 #
 #   ./install.sh              # cài đầy đủ: deps -> build -> dotfiles -> session
 #   ./install.sh check        # kiểm tra máy đã đủ công cụ chưa (không sửa gì)
-#   ./install.sh deps         # chỉ gói phụ thuộc (hỏi rồi cài XLibre stable)
-#   ./install.sh arisa        # hỏi rồi thêm kho arisa (Super+C, Super+D)
-#   ./install.sh paru         # cài paru để dùng AUR
-#   ./install.sh pty          # bộ gõ Lotus (tiếng Việt) — cần paru
-#   ./install.sh build        # chỉ build + cài binary
+#   ./install.sh deps         # chỉ gói phụ thuộc (hỏi rồi cài XLibre stable)  [root]
+#   ./install.sh arisa        # hỏi rồi thêm kho arisa (Super+C, Super+D)      [root]
+#   ./install.sh paru         # cài paru để dùng AUR                           [root]
+#   ./install.sh pty          # bộ gõ Lotus (tiếng Việt)                       [root][paru]
+#   ./install.sh build        # chỉ build + cài binary vào /usr/local/bin      [root]
 #   ./install.sh dotfiles     # chỉ copy ~/.config
 #   ./install.sh firefox      # chỉ nạp giao diện vào profile Firefox
 #   ./install.sh firefox <thư mục profile>   # chỉ định profile (khi tự dò trượt)
 #   ./install.sh themes       # chỉ cài theme Miami26 + icon Kora (từ git, user-level)
 #   ./install.sh session      # chỉ cấu hình chạy từ TTY (.xinitrc)
-#   ./install.sh session --dm # cài thêm .desktop cho display manager
-#   ./install.sh uninstall    # gỡ binary Tsuki đã cài
-#   ./install.sh xlibre beta      # thử XLibre beta (25.2) — nâng cấp cả hệ thống
-#   ./install.sh xlibre oldstable # kênh cũ (25.0)
-#
-# XLibre thay X.Org: `deps` tự hỏi rồi cài bản STABLE, không cần làm gì thêm.
-# Muốn beta thì thêm lệnh `xlibre beta` vào sau. Lệnh `xlibre` ở trên không
-# phải để "chuyển sang XLibre" — việc đó đã tự động rồi; nó chỉ để đổi kênh,
-# và sẽ nâng cấp toàn hệ thống (`pacman -Syyu`).
+#   ./install.sh session --dm # cài thêm .desktop cho display manager          [root]
+#   ./install.sh uninstall    # gỡ binary Tsuki đã cài                         [root]
+#   ./install.sh xlibre       # đổi kênh XLibre — mặc định: stable             [root]
+#   ./install.sh xlibre beta      # kênh beta (25.2)                           [root]
+#   ./install.sh xlibre oldstable # kênh cũ (25.0)                             [root]
+#   ./install.sh -h | help        # in ra danh sách này
+#   ------------
+#   [root] = sẽ hỏi mật khẩu quản trị · [paru] = cần cài paru trước
+#   ------------
+#   XLibre thay X.Org. `deps` đã tự hỏi rồi cài bản STABLE, nên KHÔNG cần
+#   chạy `xlibre` chỉ để "chuyển sang XLibre" — lệnh đó chỉ để ĐỔI KÊNH.
+#   Mọi lệnh `xlibre` đều chạy `pacman -Syyu`, tức NÂNG CẤP TOÀN HỆ THỐNG.
+#   Arch không hỗ trợ partial upgrade: đồng ý hàng loạt có thể để lại hệ
+#   thống lệch phiên bản rồi hỏng. Đọc danh sách gói trước khi đồng ý.
 #
 # Không chạy `make clean` ở đâu cả: config.h là cấu hình thật của máy, đã được
 # git track; `make clean` ở các Makefile cũ từng xoá nó rồi cp lại từ

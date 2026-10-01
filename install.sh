@@ -740,7 +740,9 @@ install_dotfile() {
     local src=$1 dst=$2
     [[ -e $src ]] || return 0
     is_generated "$(basename -- "$src")" && return 0
-    mkdir -p -- "$(dirname -- "$dst")"
+    local dstdir
+    dstdir=$(dirname -- "$dst")
+    mkdir -p -- "$dstdir"
 
     if [[ -e $dst || -L $dst ]]; then
         if same_content "$src" "$dst"; then
@@ -753,6 +755,35 @@ install_dotfile() {
             info "$(basename -- "$dst"): khác chỉ ở màu — giữ bản đang chạy"
             return 0
         fi
+    fi
+
+    # STAGE TRƯỚC, ĐẶT SAU.
+    #
+    # Bản cũ là `mv $dst $bak` rồi `cp -a $src $dst` — giữa hai lệnh đó $dst
+    # KHÔNG TỒN TẠI trong khoảng thời gian bằng đúng thời gian cp. Bị ngắt
+    # (Ctrl-C, mất điện, OOM) là file cấu hình biến mất khỏi chỗ các app tìm,
+    # chỉ còn nằm trong file backup. Đo trên bản sao: sau `mv` mà chưa `cp`,
+    # $dst không có; và `cp -a` một thư mục 7.9 MB mất 5 ms — ngắn nhưng
+    # người dùng bấm Ctrl-C được trong 5 ms đó.
+    #
+    # Nay: chép vào thư mục tạm CÙNG $dstdir (cùng filesystem — `mv` qua
+    # filesystem khác sẽ thành copy+unlink, mất nguyên tử), xong mới đụng $dst.
+    # Staging hỏng thì $dst còn nguyên vì chưa đụng tới nó. Còn sau khi đã
+    # stage, cửa sổ hẹp lại còn HAI lệnh rename liền nhau, tính bằng
+    # micro-giây, thay vì cả thời gian copy.
+    local tmpd item
+    if ! tmpd=$(mktemp -d -- "$dstdir/.tsuki-tmp-XXXXXX"); then
+        warn "$(basename -- "$dst"): không tạo được thư mục tạm trong $dstdir — giữ nguyên file cũ"
+        return 1
+    fi
+    item="$tmpd/item"
+    if ! cp -a -- "$src" "$item"; then
+        warn "$(basename -- "$dst"): không chép được từ repo — giữ nguyên file cũ"
+        rm -rf -- "$tmpd" 2>/dev/null || true
+        return 1
+    fi
+
+    if [[ -e $dst || -L $dst ]]; then
         # backup_path bảo đảm $bak CHƯA tồn tại. Không có nó thì `mv` đặt $dst
         # vào BÊN TRONG $bak nếu $bak đã là thư mục, thay vì thay thế nó.
         local bak
@@ -760,11 +791,25 @@ install_dotfile() {
         mv -- "$dst" "$bak"
         warn "$(basename -- "$dst") khác nội dung -> backup: ${bak##*/}"
     fi
-    cp -a -- "$src" "$dst"
+    mv -f -- "$item" "$dst"
+    rm -rf -- "$tmpd" 2>/dev/null || true
 }
 
 cmd_dotfiles() {
     step "cài dotfiles vào ~/.config"
+    # Dọn thư mục tạm sót từ lần chạy trước bị giết giữa chừng (SIGKILL, mất
+    # điện) — install_dotfile tạo .tsuki-tmp-XXXXXX cùng thư mục đích rồi
+    # xoá, nên còn sót là đã chết giữa lúc đó. Dọn ở ĐẦU hàm, tức là trước khi
+    # lần chạy này tạo thêm thư mục tạm nào, nên không đụng của lần đang chạy.
+    local -a stale=()
+    local _d
+    for _d in "$TSUKI_HOME"/.config/.tsuki-tmp-* "$TSUKI_HOME"/.config/*/.tsuki-tmp-*; do
+        [[ -d $_d ]] && stale+=("$_d")
+    done
+    if ((${#stale[@]})); then
+        rm -rf -- "${stale[@]}" 2>/dev/null || true
+        warn "dọn ${#stale[@]} thư mục tạm .tsuki-tmp-* sót từ lần chạy bị giết trước"
+    fi
     # Danh sách này phải khớp PKG_CONFIG: mỗi gói ở đó có đúng một mục ở đây,
     # và ngược lại. Thêm dotfile mới thì sửa cả hai chỗ — nếu không sẽ có
     # dotfile được copy tới ~/.config mà không cài gói nào, hoặc cài gói mà

@@ -509,6 +509,10 @@ pkgs_absent_in_repos() {
         sort
 }
 
+# Danh sách gói bị bỏ qua vì không có trong kho nào đang bật, do available_pkgs
+# đặt. Khai báo ở cấp script để install_pkgs đọc được.
+SKIPPED=()
+
 available_pkgs() {
     (($#)) || return 0
     local -a bad=() ok=()
@@ -523,6 +527,12 @@ available_pkgs() {
     else
         ok=("$@")
     fi
+    # Số gói bị BỎ QUA (không có trong kho nào đang bật). install_pkgs đọc để
+    # báo cho trung thực — trước đây nó luôn in "xong" kể cả khi KHÔNG gói nào
+    # được cài, tức là "OK keybind-apps: xong" nằm ngay dưới dòng cảnh báo
+    # "bỏ qua: visual-studio-code-bin discord-ptb". Hai dòng trái nhau, và dòng
+    # "OK" là dòng người ta nhìn thấy cuối cùng.
+    SKIPPED=("${bad[@]}")
     ((${#ok[@]})) || return 0
     root_sh -c 'pacman -S --needed --noconfirm "$@"' _ "${ok[@]}"
 }
@@ -547,8 +557,15 @@ install_pkgs() {
     # Một gói mỗi dòng, không phải "${missing[*]}" gộp cả nhóm lên một dòng:
     # PKG_KEYBINDS hơn 20 gói, một dòng dài sẽ vỡ khung terminal.
     printf '    %s\n' "${missing[@]}"
+    SKIPPED=()
     available_pkgs "${missing[@]}"
-    ok "$label: xong"
+    if ((${#SKIPPED[@]})); then
+        # KHÔNG in "xong" khi có gói bị bỏ qua. Dòng cuối cùng người đọc là dòng
+        # này, và nó phải nói đúng việc đã xảy ra.
+        warn "$label: xong, nhưng ${#SKIPPED[@]} gói KHÔNG được cài: ${SKIPPED[*]}"
+    else
+        ok "$label: xong"
+    fi
 }
 
 cmd_deps() {

@@ -14,6 +14,7 @@ for t in test/test-*.sh; do printf '%-28s ' "$t"; "$t" 2>&1 | tail -1; done
 | `test-run-daemons.sh` | `start_daemon`/`stop_daemons` trích thẳng từ `run.sh`, kể cả daemon tự fork như `fcitx5 -d` |
 | `test-firefox-profile.sh` | Dò profile Firefox qua `profiles.ini`/`installs.ini` |
 | `test-dwmwal-build.sh` | `_build_check` của `dwmwal.sh`: build hỏng thì phải báo chứ không giết daemon đang chạy |
+| `test-pkg-install.sh` | `install_pkgs`: không được in "xong" khi còn gói bị bỏ qua vì không có trong kho nào |
 | `test-install-dotfiles.sh` | `install_dotfile`: phải stage vào thư mục tạm cùng filesystem rồi mới rename; staging hỏng thì file cũ phải còn nguyên |
 | `test-pacman-conf.sh` | Ghi `/etc/pacman.conf`: phải qua rename (nguyên tử) chứ không `cat >` (truncate). Chạy code thật trên thư mục tạm, kiểm nội dung + quyền + idempotent |
 | `test-packages-doc.sh` | `PACKAGES.md` phải khớp `install.sh`: mọi gói trong 6 mảng phải có trong tài liệu, và con số tổng phải đúng |

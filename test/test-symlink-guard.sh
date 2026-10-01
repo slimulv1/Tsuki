@@ -173,6 +173,18 @@ grep -q 'Xcursor' "$T/h5-dot/Xresources" \
     && ok "C6c .Xresources: ghi xong thì Xcursor tới đúng file đích" \
     || bad "C6c .Xresources: không ghi được Xcursor vào file đích"
 
+# --- C6d: backup .Xresources cũng phải dùng -L ------------------------------
+# Ca này bắt được lỗi tôi tự nhận: tôi bảo nhánh "đã có .Xresources nhưng chưa có
+# Xcursor" không gọi backup_path. SAI — nó có gọi. Lỗi thật là `cp -a` chỉ chép
+# con trỏ. Nên phải kiểm `-L`, không kiểm "có gọi backup_path không".
+xbody=$(sed -n '/^install_xresources() {/,/^}/p' "$R/install.sh")
+if printf '%s\n' "$xbody" | grep -qE 'cp -aL -- .*\$f.*\$bak'; then
+    ok "C6d backup .Xresources dùng cp -aL (lưu nội dung, không chép con trỏ)"
+else
+    bad "C6d backup .Xresources không dùng -L" \
+        "cp -a chỉ chép symlink — backup trỏ tới file sắp bị nối thêm"
+fi
+
 # --- C7: cấu trúc — mọi redirection vào $TSUKI_HOME phải qua guard ----------
 # Kiểm theo CẤU TRÚC vì hành vi phụ thuộc người dùng trả lời gì, khó quan
 # sát hết. Hai chỗ redirection này là chỗ duy nhất đi qua symlink.

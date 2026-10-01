@@ -1536,9 +1536,12 @@ install_xresources() {
     local f="$TSUKI_HOME/.Xresources"
 
     # Symlink: `printf >> "$f"` ở dưới sẽ nối thêm vào file trong kho dotfiles
-    # của người dùng. Ở đây còn tệ hơn .xinitrc vì nhánh "đã có nhưng chưa có
-    # Xcursor" KHÔNG gọi backup_path — nội dung cũ bị nối thêm vào mà không để
-    # lại dấu vết nào. Xem symlink_guard.
+    # của người dùng. Xem symlink_guard.
+    #
+    # (Tôi từng viết ở đây rằng nhánh "đã có nhưng chưa có Xcursor" không gọi
+    # backup_path. SAI — nó có gọi. Lỗi thật là backup đó dùng `cp -a`, nên với
+    # symlink thì chỉ chép CON TRỎ, tức backup trỏ tới chính file sắp bị nối
+    # thêm. Đã sửa xuống cp -aL.)
     if ! symlink_guard "$f" ".Xresources"; then
         return 0
     fi
@@ -1550,7 +1553,9 @@ install_xresources() {
     if [[ -f $f ]]; then
         local bak
         bak=$(backup_path "$f")
-        cp -a -- "$f" "$bak"
+        # -L: giải symlink để backup chứa NỘI DUNG. cp -a kéo theo -P nên với
+        # $f là symlink thì backup chỉ là con trỏ tới file vừa bị nối thêm.
+        cp -aL -- "$f" "$bak"
         warn ".Xresources đã tồn tại -> backup: ${bak##*/}"
         printf '\n%s\n' "$(cat "$REPO_DIR/.Xresources")" >>"$f"
     else

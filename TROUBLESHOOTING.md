@@ -14,6 +14,52 @@ less ~/.cache/tsuki/session.log
 Ghi trực tiếp từ `run.sh:27`. Nếu file không tồn tại thì `run.sh` chưa từng chạy
 trong phiên này — thường là vì `.xinitrc` chưa trỏ tới nó.
 
+## Đổi icon theme xong mà icon không đổi
+
+Icon chính khai ở **`.config/xsettingsd/xsettingsd.conf`**, không phải ở
+`~/.config/gtk-3.0/settings.ini`. Ba chỗ dễ nhầm:
+
+| Nơi | Có tác dụng không |
+|---|---|
+| `.config/xsettingsd/xsettingsd.conf` (`Net/IconThemeName`) | **có** — đây là nơi khai |
+| `~/.config/gtk-3.0/settings.ini` | không — chỉ khai cursor |
+| `gsettings get org.gnome.desktop.interface icon-theme` | không — trả `'Adwaita'`, `xsettingsd` phủ lên trên |
+
+Sửa file rồi icon **vẫn cũ** là bình thường: `xsettingsd` đọc config lúc khởi
+động, không theo dõi thay đổi. Nạp lại:
+
+```sh
+kill "$(pgrep -x xsettingsd)"     # watchdog của run.sh tự khởi động lại trong ≤15s
+```
+
+Đổi icon theme cũng cần khởi động lại app đang chạy — Thunar giữ icon đã nạp.
+
+**Tên theme phải khớp TÊN THƯ MỤC, không phải `Name=` trong `index.theme`.** Kora là
+ví dụ: `index.theme` khai `Name=Kora Grey` nhưng GTK tra theo thư mục
+`kora-pgrey`, nên phải khai `kora-pgrey`. Buuf tệ hơn: `Name=Buuf For Many
+Desktops` có khoảng trắng, không dùng làm tên thư mục được — dùng
+`Buuf-For-Many-Desktops`.
+
+Kiểm theme nào đang được nạp, không đoán:
+
+```sh
+python3 -c "import gi; gi.require_version('Gtk','3.0'); \
+from gi.repository import Gtk; print(Gtk.Settings.get_default().get_property('gtk-icon-theme-name'))"
+```
+
+Và xem một icon lấy từ thư mục nào:
+
+```sh
+python3 -c "import gi; gi.require_version('Gtk','3.0'); \
+from gi.repository import Gtk; print(Gtk.IconTheme.get_default().lookup_icon('folder',24,0).get_filename())"
+```
+
+Icon không tìm thấy thì rơi về theme trong `Inherits`, còn không thì GTK vẽ icon
+trắng mặc định. YAMO khai gốc `Inherits=Papirus-Dark,breeze-dark,Cosmic,Adwaita,hicolor`;
+máy này không có `Papirus-Dark` và `Cosmic`, nên `install_icons` sửa thành
+`breeze-dark,Adwaita,hicolor` — nhờ vậy 4 icon YAMO thiếu vẫn rơi đúng vào theme
+dự phòng thật.
+
 ## Màn hình tự tắt / monitor ngủ
 
 `run.sh` **tắt** screensaver và DPMS của X server:

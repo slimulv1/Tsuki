@@ -11,6 +11,7 @@
 #   ./install.sh archive      # công cụ nén/giải nén: 7z, zip, unrar          [root]
 #   ./install.sh hardware     # firmware, Bluetooth, ACPI, MTP/SMB             [root]
 #   ./install.sh media        # trình phát mpv + celluloid, codec GStreamer    [root]
+#   ./install.sh icons        # icon YAMO (chính) + Buuf (dự phòng)
 #   ./install.sh userdirs     # tạo + khai báo ~/Documents, ~/Videos, ...
 #   ./install.sh build        # chỉ build + cài binary vào /usr/local/bin      [root]
 #   ./install.sh dotfiles     # chỉ copy ~/.config
@@ -1979,7 +1980,7 @@ EOF
     ' _ "$REPO_DIR"
 }
 
-# --- theme GTK + icon: Miami26 + Kora ---------------------------------------
+# --- theme GTK + icon: Miami26 + Kora + YAMO + Buuf -------------------------
 # Hai theme này KHÔNG có trong kho Arch/CachyOS/arisa, cũng không có trong AUR
 # (đã tra rpc.v5/search của AUR: "miami26" và "kora-grey" đều 0 kết quả).
 # Chúng chỉ có trên GitHub, nên phải clone rồi copy.
@@ -1988,6 +1989,11 @@ EOF
 # không cần root, và không đụng theme của các user khác trên cùng máy.
 # GTK3 tra theme theo đúng tên thư mục sau khi cài, KHÔNG phải Name= trong
 # index.theme — nên thư mục phải tên đúng "Miami26" / "kora-pgrey".
+#
+# YAMO (yet-another-monochrome-icon-set) và Buuf nằm ở Bitbucket / Disroot, cũng
+# không có trong kho. Xem `install_icons` bên dưới — TÁCH RIÊNG khỏi `cmd_themes`
+# vì nó còn phải khai tên theme mới trong xsettingsd.conf, mà phần khai đó phải
+# đi qua `symlink_guard` chứ không sửa file trực tiếp.
 cmd_themes() {
     need git curl
     step "cài theme Miami26 + icon Kora (từ git)"
@@ -2033,6 +2039,97 @@ cmd_themes() {
                 ok "Kora/$t -> ~/.local/share/icons/$t"
             fi
         done
+    fi
+
+    # YAMO + Buuf. Không nằm trong `all`: 163 MB icon theme, và người dùng phải
+    # là người quyết định. Gọi bằng `./install.sh icons`.
+}
+
+# --- icon theme: YAMO (chính) + Buuf (dự phòng) -----------------------------
+# Tách riêng khỏi `cmd_themes` vì khác ở chỗ: hai theme này cần SAU khi cài mới
+# phải khai tên mới trong xsettingsd.conf. `cmd_themes` chỉ copy, không khai.
+#
+# YAMO — yet-another-monochrome-icon-set (Bitbucket, dirn-typo).
+#   Đo độ phủ trên máy: tham chiếu 46 icon từ mọi .desktop trong hệ thống, YAMO
+#   có 41/46, kora có 36/46, Buuf 36/46. Nên YAMO làm icon chính.
+#   5 icon YAMO thiếu, đã tra từng cái xem có hại không:
+#     applications-system-symbolic -> có trong Adwaita   (dự phòng, tìm được)
+#     fcitx-lotus                 -> có trong breeze-dark + hicolor
+#     com.sgtaziz.lianlilinux     -> có trong hicolor
+#     shelly-tray                 -> có trong hicolor
+#     flatpak-symbolic            -> không có ở đâu, nhưng nó thuộc app
+#       `com.shellyorg.shelly.desktop` và `shelly-ui` KHÔNG có trên máy, nên
+#       app chưa cài -> icon thiếu không hiện ra. Không cần xử lý.
+#   => 5/5 trường hợp đều không gây vấn đề thực tế.
+#
+# Buuf For Many Desktops (Disroot, eudaimon). 137 MB và KHÔNG có icon app nào
+# (0 file trong apps/), nên không hợp làm chính — khai làm dự phòng để đổi tay
+# bằng cách sửa Net/IconThemeName. index.theme của nó khai thư mục `stock` trong
+# Directories nhưng repo KHÔNG có thư mục đó; đo thật: gtk-update-icon-cache vẫn
+# tạo cache được (373 KB), chỉ bỏ qua mục thiếu. Không sửa file tác giả.
+install_icons() {
+    local src="$TSUKI_HOME/.cache/tsuki-icons"
+    mkdir -p "$src" "$TSUKI_HOME/.local/share/icons"
+
+    # Cột trong danh sách: tên_thư_mục_đích|URL|tên_thư_mục_cache
+    # Tên thư mục đích phải đúng vì GTK tra theme theo TÊN THƯ MỤC, KHÔNG phải
+    # Name= trong index.theme.
+    local name url cdir
+    while IFS='|' read -r name url cdir; do
+        [[ -z $name || $name == \#* ]] && continue
+        if [[ ! -d $src/$cdir/.git ]]; then
+            # Cùng lý do `fetch_repo` dùng "${src:?}": `local src` đã đảm bảo
+            # src luôn được gán, và $cdir là literal từ danh sách ngay dưới —
+            # nên "$src/$cdir" không bao giờ thành "/" trên thực tế. Đây là
+            # làm chắc cho rm -rf (lệnh hậu quả nặng nhất trong file), không
+            # phải sửa lỗi đang xảy ra.
+            rm -rf -- "${src:?}/$cdir"
+            if ! git clone -q --depth 1 "$url" "$src/$cdir"; then
+                warn "clone thất bại: $url"
+                continue
+            fi
+        else
+            info "$cdir đã có — bỏ qua clone"
+        fi
+        local from="$src/$cdir"
+        if [[ ! -d $from ]]; then
+            warn "$name: không thấy thư mục nguồn trong repo"
+            continue
+        fi
+        # Cache của tác giả chứa đường dẫn tuyệt đối MÁY HỌ -> dùng lại sai.
+        rm -f -- "$from/icon-theme.cache"
+        rm -rf -- "$TSUKI_HOME/.local/share/icons/$name"
+        if cp -r -- "$from" "$TSUKI_HOME/.local/share/icons/$name"; then
+            command -v gtk-update-icon-cache >/dev/null 2>&1 &&
+                gtk-update-icon-cache -f -t \
+                    "$TSUKI_HOME/.local/share/icons/$name" >/dev/null 2>&1 || true
+            ok "$name -> ~/.local/share/icons/$name"
+        else
+            warn "$name: copy thất bại"
+        fi
+    done <<'ICON_LIST'
+yet-another-monochrome-icon-set|https://bitbucket.org/dirn-typo/yet-another-monochrome-icon-set/src/main/|yamo
+Buuf-For-Many-Desktops|https://git.disroot.org/eudaimon/buuf-nestort|buuf
+ICON_LIST
+
+    # YAMO khai `Inherits=Papirus-Dark,breeze-dark,Cosmic,Adwaita,hicolor`.
+    # Máy này không có Papirus-Dark và không có Cosmic. Thiếu trong Inherits
+    # không gây lỗi (GTK bỏ qua rồi thử mục kế tiếp), nhưng thứ tự này làm theme
+    # phụ thuộc vào việc máy kia có cài gì. Sửa thành danh sách thật sự có mặt:
+    # breeze-dark, Adwaita, hicolor — đủ phủ cả 5 icon YAMO thiếu.
+    local yi="$TSUKI_HOME/.local/share/icons/yet-another-monochrome-icon-set/index.theme"
+    if [[ -f $yi ]]; then
+        symlink_guard "$yi" "index.theme của YAMO" && {
+            backup_path "$yi" >/dev/null 2>&1 || true
+            local bak
+            bak=$(backup_path "$yi")
+            cp -a -- "$yi" "$bak" 2>/dev/null &&
+                ok "sao lưu index.theme: ${bak##*/}"
+            sed -i 's/^Inherits=.*/Inherits=breeze-dark,Adwaita,hicolor/' "$yi" &&
+                ok "YAMO Inherits -> breeze-dark,Adwaita,hicolor (bỏ Papirus-Dark, Cosmic)"
+            gtk-update-icon-cache -f -t \
+                "$(dirname -- "$yi")" >/dev/null 2>&1 || true
+        }
     fi
 }
 
@@ -2924,6 +3021,7 @@ main() {
         archive)   cmd_archive ;;
         hardware)  cmd_hardware ;;
         media)     cmd_media ;;
+        icons)     need git curl; install_icons ;;
         userdirs)  cmd_userdirs ;;
         uninstall) cmd_uninstall ;;
         all)

@@ -183,6 +183,52 @@ Không nằm trong `all` — cài riêng bằng `./install.sh media`.
 **Thiếu lớn nhất là không có trình phát nào** — không `mpv`, không `vlc`, không
 `celluloid`. Đó mới là thứ duy nhất phải cài để giải trí.
 
+## 3e. Icon theme — YAMO (chính) + Buuf (dự phòng)
+
+Không phải gói pacman nên không có trong bảng trên. Cài riêng bằng
+`./install.sh icons` — **KHÔNG** nằm trong `all` (163 MB, đã hỏi và chọn lệnh riêng).
+
+| Theme | Nguồn | Kích thước | Vai trò |
+|---|---|---|---|
+| `yet-another-monochrome-icon-set` | [bitbucket.org/dirn-typo](https://bitbucket.org/dirn-typo/yet-another-monochrome-icon-set/src/main/) | 26 MB | **icon chính** |
+| `Buuf-For-Many-Desktops` | [git.disroot.org/eudaimon](https://git.disroot.org/eudaimon/buuf-nestort) | 138 MB | dự phòng, đổi tay bằng cách sửa `Net/IconThemeName` |
+
+**Vì sao YAMO làm icon chính — đo độ phủ thật, không đoán.** Tham chiếu 46 icon từ
+mọi `.desktop` trong hệ thống (`/usr/share/applications` + `~/.local/share/applications`):
+
+| Theme | Phủ được |
+|---|---|
+| YAMO | **41/46** |
+| kora | 36/46 |
+| Buuf | 36/46 |
+
+Buuf không có icon app nào (0 file trong `apps/`) nên không hợp làm chính. Kora vẫn
+còn trên máy nhưng không phải icon chính nữa.
+
+## 5 icon YAMO thiếu, đã tra từng cái
+
+| Icon | Rơi về | Có hại không |
+|---|---|---|
+| `applications-system-symbolic` | Adwaita | không — và có dùng (portal hộp thoại file) |
+| `fcitx-lotus` | hicolor | không — bộ gõ Lotus của rice này |
+| `com.sgtaziz.lianlilinux` | hicolor | không |
+| `shelly-tray` | hicolor | không |
+| `flatpak-symbolic` | không tìm thấy | **không** — thuộc app `shelly-ui` mà máy chưa cài, nên app chưa có nên icon không hiện ra |
+
+=> 5/5 không gây vấn đề thực tế. Đã kiểm bằng `Gtk.IconTheme.lookup_icon` sau khi
+nạp theme, không suy đoán.
+
+**Sửa `Inherits` của YAMO.** Bản gốc khai
+`Papirus-Dark,breeze-dark,Cosmic,Adwaita,hicolor`; máy này không có `Papirus-Dark`
+và không có `Cosmic`. Thiếu trong `Inherits` không gây lỗi (GTK bỏ qua rồi thử mục
+kế tiếp), nhưng thứ tự đó làm theme phụ thuộc vào việc máy kia có cài gì.
+`install_icons` sửa thành `breeze-dark,Adwaita,hicolor` — nhờ vậy 4 icon trên rơi
+đúng vào nguồn dự phòng thật.
+
+**Buuf khai thư mục `stock` trong `Directories` nhưng repo không có thư mục đó.**
+Đo thật: `gtk-update-icon-cache` vẫn tạo cache được (373 KB), chỉ bỏ qua mục thiếu.
+Không sửa file tác giả.
+
 ## 4. `PKG_KEYBINDS` — app mở bằng phím tắt (23 gói, 1.8 GiB)
 
 Nhóm lớn nhất, và cũng là nhóm **cần kho arisa**.

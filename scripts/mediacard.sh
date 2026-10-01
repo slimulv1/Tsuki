@@ -41,11 +41,26 @@ get_muted() {
 
 vol_icon() {
     # $1 = vol, $2 = muted
-    if [ "$2" = "yes" ] || [ "$1" -eq 0 ]; then
+    #
+    # $1 CÓ THỂ RỖNG: get_volume là `pactl ... | awk ... | head -1`, mà pactl
+    # thất bại khi không có audio server (PulseAudio/PipeWire chưa lên, user mới
+    # chưa vào phiên). ĐO với $1 rỗng:
+    #     sh: line 3: [: : integer expected
+    #     sh: line 4: [: : integer expected
+    #     sh: line 5: [: : integer expected
+    # Script không chết (nhánh else vẫn chạy), nhưng đó là 3 dòng lỗi im
+    # lặng mỗi lần bấm phím volume trên máy không có audio — và thẻ vẫn hiện
+    # icon "to" dù không có âm thanh.
+    # Chuẩn hoá về 0 trước: 0 đã là "MUTED" nên nhánh đầu đúng nghĩa.
+    case ${1:-} in
+        ''|*[!0-9]*) _v=0 ;;
+        *) _v=$1 ;;
+    esac
+    if [ "$2" = "yes" ] || [ "$_v" -eq 0 ]; then
         printf '%s' "$ICON_MUTED"
-    elif [ "$1" -le 33 ]; then
+    elif [ "$_v" -le 33 ]; then
         printf '%s' "$ICON_LOW"
-    elif [ "$1" -le 66 ]; then
+    elif [ "$_v" -le 66 ]; then
         printf '%s' "$ICON_MED"
     else
         printf '%s' "$ICON_HIGH"
@@ -54,9 +69,14 @@ vol_icon() {
 
 speaker_glyph() {
     # $1 = muted, $2 = vol
-    if [ "$1" = "yes" ] || [ "$2" -eq 0 ]; then
+    # $2 có thể rỗng khi pactl thất bại — xem giải thích ở vol_icon().
+    case ${2:-} in
+        ''|*[!0-9]*) _s=0 ;;
+        *) _s=$2 ;;
+    esac
+    if [ "$1" = "yes" ] || [ "$_s" -eq 0 ]; then
         printf '%s' "$SPK_MUTE"
-    elif [ "$2" -le 33 ]; then
+    elif [ "$_s" -le 33 ]; then
         printf '%s' "$SPK_LOW"
     else
         printf '%s' "$SPK_HIGH"

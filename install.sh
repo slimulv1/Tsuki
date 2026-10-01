@@ -202,6 +202,28 @@ cmd_check() {
         info "repo-lock: chưa có flock — sẽ sửa pacman.conf KHÔNG khoá (thường là do chưa cài util-linux)"
     fi
 
+    # Dung lượng: báo số đo, không tính vào warns (thiếu chỗ thì CHẶN mới là
+    # lỗi, cảnh báo thì chưa).
+    _cd=$(pacman-conf CacheDir 2>/dev/null)
+    [[ -n $_cd ]] || _cd=/var/cache/pacman/pkg/
+    _cfree=$(df -h --output=avail "$_cd" 2>/dev/null | tail -1 | tr -d ' ')
+    if [[ -n $_cfree ]]; then
+        # Cộng CẢ tải về lẫn cài đặt, giống hệt check_disk_space — nếu chỉ cộng
+        # phần cài thì con số ở đây NHỎ hơn số mà bước deps sẽ kiểm, nên
+        # `check` nói đủ trong khi `deps` cảnh báo thiếu.
+        _creq=$(space_needed "${PKG_BUILD[@]}" "${PKG_SESSION[@]}" \
+                          "${PKG_CONFIG[@]}" "${PKG_KEYBINDS[@]}")
+        _cdl=0; _ci=0; read -r _cdl _ci <<<"$_creq"
+        [[ $_cdl =~ ^[0-9]+$ ]] || _cdl=0
+        [[ $_ci =~ ^[0-9]+$ ]] || _ci=0
+        _cneed=$(( _cdl + _ci + 1073741824 ))
+        if (( $(df -B1 --output=avail "$_cd" 2>/dev/null | tail -1 | tr -cd '0-9') < _cneed )); then
+            warn "đĩa: cần ~$(human_bytes "$_cneed") mà chỉ còn $_cfree trên $_cd"
+        else
+            ok "đĩa: cần ~$(human_bytes "$_cneed"), còn $_cfree"
+        fi
+    fi
+
     printf '\n'
     if (( ${#warns[@]} )); then
         warn "còn ${#warns[@]} điểm cần xử lý: ${warns[*]}"
@@ -580,8 +602,112 @@ install_pkgs() {
     fi
 }
 
+# --- dung lượng đĩa ----------------------------------------------------------
+# pacman KHÔNG tự dừng khi đĩa đầy: nó tải tới lúc hết chỗ rồi hỏng giữa chừng,
+# để lại /var/lib/pacman nửa vời và phải `pacman -Rns` dọn tay.
+# Đo trên máy này: cache /var/cache/pacman/pkg đã là 4.3 GiB, LỚN HƠN cả phần
+# đã cài (2.9 GiB) — tải về và cài đặt tồn tại CÙNG LÚC, nên cần chỗ cho cả hai.
+#
+# CỐ Ý không viết awk lấy trường ($2) trong chương trình lồng trong `sh -c '...'`.
+# $2 đó bị shell trong ăn mất trước khi awk thấy: awk nhận `d=` rồi báo syntax
+# error, mà lỗi đó chỉ nằm trong stderr của sh con nên ra ngoài KHÔNG ai thấy —
+# cả nhóm cài gói im lặng hỏng. Đã gặp đúng lỗi này một lần.
+# tob() dùng `case` nên awk không chứa $ nào.
+tob() {
+    local n=${1%% *} u=${1##* }
+    n=${n:-0}
+    case $u in
+        TiB)     awk "BEGIN{printf \"%d\", $n*1099511627776}" ;;
+        GiB)     awk "BEGIN{printf \"%d\", $n*1073741824}" ;;
+        MiB)     awk "BEGIN{printf \"%d\", $n*1048576}" ;;
+        KiB)     awk "BEGIN{printf \"%d\", $n*1024}" ;;
+        B|"")    awk "BEGIN{printf \"%d\", $n}" ;;
+        *)       printf '0' ;;   # đơn vị lạ: coi như không biết, đừng đoán
+    esac
+}
+
+# Số byte -> dễ đọc.
+human_bytes() {
+    local b=$1
+    if command -v numfmt >/dev/null 2>&1; then
+        numfmt --to=iec --suffix=B "$b" 2>/dev/null && return 0
+    fi
+    printf '%d B\n' "$b"
+}
+
+# Tổng (tải về, cài đặt) cho các gói trong "$@", tính song song như
+# pkgs_absent_in_db. Gói không tồn tại không in gì nên bị bỏ qua, không làm hỏng
+# phép cộng — khác hẳn `pacman -S` vốn huỷ cả lô khi chỉ một gói sai
+# ("target not found", xem pkgs_absent_in_repos).
+#
+# MỖI tiến trình con in ra MỘT dòng "tải_về|cài_đặt", rồi cha cộng theo cột.
+# Bản đầu in hai dòng rồi cộng bằng `sed -n 1~2p` / `2~2p` — SAI: với
+# `xargs -P` các tiến trình con ghi xen kẽ nhau, nên dòng 1,3,5 KHÔNG còn là
+# "tải về". Đo 6 lần trên 5 gói cho 523 MB, 607 MB, 288 MB, 288 MB, 627 MB,
+# 859 MB — cùng một lệnh, sáu con số khác nhau. Giả chữ rời ra rồi dán lại
+# đúng cột là cách duy nhất không phụ thuộc thứ tự.
+space_needed() {
+    (($#)) || { printf '0 0\n'; return 0; }
+    local out
+    out=$(printf '%s\0' "$@" |
+        xargs -0 -P"$JOBS" -r -I{} sh -c '
+            o=$(pacman -Si "$1" 2>/dev/null) || exit 0
+            d=$(printf "%s\n" "$o" | sed -n "s/^Download Size *: *//p"  | head -1)
+            i=$(printf "%s\n" "$o" | sed -n "s/^Installed Size *: *//p" | head -1)
+            [ -n "$d" ] || exit 0
+            printf "%s|%s\n" "$d" "${i:-0 B}"
+        ' _ {})
+    # Gói có thể nằm ở nhiều kho -> nhiều khối; head -1 ở trên đã lấy khối đầu.
+    local tdl=0 tinst=0 d i
+    while IFS='|' read -r d i; do
+        tdl=$(( tdl    + $(tob "$d") ))
+        tinst=$(( tinst + $(tob "$i") ))
+    done <<<"$out"
+    printf '%d %d\n' "$tdl" "$tinst"
+}
+
+# Trả 0 nếu đủ chỗ. KHÔNG chặn cứng: người dùng có thể đặt CacheDir ở filesystem
+# khác, nên đây là cảnh báo kèm số đo chứ không phải lỗi chặn cài.
+check_disk_space() {
+    local -a need=("$@")
+    ((${#need[@]})) || return 0
+
+    local dl inst
+    read -r dl inst <<<"$(space_needed "${need[@]}")"
+    [[ $dl =~ ^[0-9]+$ ]] || dl=0
+    [[ $inst =~ ^[0-9]+$ ]] || inst=0
+    (( dl + inst > 0 )) || return 0
+
+    # Cần chỗ cho TẢI VỀ và CÀI ĐẶT cùng lúc, cộng dự phòng 1 GiB cho giải nén,
+    # ghi log, và các gói kéo theo mà pacman -Si không liệt kê hết.
+    local need_b=$(( dl + inst + 1073741824 ))
+    local cachedir free
+    cachedir=$(pacman-conf CacheDir 2>/dev/null)
+    [[ -n $cachedir ]] || cachedir=/var/cache/pacman/pkg/
+    if ! free=$(df -B1 --output=avail "$cachedir" 2>/dev/null | tail -1 | tr -cd '0-9'); then
+        warn "không đọc được dung lượng còn trống của $cachedir — bỏ qua kiểm tra"
+        return 0
+    fi
+    if (( free < need_b )); then
+        warn "DĨA CÓ THỂ KHÔNG ĐỦ CHỖ:"
+        printf '    cần   %s (tải %s + cài %s + dự phòng 1 GiB)\n' \
+            "$(human_bytes "$need_b")" "$(human_bytes "$dl")" "$(human_bytes "$inst")" >&2
+        printf '    còn    %s trên %s\n' "$(human_bytes "$free")" "$cachedir" >&2
+        warn "dọn cache trước: sudo pacman -Sc    (giữ 2 bản gần nhất: sudo paccache -rk2)"
+        return 1
+    fi
+    info "đĩa: cần ~$(human_bytes "$need_b"), còn $(human_bytes "$free") trên $cachedir"
+    return 0
+}
+
 cmd_deps() {
     detect_sudo
+    # Kiểm tra dung lượng TRƯỚC khi cài, trên đúng danh sách sắp cài. Chỉ cảnh
+    # báo chứ không chặn: người dùng có thể đặt CacheDir ở filesystem khác, và
+    # chặn cứng sẽ chặn nhầm người đó. Thiếu chỗ thì pacman hỏng giữa chừng,
+    # để lại /var/lib/pacman nửa vời — tệ hơn nhiều so với cảnh báo.
+    check_disk_space "${PKG_BUILD[@]}" "${PKG_SESSION[@]}" \
+                     "${PKG_CONFIG[@]}" "${PKG_KEYBINDS[@]}" || true
     install_pkgs PKG_BUILD      "build"
     # XLibre trước PKG_SESSION: xlibre-xserver Provides xorg-server, đặt trước
     # thì PKG_SESSION không kéo X.Org xuống. Đảo thứ tự là tốn hai vòng cài/gỡ.

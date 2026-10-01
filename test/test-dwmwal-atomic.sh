@@ -316,5 +316,210 @@ else
         "ghi đè chồng nhau làm mất dữ liệu"
 fi
 
+# ===========================================================================
+# Phần 3 — ba file NGOÀI repo cũng phải ghi nguyên tử
+# ===========================================================================
+# LÝ DO KHÁC với themes/wal.h: ở đó là "bị giết giữa lúc ghi", ở đây là BÊN ĐỌC
+# đang chạy song song nạp file trong lúc ta ghi.
+
+# --- G1: bar_themes/wal -----------------------------------------------------
+# bar.sh CHẠY VÒNG LẶP 1 GIÂY và nạp bằng `. "$theme_file"` (bar.sh:197, có
+# guard `[ -n "$ck" ]`). ĐO với file cắt nửa chừng:
+#     file "bl"                     -> . ./theme OK, black= RONG
+#     file 'black="#1a1a1a"\nwhi'    -> . ./theme OK, white= RONG
+# KHÔNG lỗi shell nào, chỉ biến RỖNG. bar.sh đưa chúng vào escape ^c -> thanh
+# vẽ sai màu, im lặng. Guard sẵn ở bar.sh chỉ chặn file KHÔNG tồn tại, không
+# chặn file tồn tại mà nội dung dở.
+_bar=$(sed -n '/^cat > "\$SCRIPTS\/bar_themes\/wal/,/^EOF$/p' "$DW")
+if [ -z "$_bar" ]; then
+    bad "G1 tìm thấy heredoc ghi bar_themes/wal" "không trích được"
+else
+    _bd=$(printf '%s\n' "$_bar" | sed -n '1s/.*> "\([^"]*\)".*/\1/p')
+    if [ "$_bd" = "\$SCRIPTS/bar_themes/wal.tmp" ]; then
+        ok "G1 bar_themes/wal ghi qua file tạm ($_bd)"
+    else
+        bad "G1 bar_themes/wal ghi thẳng, không qua file tạm" \
+            "đích=$_bd — bar.sh có thể nạp file dở, màu rỗng, im lặng"
+    fi
+    if grep -q 'mv -f "\$SCRIPTS/bar_themes/wal.tmp" "\$SCRIPTS/bar_themes/wal"' "$DW"; then
+        ok "G1b có mv đưa .tmp về bar_themes/wal"
+    else
+        bad "G1b thiếu mv bar_themes/wal.tmp -> wal" "theme không bao giờ cập nhật"
+    fi
+    if grep -q '\[ ! -s "\$SCRIPTS/bar_themes/wal.tmp" \]' "$DW"; then
+        ok "G1c kiểm file tạm KHÔNG rỗng trước mv"
+    else
+        bad "G1c không kiểm file tạm rỗng" \
+            "file tạm rỗng mà vẫn mv -> mất sạch theme của thanh"
+    fi
+fi
+
+# --- G2: chứng minh bằng hành vi thật — file nửa vời cho biến rỗng ----------
+_dot="$T/half"
+mkdir -p "$_dot"
+printf 'bl' > "$_dot/theme"
+_r=$(/bin/sh -c '. "$1"; printf "%s" "${black:-RONG}"' _ "$_dot/theme" 2>/dev/null)
+if [ "$_r" = RONG ]; then
+    ok "G2 file theme dở -> biến RỖNG mà KHÔNG lỗi shell (đúng mô tả lỗi)"
+else
+    bad "G2 mô phong không tái hiện được" "black=[$_r], cần lại kịch bản khác"
+fi
+# G2b: [ -s ] KHÔNG đủ — file dở vẫn có byte nên không bị coi là rỗng.
+# ĐO: file "black=\"#d0\"WHIT" -> [ -s ] = CÓ (sai), . ./file -> white= RONG.
+_at="$T/atom"
+mkdir -p "$_at"
+printf 'black="#1a1a1a"\nwhite="#fff"\n' > "$_at/target"
+printf 'black="#d0"WHIT' > "$_at/.t.new"
+_sz=no; [ -s "$_at/.t.new" ] && _sz=yes
+_w=$(/bin/sh -c '. "$1"; printf "%s" "${white:-RONG}"' _ "$_at/.t.new" 2>/dev/null)
+if [ "$_sz" = yes ] && [ "$_w" = RONG ]; then
+    ok "G2b [ -s ] KHÔNG bắt được file dở (có byte nhưng cú pháp hỏng) — đã đo"
+else
+    bad "G2b mô phong file dở không tái hiện" "size=$_sz white=[$_w]"
+fi
+# nên phải kiểm file tạm CÓ SOURCE ĐƯỢC không, thay vì chỉ kiểm rỗng
+if grep -qE 'elif ! \. "\$SCRIPTS/bar_themes/wal\.tmp"' "$DW"; then
+    ok "G2c bar_themes/wal: thử SOURCE file tạm trước mv ([ -s ] không đủ)"
+else
+    bad "G2c bar_themes/wal chỉ kiểm rỗng, không kiểm cú pháp" \
+        "file dở có byte nên lọt qua [ -s ], mv đè mất bản tốt"
+fi
+if grep -qE 'elif ! \. "\$_kcat"' "$DW"; then
+    ok "G2d kitty/pywal.conf: thử SOURCE file tạm trước mv"
+else
+    # KHÔNG được `. "$_kcat"`: pywal.conf là ĐỊNH DẠNG KITTY (`tên giá_trị`),
+    # không phải shell. Đo: `. pywal.conf` báo "foreground: command not found"
+    # cho từng dòng và trả 127 -> nhánh elif luôn vào -> mv không bao giờ chạy,
+    # pywal.conf không bao giờ cập nhật. Bản sửa đầu tiên của tôi đã dính đúng
+    # lỗi này. Phải kiểm định dạng bằng awk/grep, không dùng source.
+    if grep -qE '\[ "\$_kvalid" -eq "\$_ktotal" \]' "$DW"; then
+        ok "G2d kitty/pywal.conf kiểm ĐỊNH DẠNG, không dùng . (đã tránh lỗi 127)"
+    else
+        bad "G2d kitty/pywal.conf không kiểm định dạng nào" \
+            "chỉ [ -s ] thì lọt file dở; dùng . thì trả 127 và mv không bao giờ chạy"
+    fi
+    # Regex phải khớp CHỮ SỐ vì khoá kitty có color0..color15. Đo: với
+    # `[a-z_]+` đơn thuần, file hợp lệ 21 dòng chỉ khớp 5 -> báo nhầm là hỏng.
+    if grep -qE '\[a-z_\]\+\[0-9_\]\*' "$DW"; then
+        ok "G2d2 regex có [0-9_]* cho khoá color0..color15 (đã đo: thiếu thì chỉ khớp 5/21)"
+    else
+        bad "G2d2 regex thiếu phần chữ số" \
+            "'[a-z_]+' không khớp color0 -> file tốt bị báo nhầm là hỏng"
+    fi
+fi
+# JSON phải PARSE THẬT bằng json.load — [ -s ] và cả "source" đều vô dụng với JSON
+if grep -q "json.load(open(sys.argv\[1\]))" "$DW"; then
+    ok "G2e pywal.json: kiểm bằng json.load thật, không dùng [ -s ]"
+else
+    bad "G2e pywal.json không parse kiểm" \
+        "JSON dở -> JSONDecodeError, opencode mất theme; [ -s ] không bắt được"
+fi
+
+# --- G3: kitty/pywal.conf --------------------------------------------------
+_kit=$(sed -n '/_kcat=/,/_kcat"/p' "$DW" | head -1)
+if [ -n "$_kit" ]; then
+    ok "G3 kitty/pywal.conf có file tạm riêng: $_kit"
+else
+    bad "G3 kitty/pywal.conf KHÔNG ghi atomic" \
+        "kitty nạp file này và có thể đang mở — file dở là sai màu"
+fi
+if grep -q 'mv -f "\$_kcat" "\$HOME/\.config/kitty/pywal\.conf"' "$DW"; then
+    ok "G3b có mv pywal.conf.tmp -> pywal.conf"
+else
+    bad "G3b thiếu mv pywal.conf" "file tạm đọng, theme kitty không đổi"
+fi
+
+# --- G4: opencode/themes/pywal.json — file JSON nên nặng hơn ---------------
+# ĐO: JSON cắt nửa -> json.load() ném JSONDecodeError
+#     "Unterminated string starting at: line 3 column 3"
+# opencode đọc file này để tô màu TUI; file dở = mất theme tới lần đổi
+# wallpaper sau.
+_oc=$(sed -n '/_otmp=/,/_otmp"/p' "$DW" | head -1)
+if [ -n "$_oc" ]; then
+    ok "G4 opencode pywal.json có file tạm riêng: $_oc"
+else
+    bad "G4 opencode pywal.json KHÔNG ghi atomic" \
+        "JSON dở -> JSONDecodeError, opencode mất theme"
+fi
+if grep -q 'mv -f "\$_otmp" "\$HOME/\.config/opencode/themes/pywal\.json"' "$DW"; then
+    ok "G4b có mv pywal.json.tmp -> pywal.json"
+else
+    bad "G4b thiếu mv pywal.json" "theme không cập nhật"
+fi
+if grep -q '\[ ! -s "\$_otmp" \]' "$DW"; then
+    ok "G4c kiểm file tạm JSON KHÔNG rỗng trước mv"
+else
+    bad "G4c không kiểm file tạm rỗng" "file rỗng mà mv thì mất theme cũ"
+fi
+
+# --- G6: chứng minh JSON dở thật sự hỏng, và bản atomic thì không ----------
+if command -v python3 >/dev/null 2>&1; then
+    _jf="$T/half.json"
+    printf '{\n  "defs": {\n    "wal0": "#1a1a1a",\n    "wal' > "$_jf"
+    if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$_jf" 2>/dev/null; then
+        ok "G6 JSON cắt nửa -> json.load thất bại (đúng mô tả lỗi)"
+    else
+        bad "G6 JSON cắt nửa mà parse được" "kịch bản không tái hiện được lỗi"
+    fi
+    # bản đúng: parse OK
+    _jg="$T/good.json"
+    printf '{"defs":{"wal0":"#1a1a1a"}}\n' > "$_jg"
+    if python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$_jg" 2>/dev/null; then
+        ok "G6b JSON đầy đủ -> parse OK (kiểm không báo động giả)"
+    else
+        bad "G6b JSON hợp lệ mà parse lỗi" "điều kiện kiểm sai"
+    fi
+else
+    printf '  --   bỏ qua G6: không có python3\n'
+fi
+
+# --- G7: chứng minh regex kiểm pywal.conf phân biệt được file hỏng ---------
+# Dùng đúng biểu thức trong dwmwal.sh, dựng file tốt và file hỏng, so sánh.
+_pR='^[[:space:]]*[a-z_]+[0-9_]*[[:space:]]+[^[:space:]]'
+printf 'foreground #d3cfcf\nbackground #1a1a1a\ncolor0 #1a1a1a\ncolor15 #ffffff\n' > "$T/k.ok"
+printf 'foreground #d3cfcf\nbackground #1a1a1a\nDONG HONG KHONG PHAI CAP\n' > "$T/k.bad"
+_oa=$(awk '!/^[[:space:]]*(#|$)/ { n++ } END { print n + 0 }' "$T/k.ok")
+_ok=$(grep -cE "$_pR" "$T/k.ok" || true)
+_ba=$(awk '!/^[[:space:]]*(#|$)/ { n++ } END { print n + 0 }' "$T/k.bad")
+_bk=$(grep -cE "$_pR" "$T/k.bad" || true)
+if [ "$_oa" -gt 0 ] && [ "$_ok" -eq "$_oa" ]; then
+    ok "G7 file pywal.conf tốt -> qua kiểm ($_ok/$_oa dòng)"
+else
+    bad "G7 file tốt bị báo sai" "$_ok/$_oa dòng khớp — regex quá chặt"
+fi
+if [ "$_bk" -ne "$_ba" ]; then
+    ok "G7b file pywal.conf hỏng -> bị bắt ($_bk/$_ba dòng khớp)"
+else
+    bad "G7b file hỏng lọt qua kiểm" "$_bk/$_ba — regex thiếu sức phân biệt"
+fi
+# và regex phải khớp color0..color15 (có chữ số)
+printf 'color15 #ffffff\n' > "$T/k.num"
+if [ "$(grep -cE "$_pR" "$T/k.num" || true)" -eq 1 ]; then
+    ok "G7c regex khớp color15 (khoá có chữ số)"
+else
+    bad "G7c regex không khớp color15" "sẽ báo nhầm file tốt là hỏng"
+fi
+# regex thiếu chữ số thì bỏ sót color0
+if [ "$(grep -cE '^[[:space:]]*[a-z_]+[[:space:]]+' "$T/k.num" || true)" -eq 0 ]; then
+    ok "G7d đã xác nhận regex thiếu [0-9_]* bỏ sót color15 (lý do cần thêm phần này)"
+else
+    bad "G7d mô phông không tái hiện" "không chứng minh được vì sao cần [0-9_]*"
+fi
+
+# --- G5: mkdir phải được bọc if, không thể `|| true` rồi ghi vào hư không ---
+# Nếu không tạo được thư mục mà vẫn `cat >` thì lỗi "Directory nonexistent"
+# rồi mv vẫn chạy — đúng kiểu lỗi đã dính ở dwmwal.lock.
+if grep -q 'if mkdir -p "\$HOME/\.config/opencode/themes" 2>/dev/null; then' "$DW"; then
+    ok "G5 mkdir opencode/themes bọc trong if (bỏ qua gọn khi không tạo được)"
+else
+    bad "G5 không bọc if quanh mkdir opencode/themes" \
+        "mkdir hỏng thì vẫn ghi, lỗi mới bị giấu"
+fi
+if grep -q 'if ! mkdir -p "\$HOME/\.config/kitty" 2>/dev/null; then' "$DW"; then
+    ok "G5b mkdir kitty bọc trong if ! (bỏ qua gọn khi không tạo được)"
+else
+    bad "G5b không bọc if quanh mkdir kitty" "cùng lý do G5"
+fi
+
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

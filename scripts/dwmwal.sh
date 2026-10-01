@@ -312,7 +312,18 @@ sed -i 's|#include "themes/[^"]*"|#include "themes/wal.h"|' "$TSUKI_DIR/config.d
 # ---------------------------------------------------------------------------
 # 5) bar: tạo theme wal + chuyển bar.sh sang dùng nó
 # ---------------------------------------------------------------------------
-cat > "$SCRIPTS/bar_themes/wal" << EOF
+# Ghi qua file tạm rồi mv — LÝ DO KHÁC themes/wal.h, không phải lúc crash.
+#
+# bar.sh CHẠY VÒNG LẶP 1 GIÂY và nạp theme bằng `. "$theme_file"` (dòng 197,
+# có guard `[ -n "$ck" ]`). Nếu `cat >` ghi thẳng, bar.sh có thể nạp đúng lúc
+# file còn dở. ĐO:
+#     file dở "bl"           -> . ./theme thành công, black= RONG
+#     file dở 'black=..\nwhi' -> . ./theme thành công, white= RONG
+# KHÔNG có lỗi shell nào, chỉ có biến RỖNG. bar.sh đưa chúng vào escape
+# ^c -> thanh vẽ sai màu, im lặng. Guard sẵn có ở bar.sh chỉ chặn TRƯỜNG HỢP
+# file không tồn tại, không chặn file tồn tại mà nội dung dở.
+# `mv` cùng thư mục dùng rename(2) — bar.sh chỉ thấy bản cũ hoặc bản mới.
+cat > "$SCRIPTS/bar_themes/wal.tmp" << EOF
 #!/bin/dash
 
 # dwmwal bar colors (tự sinh từ wallpaper)
@@ -326,13 +337,36 @@ orange=$color3
 teal=$color12
 darkblue=$color6
 EOF
+# Cùng lý do với ~/.xinitrc: file tạm rỗng thì KHÔNG được mv lên đích. Đo với
+# `ulimit -f`: heredoc vượt giới hạn thì bash không tạo file, nhưng mv vẫn
+# chạy và thay theme đang tốt bằng file rỗng -> bar mất sạch màu.
+if [ ! -s "$SCRIPTS/bar_themes/wal.tmp" ]; then
+    rm -f "$SCRIPTS/bar_themes/wal.tmp"
+    notify-send -u critical "dwmwal" "tạo theme bar thất bại — theme cũ giữ nguyên"
+elif ! . "$SCRIPTS/bar_themes/wal.tmp" 2>/dev/null; then
+    # [ -s ] KHÔNG ĐỦ. ĐO: file "black=\"#d0\"WHIT" có byte nên [ -s ] thấy
+    # rỗng là sai, nhưng `. ./file` để lại white= RONG -> bar.sh nạp file dở
+    # rồi đưa biến rỗng vào escape ^c. Nên phải THỬ SOURCE thật, trong
+    # subshell để không làm bẩn biến của chính dwmwal.sh.
+    rm -f "$SCRIPTS/bar_themes/wal.tmp"
+    notify-send -u critical "dwmwal" "theme bar sai cú pháp — theme cũ giữ nguyên"
+else
+    mv -f "$SCRIPTS/bar_themes/wal.tmp" "$SCRIPTS/bar_themes/wal"
+fi
 sed -i 's|bar_themes/[^ ]*|bar_themes/wal|' "$SCRIPTS/bar.sh"
 
 # ---------------------------------------------------------------------------
 # 6) kitty: ghi pywal.conf + reload qua touch kitty.conf
 # ---------------------------------------------------------------------------
 KITTY_CONF="$HOME/.config/kitty/kitty.conf"
-cat > "$HOME/.config/kitty/pywal.conf" << EOF
+# Ghi atomic: kitty NẠP file này (include trong kitty.conf) và có thể đang mở
+# sẵn. Nếu bị giết giữa lúc ghi, kitty nạp file dở -> màu sai, mà không có lỗi
+# nào hiện ra. Cùng lý do như bar_themes/wal: đọc bên ngoài trong lúc ghi.
+if ! mkdir -p "$HOME/.config/kitty" 2>/dev/null; then
+    notify-send "dwmwal" "không tạo được ~/.config/kitty — bỏ qua màu kitty"
+else
+    _kcat="$HOME/.config/kitty/pywal.conf.tsuki-new.$$"
+    cat > "$_kcat" << EOF
 # dwmwal generated colors
 foreground $foreground
 background $background
@@ -356,10 +390,35 @@ color13 $color13
 color14 $color14
 color15 $color15
 EOF
-# NOTE (Arisa): không tự append 'include pywal.conf' nữa — kitty giữ theme Tokyo Night
-# (pywal.conf vẫn được ghi ở trên để dùng tay nếu muốn màu wallpaper)
-# grep -q '^include pywal.conf' "$KITTY_CONF" 2>/dev/null || echo "include pywal.conf" >> "$KITTY_CONF"
-touch "$KITTY_CONF"
+    if [ ! -s "$_kcat" ]; then
+        rm -f "$_kcat"
+        notify-send -u critical "dwmwal" "tạo pywal.conf rỗng — file cũ giữ nguyên"
+    else
+        # [ -s ] KHÔNG ĐỦ, và CŨNG KHÔNG THỂ dùng `. "$_kcat"` để kiểm.
+        # pywal.conf là ĐỊNH DẠNG KITTY (`tên giá_trị`), KHÔNG phải shell
+        # script. ĐO: `. pywal.conf` báo "foreground: command not found" cho
+        # từng dòng, trả 127. Bản sửa đầu tiên của tôi đã dùng `. ` và vì vậy
+        # nhánh elif luôn vào -> mv KHÔNG BAO GIỜ chạy -> pywal.conf không bao
+        # giờ cập nhật, đồng thời spam cảnh báo. Đó là lỗi tôi gây.
+        #
+        # Kiểm định dạng: mỗi dòng có nội dung phải là `tên giá_trị`.
+        # `[a-z_]+[0-9_]*` vì khoá của kitty CÓ CHỮ SỐ (color0..color15) — regex
+        # `[a-z_]+` đơn thuần bỏ sót color0 nên báo sai file hỏng thành tốt.
+        _ktotal=$(awk '!/^[[:space:]]*(#|$)/ { n++ } END { print n + 0 }' "$_kcat")
+        _kvalid=$(grep -cE '^[[:space:]]*[a-z_]+[0-9_]*[[:space:]]+[^[:space:]]' "$_kcat" || true)
+        if [ "$_ktotal" -gt 0 ] && [ "$_kvalid" -eq "$_ktotal" ]; then
+            mv -f "$_kcat" "$HOME/.config/kitty/pywal.conf"
+        else
+            rm -f "$_kcat"
+            notify-send -u critical "dwmwal" \
+                "pywal.conf sai định dạng ($_kvalid/$_ktotal dòng hợp lệ) — file cũ giữ nguyên"
+        fi
+    fi
+    # NOTE (Arisa): không tự append 'include pywal.conf' nữa — kitty giữ theme Tokyo Night
+    # (pywal.conf vẫn được ghi ở trên để dùng tay nếu muốn màu wallpaper)
+    # grep -q '^include pywal.conf' "$KITTY_CONF" 2>/dev/null || echo "include pywal.conf" >> "$KITTY_CONF"
+    touch "$KITTY_CONF"
+fi
 
 # ---------------------------------------------------------------------------
 # 6b) equibop (Discord client): đồng bộ màu theme system24-arisa khi đổi wallpaper
@@ -372,8 +431,15 @@ fi
 # ---------------------------------------------------------------------------
 # 7) opencode: ghi theme pywal.json + bật qua tui.json
 # ---------------------------------------------------------------------------
-mkdir -p "$HOME/.config/opencode/themes"
-cat > "$HOME/.config/opencode/themes/pywal.json" << EOF
+if mkdir -p "$HOME/.config/opencode/themes" 2>/dev/null; then
+    # Ghi atomic — file JSON, hậu quả nặng hơn file shell.
+    # ĐO: JSON cắt nửa chừng thì json.load() ném JSONDecodeError:
+    #     "Unterminated string starting at: line 3 column 3"
+    # opencode đọc theme này để tô màu TUI; file dở = mất theme cho tới lần
+    # đổi wallpaper lần sau. Với file .conf của kitty, hậu quả nhẹ hơn (sai
+    # màu), nhưng JSON thì hỏng hẳn — nên chắc chắn phải atomic.
+    _otmp="$HOME/.config/opencode/themes/pywal.json.tsuki-new.$$"
+    cat > "$_otmp" << EOF
 {
   "\$schema": "https://opencode.ai/theme.json",
   "defs": {
@@ -438,6 +504,26 @@ cat > "$HOME/.config/opencode/themes/pywal.json" << EOF
   }
 }
 EOF
+    # Kiểm rỗng trước mv (lý do như ~/.xinitrc: file tạm rỗng mà vẫn mv thì mất
+    # theme cũ). Rồi rename(2) — opencode chỉ thấy JSON cũ hoặc JSON mới.
+    if [ ! -s "$_otmp" ]; then
+        rm -f "$_otmp"
+        notify-send -u critical "dwmwal" "tạo pywal.json rỗng — theme cũ giữ nguyên"
+    elif command -v python3 >/dev/null 2>&1 \
+         && ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$_otmp" 2>/dev/null; then
+        # JSON PHẢI PARSE THẬT, không dùng [ -s ]. ĐO: file JSON cắt nửa ->
+        # json.load() ném JSONDecodeError "Unterminated string starting at:
+        # line 3 column 3" -> opencode mất theme cho tới lần đổi wallpaper sau.
+        # Có python3 thì kiểm; không có thì chỉ dựa vào [ -s ] (walgen.py cần
+        # python3 nên thực tế luôn có, nhưng không giả định).
+        rm -f "$_otmp"
+        notify-send -u critical "dwmwal" "pywal.json không phải JSON hợp lệ — theme cũ giữ nguyên"
+    else
+        mv -f "$_otmp" "$HOME/.config/opencode/themes/pywal.json"
+    fi
+else
+    notify-send "dwmwal" "không tạo được ~/.config/opencode/themes — bỏ qua màu opencode"
+fi
 
 # NOTE (Arisa): không ép opencode về theme pywal nữa — opencode giữ theme tokyo-night
 # (pywal.json vẫn được ghi ở trên như theme tham chiếu, dùng tay khi muốn)

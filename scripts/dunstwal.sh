@@ -17,6 +17,23 @@ CACHE_ACCENTS="$HOME/.cache/dwmwal/accents"
 # Read wal colors (16 lines, 0-indexed)
 mapfile -t COLORS < "$CACHE_COLORS"
 
+# PHẢI KIỂM SỐ LƯỢNG DÒNG TRƯỚC KHI TRUY CẬP.
+# ĐO với file colors RỘNG (tồn tại nên [ -f ] ở trên không chặn được):
+#     dunstwal.sh:26: COLORS: bad array subscript
+#     dunstwal.sh:28: COLORS: bad array subscript
+#     dunst colors synced with wal:
+#         bg:            <- RỖNG
+#         fg:      #cdd6f4
+#     rc = 0
+# Tức là script BÁO THÀNH CÔNG và ghi `background = ""` vào dunstrc. `mapfile`
+# không lỗi với file rỗng, nên không có chỗ nào chặn trước.
+# File rỗng xảy ra khi walgen.py bị giết giữa lúc ghi colors (mà bước 2 của
+# dwmwal.sh có `rm -rf $CACHE` trước — đúng lúc đó cache KHÔNG tồn tại).
+case "${#COLORS[@]}" in
+    0)  echo "wal colors rỗng tại $CACHE_COLORS — giữ nguyên dunstrc" >&2; exit 1 ;;
+    1|2|3) echo "wal colors chỉ có ${#COLORS[@]} dòng (cần ít nhất 9) — giữ nguyên dunstrc" >&2; exit 1 ;;
+esac
+
 # color0  = background (darkest)
 # color1-15 = palette
 # accent from accents file or color4
@@ -26,6 +43,16 @@ BORDER="${COLORS[8]}"    # color8 = gray2 (dwm border color)
 ACCENT="${COLORS[4]:-${COLORS[${#COLORS[@]}-1]:-#89b4fa}}"    # color4 = accent
 BORDER="${BORDER:-$ACCENT}"   # file màu quá ngắn -> đừng ghi chuỗi rỗng vào dunstrc
 FG="${FG:-${COLORS[-1]:-#cdd6f4}}"
+
+# SAU khi điền fallback, mọi biến dùng cho dunstrc phải là MÃ MÀU HỢP LỆ.
+# Nếu không kiểm, một biến rỗng vẫn lọt xuống sed và ghi `background = ""`.
+# dunst sẽ báo lỗi parse hoặc vẽ nền sai — và ta đã in "synced with wal".
+for _v in BG FG BORDER ACCENT; do
+    if ! [[ ${!_v} =~ ^#[0-9a-fA-F]{6}$ ]]; then
+        echo "giá trị $_v không phải mã màu hợp lệ (${!_v}) — giữ nguyên dunstrc" >&2
+        exit 1
+    fi
+done
 
 if [ -f "$CACHE_ACCENTS" ]; then
     source "$CACHE_ACCENTS"

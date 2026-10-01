@@ -803,5 +803,39 @@ pkill -f "$T/run_noguard.sh" 2>/dev/null
 sleep 0.5
 unset FAKE_DWM_LINGER FAKE_DWM_PID
 
+# --- T25: THIẾU feh PHẢI BÁO, không để nền xám im lặng -----------------------
+# run.sh có 13 lệnh đi qua `have` (xrdb, xset, dunst, notify-send, flock, picom,
+# dbus-run-session, busctl, systemctl, fc-list, fuser, pkexec, xdg-desktop-portal
+# -gtk). Riêng feh bị sót: cả ba nhánh đều gọi `feh` thẳng, không `have`.
+#
+# ĐO trước khi sửa, bằng PATH bị rút gọn (mô phong máy thiếu feh):
+#     feh: command not found
+#     rc = 0, không một dòng cảnh báo nào
+# Tức là thiếu feh -> nền X màu xám xịt, KHÔNG có ảnh nền, không ai được báo.
+#
+# Phải kiểm `have feh` chứ không `feh ... || warn`: feh chạy nền (`&`) nên
+# mã thoát không phản ánh việc đặt nền có thành công hay không.
+if grep -q '^if have feh; then' "$R/scripts/run.sh"; then
+    ok "T25 run.sh kiểm 'have feh' trước khi gọi"
+else
+    bad "T25 run.sh KHÔNG kiểm 'have feh'" \
+        "thiếu feh -> 'command not found', nền xám, rc=0, không cảnh báo"
+fi
+if grep -A3 'thiếu feh — không đặt được ảnh nền' "$R/scripts/run.sh" \
+   | grep -q 'warn '; then
+    ok "T25b khi thiếu feh có gọi warn (ghi vào nhật ký session.log)"
+else
+    bad "T25b thiếu feh mà không gọi warn" "im lặng — người dùng không biết vì sao không có ảnh"
+fi
+# Cảnh báo phải dùng warn (ghi log) chứ không notify-send: notify-send cần
+# dunst, mà dunst khởi động SAU khối ảnh nền -> thông báo mất im lặng.
+if grep 'thiếu feh — không đặt được ảnh nền' "$R/scripts/run.sh" \
+   | grep -q 'notify-send'; then
+    bad "T25c cảnh báo dùng notify-send" \
+        "dunst chưa lên -> thông báo rơi mất, lại quay về lỗi im lặng"
+else
+    ok "T25c cảnh báo không dùng notify-send (dunst chưa sẵn sàng lúc này)"
+fi
+
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"
 [ "$F" -eq 0 ]

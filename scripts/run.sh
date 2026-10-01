@@ -783,18 +783,34 @@ fi
 
 WALLPAPER=$(cat "$TSUKI_DIR/scripts/.wallpaper" 2>/dev/null)
 _needs_wallpaper_msg=0
-if [ -n "${WALLPAPER:-}" ] && [ -f "$WALLPAPER" ]; then
-    feh --no-fehbg --bg-fill "$WALLPAPER" &
-elif [ -f "$HOME/Pictures/Wallpapers/japanese.jpg" ]; then
-    feh --no-fehbg --bg-fill "$HOME/Pictures/Wallpapers/japanese.jpg" &
+# KIỂM `have feh` TRƯỚC. Bản cś gọi `feh` thẳng ở cả ba nhánh. Đo với PATH bị
+# rút gọn (mô phong máy thiếu feh):
+#     feh: command not found
+#     rc = 0, không có cảnh báo nào
+# Tức là thiếu feh -> nền X màu xám xịt, không ảnh nền, KHÔNG có gì báo. Đúng
+# loại lỗi im lặng. 13 lệnh khác trong file này đều có `have`, riêng feh bị sót.
+#
+# `&` ở cả ba nhánh là CỐ Ý: feh trả về ngay sau khi đặt nền, chạy đồng bộ
+# sẽ trì hoãn toàn bộ phần khởi động. Vì nền chạy nền nên không thể dựa vào mã
+# thoát — đó là lý do phải kiểm `have` chứ không kiểm `|| warn`.
+if have feh; then
+    if [ -n "${WALLPAPER:-}" ] && [ -f "$WALLPAPER" ]; then
+        feh --no-fehbg --bg-fill "$WALLPAPER" &
+    elif [ -f "$HOME/Pictures/Wallpapers/japanese.jpg" ]; then
+        feh --no-fehbg --bg-fill "$HOME/Pictures/Wallpapers/japanese.jpg" &
+    else
+        # Không có ảnh nào: vẽ nền đen bằng feh thay vì để X màu xám xịt.
+        feh --no-fehbg --bg-solid '#1a1a1a' &
+        # KHÔNG gọi notify-send ở đây. Bản cũ gọi ngay tại chỗ này, tức là TRƯỚC
+        # khi dunst được khởi động (dunst chạy ở khối "thông báo + portal" phía
+        # dưới) -> không ai nhận org.freedesktop.Notifications -> thông báo mất
+        # im lặng. Đặt cờ, phát sau khi dunst sẵn sàng.
+        _needs_wallpaper_msg=1
+    fi
 else
-    # Không có ảnh nào: vẽ nền đen bằng feh thay vì để X màu xám xịt.
-    feh --no-fehbg --bg-solid '#1a1a1a' &
-    # KHÔNG gọi notify-send ở đây. Bản cũ gọi ngay tại chỗ này, tức là TRƯỚC
-    # khi dunst được khởi động (dunst chạy ở khối "thông báo + portal" phía
-    # dưới) -> không ai nhận org.freedesktop.Notifications -> thông báo mất
-    # im lặng. Đặt cờ, phát sau khi dunst sẵn sàng.
-    _needs_wallpaper_msg=1
+    # Cảnh báo có hệ thống sẵn sàng nhận: `warn` ghi vào nhật ký tsuki, đọc
+    # được bằng `tail ~/.local/state/tsuki/session.log` dù dunst chưa lên.
+    warn "thiếu feh — không đặt được ảnh nền, nền X là màu xám mặc định"
 fi
 
 # `xset r rate` đặt tốc độ lặp phím. Không có `&`: xrdb/`xset` chạy nhanh,

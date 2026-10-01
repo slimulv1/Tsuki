@@ -243,6 +243,29 @@ as_root() {
     fi
 }
 
+# Dọn file tạm sót từ lần chạy trước bị giết không cứu được.
+#
+# KHÔNG dựa vào trap cho trường hợp đó: SIGKILL, mất điện, OOM killer đều
+# không chạy trap. Nên vẫn phải quét lúc đầu mỗi lượt chạy.
+#
+# Chỉ dọn đúng mẫu của Tsuki và BỎ QUA file backup: "$f.tsuki-bak-<giây>" là
+# thứ CẦN giữ, mất nó thì mất đường khôi phục cấu hình. Đây là lý do phải so
+# kết thúc chứ không chỉ so tiền tố.
+#
+# Gọi ở ĐẦU main() nên không bao giờ xoá file của lần đang chạy.
+sweep_tmp_stale() {
+    local d f n=0
+    for d in /etc /etc/pacman.d; do
+        for f in "$d"/pacman.conf.tsuki-* "$d"/.xlibre.conf.tsuki-*; do
+            [[ $f == *.tsuki-bak-* ]] && continue
+            [[ -f $f ]] || continue
+            rm -f -- "$f" 2>/dev/null && n=$((n + 1))
+        done
+    done
+    ((n)) && warn "dọn $n file tạm sót từ lần chạy trước bị giết (SIGKILL/mất điện)"
+    return 0
+}
+
 # -------------------------------------------------------------- bootstrap ---
 detect_sudo() {
     (( EUID == 0 )) && return 0
@@ -1899,8 +1922,47 @@ $list     Gỡ bớt rồi chạy lại. Xoá cả dòng [xlibre-...] lẫn file
         # `mktemp` trong /etc/pacman.d chứ không phải /tmp: hai thư mục khác
         # filesystem (đo được /etc device 66306, /tmp device 48) nên `mv` sang
         # bên kia sẽ thành copy+unlink — KHÔNG nguyên tử, tức là vô dụng.
+        # Danh sách file tạm của RIÊNG khối này + trap dọn.
+        #
+        # Tự khai báo ở đây, KHÔNG gọi hàm của shell cha: root_sh chạy
+        # `as_root env ... bash -c "$@"`, tức đây là tiến trình con riêng —
+        # hàm của cha không tồn tại bên trong.
+        #
+        # Vì sao cần MỘT danh sách chứ không phải `trap ... "$new"`: khối này
+        # tạo HAI file tạm ($new rồi tới $pc). Bản đầu chỉ trap $new; Ctrl-C
+        # giữa lúc dựng $pc thì $new đã bị `mv` đi nên `rm -f` im lặng, còn
+        # $pc nằm lại trong /etc. Đo trên PTY thật: sau ^C, thư mục còn
+        # pacman.conf.tsuki-fRG1Vi. Giữ cả hai trong danh sách thì lần nào
+        # thoát cũng dọn hết; `rm -f` trên đường dẫn đã `mv` đi là vô hại.
+        _t=()
+        _tclean() { local p; for p in "${_t[@]}"; do rm -f -- "$p" 2>/dev/null; done; }
+        trap _tclean EXIT
+        # NHAY KÉP, không nhay đơn: cả khối này nằm trong lời gọi
+        # root_sh -c với đối số đặt trong nhay đơn.
+        #
+        # Nháy đơn lồng sẽ đóng chuỗi sớm, mọi thứ sau đó trở thành lệnh
+        # cho bash NGOÀI. Đo trên bản nhỏ, thay root_sh bằng hàm in tham số:
+        #     trap: usage: trap [-Plp] [[action] signal_spec ...]
+        #     exit: 130 INT
+        #         echo "  phần còn lại chạy tiếp"     <- chạy như LỆNH
+        #     : numeric argument required
+        # Tức hỏng CẢ khối ghi pacman.conf, chứ không chỉ dòng trap.
+        #
+        # LƯU Ý KHI VIẾT COMMENT TRONG KHỐI NÀY: đừng để dấu nhay đơn vào
+        # bất kỳ chỗ nào, kể cả trong comment hay trong văn bản minh hoạ. Tôi
+        # đã viết `bash -c '...'` trong chính comment giải thích chuyện này,
+        # và nó ĂN MẤT HAI DẤU NHÁY: đối số vẫn ra đúng nội dung, nhưng
+        # comment trong khối đã bị cắt mất nhay. Đo:
+        #     trong install.sh:  # ... nằm trong `bash -c '...'`.
+        #     sau khi bash parse: # ... nằm trong `bash -c ...`.
+        # Vô hại ở lần này vì chỉ mất dấu, nhưng đủ để tôi tin rằng có khi
+        # nối thêm dấu ngoài sẽ phá cả khối.
+        trap "_tclean; exit 130" INT
+        trap "_tclean; exit 143" TERM
+        trap "_tclean; exit 129" HUP
+
         new=$(mktemp /etc/pacman.d/.xlibre.conf.tsuki-XXXXXX)
-        trap "rm -f -- \"\$new\"" EXIT
+        _t+=("$new")
         cat > "$new" <<EOF
 # XLibre — https://xlibre-arch.github.io/
 # Do Tsuki install.sh tạo. Muốn đổi kênh: ./install.sh xlibre <stable|beta|oldstable>
@@ -1929,6 +1991,7 @@ EOF
         # Làm hết trong một lần: dựng nội dung mới rồi rename một lần.
         if ! grep -qF "Include = /etc/pacman.d/xlibre.conf" /etc/pacman.conf; then
             pc=$(mktemp /etc/pacman.conf.tsuki-XXXXXX)
+            _t+=("$pc")   # bản đầu quên dòng này — xem khối _tclean ở trên
             { cat -- /etc/pacman.conf
               printf "\nInclude = /etc/pacman.d/xlibre.conf\n"
             } > "$pc"
@@ -2208,8 +2271,39 @@ $list     Gỡ bớt rồi chạy lại."
         cp -a -- "$f" "$bak"
         # File tạm do mktemp sinh, không phải "$f.new" đặt cứng: nếu bị ngắt
         # giữa chừng thì không để lại rác trong /etc.
+        # Một file tạm duy nhất nên `trap` riêng là đủ, nhưng vẫn dùng cùng
+        # kiểu danh sách cho nhất quán với xlibre_add_repo (và để thêm file
+        # tạm sau này không quên đăng ký). Chạy trong root_sh nên phải tự khai
+        # báo, không gọi được hàm của shell cha.
+        _t=()
+        _tclean() { local p; for p in "${_t[@]}"; do rm -f -- "$p" 2>/dev/null; done; }
+        trap _tclean EXIT
+        # NHAY KÉP, không nhay đơn: cả khối này nằm trong lời gọi
+        # root_sh -c với đối số đặt trong nhay đơn.
+        #
+        # Nháy đơn lồng sẽ đóng chuỗi sớm, mọi thứ sau đó trở thành lệnh
+        # cho bash NGOÀI. Đo trên bản nhỏ, thay root_sh bằng hàm in tham số:
+        #     trap: usage: trap [-Plp] [[action] signal_spec ...]
+        #     exit: 130 INT
+        #         echo "  phần còn lại chạy tiếp"     <- chạy như LỆNH
+        #     : numeric argument required
+        # Tức hỏng CẢ khối ghi pacman.conf, chứ không chỉ dòng trap.
+        #
+        # LƯU Ý KHI VIẾT COMMENT TRONG KHỐI NÀY: đừng để dấu nhay đơn vào
+        # bất kỳ chỗ nào, kể cả trong comment hay trong văn bản minh hoạ. Tôi
+        # đã viết `bash -c '...'` trong chính comment giải thích chuyện này,
+        # và nó ĂN MẤT HAI DẤU NHÁY: đối số vẫn ra đúng nội dung, nhưng
+        # comment trong khối đã bị cắt mất nhay. Đo:
+        #     trong install.sh:  # ... nằm trong `bash -c '...'`.
+        #     sau khi bash parse: # ... nằm trong `bash -c ...`.
+        # Vô hại ở lần này vì chỉ mất dấu, nhưng đủ để tôi tin rằng có khi
+        # nối thêm dấu ngoài sẽ phá cả khối.
+        trap "_tclean; exit 130" INT
+        trap "_tclean; exit 143" TERM
+        trap "_tclean; exit 129" HUP
+
         new=$(mktemp /etc/pacman.conf.tsuki-XXXXXX)
-        trap "rm -f -- \"\$new\"" EXIT
+        _t+=("$new")
         {
             printf "%s\n" \
                 "# Arisa — kho nhị phân tự dựng, KHÔNG phải kho chính thức Arch/CachyOS." \
@@ -2442,6 +2536,9 @@ usage() {
 }
 
 main() {
+    # Quét rác ngay đầu: mọi lượt chạy sau không thấy file tạm của lượt trước
+    # bị giết. Lượt này chưa tạo file tạm nào nên không đụng nhầm.
+    sweep_tmp_stale
     local cmd=${1:-all}
     case $cmd in
         deps)      cmd_deps ;;

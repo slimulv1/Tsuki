@@ -276,7 +276,12 @@ fi
 # themes/wal.h. Và C1..C6 cũng xanh vì chạy lại trên file đã bị ghi đè.
 # SC2016 (không mở rộng trong single quotes) là CỐ Ý: đây là mẫu literal cần
 # khớp đúng với dwmwal.sh, không phải biến cần nội suy.
-WALGEN=$(sed -n '/^cat > "\$TSUKI_DIR\/themes\/wal.h"/,/^EOF$/p' "$R/scripts/dwmwal.sh")
+# Khớp CẢ HAI dạng đích: ghi thẳng themes/wal.h (bản cũ) và ghi qua file tạm
+# themes/wal.h.tmp rồi mv (bản hiện tại — ghi không nguyên tử thì file nửa vời
+# nếu script bị giết giữa lúc ghi, rồi rebuild.sh vài giây sau không build
+# được). Chỉ khớp một dạng là C9 im lặng biến mất khi đổi cách ghi.
+# Dùng ERE nên `\.` không cần escape.
+WALGEN=$(sed -n '/^cat > "\$TSUKI_DIR\/themes\/wal\.h\(\.tmp\)\?"/,/^EOF$/p' "$R/scripts/dwmwal.sh")
 if [[ -z $WALGEN ]]; then
     # KHÔNG viết backtick trong chuỗi kép ở đây: shell sẽ THỰC THI nội dung
     # trong ngoặc ngược, tức chạy lệnh cat > ... << EOF và ghi đè themes/wal.h

@@ -17,6 +17,36 @@ SCRIPTS="$TSUKI_DIR/scripts"
 CACHE="$HOME/.cache/dwmwal"
 WALL_DIR="$HOME/Pictures/Wallpapers"
 
+# ---------------------------------------------------------------------------
+# 0) Khoá: CHỈ MỘT dwmwal.sh chạy tại một thời điểm
+# ---------------------------------------------------------------------------
+# VÌ SAO: bấm Super+W hai lần nhanh (hoặc bấm rồi đổi ý bấm tiếp) là hai tiến
+# trình chạy song song. Chúng cùng ghi vào CÙNG các file và — nguy hiểm nhất —
+# dòng `rm -rf "$CACHE"` ở bước 2 xoá sạch cache của tiến trình kia đang đọc.
+# Đã chạy 3 bản song song thật: một bản báo lỗi X11
+#     X Error of failed request: BadValue ... X_KillClient
+# do các bản cùng nhắm một tiến trình để kill.
+#
+# flock là TUỲ CHỌN (thuộc util-linux) — máy thiếu thì chạy tiếp không khoá,
+# không chết. Không dùng `exit 1` khi không khoá được: đổi wallpaper là việc
+# người dùng chủ động làm, chặn vì tranh chấp thì tệ hơn là chạy.
+#
+# -w 30: chờ tối đa 30 giây rồi bỏ khoá. Lần trước đang rebuild (make mất vài
+# giây) thì lượt sau đợi, thay vì chạy chen vào giữa lúc file nửa vời.
+LOCKDIR="${XDG_CACHE_HOME:-$HOME/.cache}"
+LOCK="$LOCKDIR/dwmwal.lock"
+# mkdir -p: nếu XDG_CACHE_HOME/$HOME/.cache chưa tồn tại thì `exec 9>` sẽ chết
+# với "Directory nonexistent" — và điều đó xảy ra ở lần chạy đầu tiên trên máy
+# mới, đúng lúc người dùng bấm Super+W.
+mkdir -p "$LOCKDIR" 2>/dev/null || true
+if command -v flock >/dev/null 2>&1; then
+    # `exec 9>` mở file một lần; fd 9 sống suốt tiến trình nên khoá giữ được
+    # tới khi script kết thúc. `flock -w 30 9` chặn tới 30 giây rồi bỏ qua.
+    if exec 9>"$LOCK" 2>/dev/null; then
+        flock -w 30 9 2>/dev/null || :
+    fi
+fi
+
 # build rồi báo nếu hỏng. Tách riêng để test trích được từ file thật (giống
 # cách test/test-run-daemons.sh trích start_daemon/stop_daemons từ run.sh) thay vì
 # chép lại logic. $1 = thư mục, $2 = tên để hiện trong thông báo.
@@ -72,12 +102,67 @@ rm -rf "$CACHE"
 python3 "$SCRIPTS/walgen.py" "$WALL" --cache-dir "$CACHE" >/dev/null 2>&1
 [ -f "$CACHE/colors.sh" ] || { notify-send "dwmwal" "Failed to generate colors"; exit 1; }
 . "$CACHE/colors.sh"
+
+# ---------------------------------------------------------------------------
+# 2a) CHẶN MÀU RỖNG — nếu không thì dwm KHÔNG KHỞI ĐỘNG ĐƯỢC
+# ---------------------------------------------------------------------------
+# ĐO THẬT, không suy đoán. drw.c:188 (drw_clr_create) làm thế này:
+#     if (!XftColorAllocName(drp->dpy, drw->visual, drw->cmap, clrname, dest))
+#             die("error, cannot allocate color '%s'", clrname);
+# Chạy thử XftColorAllocName với ba giá trị trên X thật của máy:
+#     "#9881dc"      -> OK    (pixel 0x9881dc)
+#     ""  (rỗng)     -> FAIL
+#     "khong-ton-tai"-> FAIL
+# FAIL -> die() -> dwm chết lúc khởi động, không phải hỏng build mà là không
+// vào được màn hình đăng nhập.
+#
+# KHI NÀO xảy ra: walgen.py lỗi một phần (đọc được ảnh nhưng thiếu vài màu),
+# hoặc bảng màu của ảnh mới không đủ 16 sắc độ (ảnh xám, ảnh gần như đơn sắc
+# khiến thuật toán bỏ bớt). Lúc đó colors.sh vẫn tồn tại — kiểm tra
+# `[ -f colors.sh ]` ở trên KHÔNG bắt được — nhưng $color10 rỗng, và
+# themes/wal.h sinh ra `tag1[] = ""`, dwm build vẫn ĐƯỢC (rỗng là chuỗi hợp
+# lệ với C) rồi chết lúc mở app. Đúng kiểu lỗi im lặng nguy hiểm nhất.
+#
+# Gán fallback thay vì exit: người dùng bấm Super+W muốn đổi ảnh, không muốn
+# mất desktop. Ảnh mới vẫn áp, chỉ mấy màu thiếu thì điền bằng màu tốt nhất
+# đang có. Nếu MẤT CẢ bảng màu thì mới dừng — lúc đó không có gì để dùng.
+_fallback='#8a94a6'
+for _v in background foreground cursor color0 color1 color2 color3 color4 \
+          color5 color6 color7 color8 color9 color10 color11 color12 \
+          color13 color14 color15; do
+    eval "_val=\${$_v:-}"
+    if [ -z "$_val" ]; then
+        eval "$_v=\$_fallback"
+        _miss="$_miss $_v"
+    fi
+done
 if [ -f "$CACHE/accents" ]; then
     . "$CACHE/accents"
     accent="${accent:-$color4}"
 else
     accent="$color4"
 fi
+
+# accent VỪA được gán ở trên mới đúng — trước đây khối kiểm nằm TRƯỚC, nên
+# accent luôn rỗng và bị đè bằng fallback kể cả khi walgen có accent thật.
+# Kiểm `accent` LẦN CUỐI, sau khi mọi nguồn đã gán xong.
+# SC2043: vòng lặp chạy đúng một lần. CỐ Ý — dùng lại đúng logic vòng lớn ở
+# trên thay vì viết lại if, để sau này thêm biến chỉ cần sửa một chỗ. accent
+# phải nạp SAU colors.sh (nó đến từ file $CACHE/accents) nên không gộp vào
+# danh sách lớn được.
+for _v in accent; do
+    eval "_val=\${$_v:-}"
+    if [ -z "$_val" ]; then
+        eval "$_v=\$_fallback"
+        _miss="$_miss $_v"
+    fi
+done
+if [ -n "$_miss" ]; then
+    notify-send -u critical "dwmwal" \
+        "walgen thiếu màu ($_miss) — tạm dùng $_fallback, đổi ảnh khác đi"
+fi
+
+unset _fallback _v _val _miss
 
 # 2b) firefox: xuất colors.css (biến CSS chuẩn) để userChrome.css lấy màu theo
 #     wallpaper (tab active, urlbar...). userChrome.css @import "colors.css" —
@@ -154,7 +239,17 @@ echo "$WALL" > "$SCRIPTS/.wallpaper"
 # ---------------------------------------------------------------------------
 # 4) dwm: tạo theme wal.h + chuyển config.def.h sang dùng nó
 # ---------------------------------------------------------------------------
-cat > "$TSUKI_DIR/themes/wal.h" << EOF
+# GHI QUA FILE TẠM RỒI mv, KHÔNG `cat > themes/wal.h` trực tiếp.
+#
+# LÝ DO: bước 9 (rebuild.sh -> make) đọc chính file này vài giây sau. Nếu
+# script bị giết (SIGINT khi Ctrl-C, mất điện, OOM) GIỮA CHỪNG lệnh ghi, dwm
+# đọc file nửa vời -> không biên dịch được. Đã thấy đúng lỗi đó:
+#     config.h:73: error: 'tag1' undeclared here
+#
+# `mv` trong CÙNG thư mục dùng rename(2) — POSIX bảo đảm thay thế nguyên tử,
+# nên make chỉ thấy file cũ hoặc file mới, không bao giờ thấy file dở.
+# KHÔNG ghi vào /tmp: khác filesystem thì mv phải copy, mất tính nguyên tử.
+cat > "$TSUKI_DIR/themes/wal.h.tmp" << EOF
 static const char black[]       = "$color0";
 static const char gray2[]       = "$color8";
 static const char gray3[]       = "$color7";
@@ -211,6 +306,7 @@ static const char tag3[]        = "$color11";
 static const char tag4[]        = "$color13";
 static const char tag5[]        = "$color7";
 EOF
+mv -f "$TSUKI_DIR/themes/wal.h.tmp" "$TSUKI_DIR/themes/wal.h"
 sed -i 's|#include "themes/[^"]*"|#include "themes/wal.h"|' "$TSUKI_DIR/config.def.h"
 
 # ---------------------------------------------------------------------------

@@ -1611,7 +1611,14 @@ $list     Gỡ bớt rồi chạy lại. Xoá cả dòng [xlibre-...] lẫn file
         set -e
         f=/etc/pacman.d/xlibre.conf
         install -d -m 755 /etc/pacman.d
-        cat > "$f" <<EOF
+        # Tạo file TẠM trong CÙNG thư mục (/etc/pacman.d) để `mv` thành rename
+        # nguyên tử — xem giải thích dài ở arisa_add_repo.
+        # `mktemp` trong /etc/pacman.d chứ không phải /tmp: hai thư mục khác
+        # filesystem (đo được /etc device 66306, /tmp device 48) nên `mv` sang
+        # bên kia sẽ thành copy+unlink — KHÔNG nguyên tử, tức là vô dụng.
+        new=$(mktemp /etc/pacman.d/.xlibre.conf.tsuki-XXXXXX)
+        trap "rm -f -- \"\$new\"" EXIT
+        cat > "$new" <<EOF
 # XLibre — https://xlibre-arch.github.io/
 # Do Tsuki install.sh tạo. Muốn đổi kênh: ./install.sh xlibre <stable|beta|oldstable>
 #
@@ -1623,9 +1630,29 @@ $list     Gỡ bớt rồi chạy lại. Xoá cả dòng [xlibre-...] lẫn file
 SigLevel = Required DatabaseOptional
 Server = https://packages.xlibre.net/arch/$2/\$arch
 EOF
-        chmod 644 "$f"
-        grep -qF "Include = /etc/pacman.d/xlibre.conf" /etc/pacman.conf || \
-            printf "\nInclude = /etc/pacman.d/xlibre.conf\n" >> /etc/pacman.conf
+        # File có thể chưa tồn tại (lần đầu) nên --reference không có gì để
+        # chép; fallback về 644 root:root mà pacman đòi cho file cấu hình.
+        if [[ -e $f ]]; then
+            chmod --reference="$f" -- "$new"
+            chown --reference="$f" -- "$new" 2>/dev/null || true
+        else
+            chmod 644 "$new"
+        fi
+        mv -f -- "$new" "$f"
+
+        # Dòng Include: `grep || printf >>` là TOCTOU — hai lần chạy song song
+        # cùng thấy "chưa có Include" rồi cùng nối thêm, ra hai dòng Include
+        # trùng nhau. Và `>>` vào pacman.conf là ghi không nguyên tử.
+        # Làm hết trong một lần: dựng nội dung mới rồi rename một lần.
+        if ! grep -qF "Include = /etc/pacman.d/xlibre.conf" /etc/pacman.conf; then
+            pc=$(mktemp /etc/pacman.conf.tsuki-XXXXXX)
+            { cat -- /etc/pacman.conf
+              printf "\nInclude = /etc/pacman.d/xlibre.conf\n"
+            } > "$pc"
+            chmod --reference=/etc/pacman.conf -- "$pc"
+            chown --reference=/etc/pacman.conf -- "$pc" 2>/dev/null || true
+            mv -f -- "$pc" /etc/pacman.conf
+        fi
         echo "  + $f"
     ' _ "$repo" "$path"
     ok "đã bật [$repo]"
@@ -1886,9 +1913,25 @@ $list     Gỡ bớt rồi chạy lại."
                 ""
             cat -- "$f"
         } > "$new"
-        # Ghi đè bằng `cat >` chứ không phải `mv`: giữ nguyên inode và quyền
-        # của file gốc, và nếu hỏng giữa dòng thì còn file sao lưu.
-        cat -- "$new" > "$f"
+        # RENAME, KHÔNG `cat > "$f"`.
+        #
+        # `cat > "$f"` là ghi TRUONG (O_TRUNC): bị ngắt giữa chừng — mất điện,
+        # OOM killer, SIGKILL — thì /etc/pacman.conf bị cắt cụt và MẤT HẾT mọi
+        # mục repo. Đo trên bản sao: file 74 byte còn lại 12 byte, 0 mục
+        # [core]/[extra]. Lúc đó mọi lệnh pacman đều chết, kể cả `pacman -Rns`
+        # để sửa lại.
+        #
+        # `mv` trong CÙNG filesystem chính là rename(2), mà man rename(2) nói rõ:
+        # "If newpath already exists, it will be atomically replaced" và "The
+        # whole operation is atomic". Người đọc thấy file cũ hoặc file mới,
+        # không bao giờ thấy nửa file.
+        #
+        # Đổi lại: mất inode cũ. /etc/pacman.conf đo được links=1 nên không có
+        # hardlink nào để gãy — đánh đổi này rẻ hơn nhiều so với hỏng pacman.
+        # Quyền và chủ sở hữu copy từ file gốc TRƯỚC khi rename.
+        chmod --reference="$f" -- "$new"
+        chown --reference="$f" -- "$new" 2>/dev/null || true
+        mv -f -- "$new" "$f"
         echo "  + $f (sao lưu: ${bak##*/})"
     ' _ "$ARISA_SERVER"
     ok "đã bật [arisa]"

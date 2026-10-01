@@ -145,6 +145,13 @@ show_card() {
     CAT=""
     [ "$vol" -gt 100 ] && CAT=" -h string:category:overdrive"
     if [ -n "$CAT" ]; then
+        # $CAT CỐ Ý KHÔNG QUOTE — đây là HÀNG SỐ mà ta tự đặt ở dòng trên
+        # (rỗng hoặc " -h string:category:overdrive"), cần tách thành 3 tham số
+        # riêng cho dunstify. Quote lại thì thành MỘT tham số sai.
+        # An toàn vì không có ký tự glob: đo với CAT=" -h string:category:*"
+        # thì `set -- ... $CAT` vẫn KHÔNG mở rộng thành tên file (glob chỉ
+        # mở rộng khi đọc từ đĩa, không phải khi tách từ biến).
+        # shellcheck disable=SC2086
         dunstify -a "Now Playing" -u normal -t 2000 \
             -h int:value:"$vol" -h string:x-dunst-stack-tag:media $CAT \
             -i "$(if [ -n "$art" ]; then printf '%s' "$art"; else printf '%s' "$(vol_icon "$vol" "$muted")"; fi)" \

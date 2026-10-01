@@ -190,6 +190,17 @@ cmd_check() {
         for c in "${cands[@]}"; do printf '    %s\n' "$(tilde "$c")"; done
     fi
 
+    # cmp/diff cũng TUỲ CHỌN, nhưng hậu quả rõ ràng hơn flock: thiếu thì mỗi
+    # lần chạy lại `dotfiles` coi mọi thư mục là khác và tạo thêm file backup
+    # trong ~/.config. Vẫn dùng `info` chứ không vào `warns`: không chặn được
+    # gì, và `deps` đã cài diffutils (xem PKG_BUILD) nên lệnh này chỉ để biết
+    # là đã có hay chưa, trước khi cần.
+    if command -v cmp >/dev/null 2>&1 && command -v diff >/dev/null 2>&1; then
+        ok "so-sánh dotfile: cmp/diff"
+    else
+        info "so-sánh dotfile: chưa có cmp/diff (gói diffutils) — \`deps\` sẽ cài"
+    fi
+
     # flock là TUỲ CHỌN nên không vào `warns`. Bỏ vào đó thì máy thiếu flock bị
     # báo "còn N điểm cần xử lý" + "chạy ./install.sh deps" — tức coi một thứ
     # không bắt buộc là lỗi, và đúng kiểu báo động giả mà script này hay mắc.
@@ -373,6 +384,11 @@ readonly PKG_BUILD=(
     base-devel make
     # netpanel/config.mk:5 và scripts/Makefile.imgdec:20-22 gọi pkg-config
     pkgconf
+    # same_content dùng cmp/diff để so nội dung dotfile. KHÔNG thuộc `base` cũng
+    # không thuộc `base-devel` (đo: pacman -Si base-devel không liệt kê nó) — nó
+    # là phụ thuộc của autoconf/devtools/mkinitcpio/steam. Không có nó thì mỗi
+    # lần chạy lại `dotfiles` coi mọi thư mục là khác và tạo backup mới.
+    diffutils
     # git chỉ để clone repo rồi chạy install.sh; Makefile nào cũng không gọi git
     git
 
@@ -902,13 +918,51 @@ install_item() {
 # backup + ghi đè dù nội dung y hệt. `diff -rq` xử lý đúng cả hai.
 # `-x` để bỏ qua file sinh tự động, nếu không `cmd_dotfiles` không bao giờ
 # idempotent với ~/.config/fish.
+#
+# VÌ SAO PHẢI CẢNH BÁO KHI THIẾU cmp/diff. diffutils KHÔNG thuộc `base` cũng
+# không thuộc `base-devel` — đo: `pacman -Si base-devel` không liệt kê nó; nó là
+# phụ thuộc của autoconf/devtools/mkinitcpio/steam. Máy Arch thường đã có vì
+# hay cài steam hay devtools, nhưng máy tối giản thì không.
+#
+# Hậu quả đo trên bản sao, PATH cắt bỏ cmp. Với THƯ MỤC (dmenu/):
+#     lan 1:  ! dmenu khác nội dung -> backup: dmenu.tsuki-bak-
+#     lan 2:  ! dmenu khác nội dung -> backup: dmenu.tsuki-bak--1
+#     lan 3:  ! dmenu khác nội dung -> backup: dmenu.tsuki-bak--2
+# Tức mỗi lần chạy lại `./install.sh dotfiles`, thư mục GIỐNG HỆT vẫn bị coi
+# là khác và tạo một backup mới; các backup dồn lên trong ~/.config. Không mất
+# dữ liệu — file mới vẫn đúng — nhưng dấu vết sai và thư mục phình dần.
+#
+# CỐ Ý trả về 1 (khác) khi thiếu lệnh, chứ không trả 0: trả 0 (giống) thì
+# install_dotfile bỏ qua file người dùng đã sửa — mất thay đổi thật. Trả 1 thì
+# hành vi chỉ KÉM (thừa backup) chứ không mất gì.
+#
+# Về kỹ thuật, hành vi cũ khi thiếu cmp ĐÃ là "coi là khác" rồi: man cmp nói
+# rõ "0 = không khác, 1 = có khác, 2 = lỗi", mà thiếu lệnh thì bash trả 127 —
+# cả ba đều khác 0. Nên không có mất dữ liệu. Cái thiếu là CẢNH BÁO: script
+# cứ im lặng tạo backup mới mỗi lần chạy, người dùng không hiểu vì sao. Vì vậy
+# phần sửa là _require_diffutils, không phải đổi mã trả về.
+#
+# `command -v` hỏi MỘT lần cho cả lượt chạy, không hỏi lại mỗi file — nếu
+# không, mỗi dotfile sẽ in một cặp dòng cảnh báo giống hệt nhau.
+_TSUKI_NO_DIFFWARNED=0
+_require_diffutils() {
+    command -v cmp >/dev/null 2>&1 && return 0
+    if (( ! _TSUKI_NO_DIFFWARNED )); then
+        _TSUKI_NO_DIFFWARNED=1
+        warn "thiếu cmp/diff (gói diffutils) — coi mọi dotfile là khác, mỗi lần chạy lại sẽ tạo thêm file backup"
+        warn "cài bằng: sudo pacman -S diffutils"
+    fi
+    return 1
+}
 same_content() {
     if [[ -d $1 && -d $2 ]]; then
+        _require_diffutils || return 1
         local -a excl=()
         local f
         for f in "${GENERATED_FILES[@]}"; do excl+=(-x "$f"); done
         diff -rq "${excl[@]}" -- "$1" "$2" >/dev/null 2>&1
     else
+        _require_diffutils || return 1
         cmp -s -- "$1" "$2"
     fi
 }

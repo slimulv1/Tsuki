@@ -1,6 +1,6 @@
 # Gói cài đặt
 
-`./install.sh` cài **66 gói** (không tính trùng lặp), khoảng **2.9 GiB** đã cài
+`./install.sh` cài **67 gói** (không tính trùng lặp), khoảng **2.9 GiB** đã cài
 trên máy. Danh sách này rút từ sáu mảng gói trong `install.sh` — mỗi mảng là
 một nhóm, và nhóm quyết định **lúc nào** được cài.
 
@@ -8,7 +8,7 @@ Muốn xem nhanh: `./install.sh -h`. Muốn biết cài gì: trang này.
 
 | Nhóm trong `install.sh` | Cài ở bước | Số gói | Dung lượng |
 |---|---|---|---|
-| `PKG_BUILD` | `deps` | 17 | 64 MiB |
+| `PKG_BUILD` | `deps` | 18 | 66 MiB |
 | `PKG_SESSION` | `deps` | 15 | 362 MiB |
 | `PKG_CONFIG` | `deps` | 9 | 462 MiB |
 | `PKG_KEYBINDS` | `deps` (cần kho arisa) | 23 | 1.8 GiB |
@@ -50,7 +50,7 @@ Cộng `steam` (20 MiB, không gắn phím nào) thì **1.30 GiB**. Cách bỏ: 
 
 ---
 
-## 1. `PKG_BUILD` — toolchain và thư viện để biên dịch (17 gói, 64 MiB)
+## 1. `PKG_BUILD` — toolchain và thư viện để biên dịch (18 gói, 66 MiB)
 
 Không phải app, mà là thứ `make` cần để build dwm/st/slock/dmenu/slstatus.
 
@@ -59,6 +59,7 @@ Không phải app, mà là thứ `make` cần để build dwm/st/slock/dmenu/sls
 | `base-devel` | cc, ld, và các gói con |
 | `make` | chạy Makefile |
 | `pkgconf` | `pkg-config`, dùng bởi `netpanel/config.mk` và `Makefile.imgdec` |
+| `diffutils` | `cmp`/`diff`: `install.sh` so nội dung dotfile trước khi ghi đè. **Không thuộc `base` cũng không thuộc `base-devel`** — chỉ là phụ thuộc của `autoconf`/`devtools`/`mkinitcpio`/`steam`, nên máy tối giản sẽ thiếu |
 | `git` | chỉ để clone repo rồi chạy `install.sh`; Makefile nào cũng không gọi git |
 | `libx11` `libxft` `libxinerama` `libxrender` | dwm + dmenu: `-lfontconfig -lXft -lXinerama -lXrender -lX11` |
 | `fontconfig` `freetype2` `harfbuzz` | drw tự dựng: `-lfontconfig` kéo theo hai gói sau |

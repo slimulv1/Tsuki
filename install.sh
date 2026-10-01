@@ -1340,7 +1340,13 @@ cmd_themes() {
             info "$dir đã có — bỏ qua clone"
             return 0
         fi
-        rm -rf -- "$src/$dir"
+        # "${src:?}" chứ không "$src": `local` đảm bảo src LUÔN được gán, và
+        # $dir ở cả hai chỗ gọi đều là literal (Miami26, kora) — nên trên thực tế
+        # "$src/$dir" không bao giờ thành "/" và cảnh báo SC2115 là lý thuyết.
+        # Đây là làm chắc cho `rm -rf`, không phải sửa lỗi đang xảy ra: nếu sau
+        # này ai đó gọp `local src` (không gán) thì ":?" dừng cả lệnh thay vì
+        # xoá nhầm. rm -rf là lệnh hậu quả nặng nhất trong file, ở đây rẻ.
+        rm -rf -- "${src:?}/$dir"
         git clone -q --depth 1 "$url" "$src/$dir" \
             || { warn "clone thất bại: $url"; return 1; }
     }

@@ -63,7 +63,7 @@ fi
 
 # --- C2: chạy thật arisa_add_repo trên thư mục tạm ---------------------------
 # Mọi gì ở đây là CODE THẬT, chỉ đổi /etc -> $T/etc.
-mkdir -p "$T/etc"
+mkdir -p "$T/etc" "$T/lk"
 printf '[core]\nHoldPkg = pacman glibc\n\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n' \
     > "$T/etc/pacman.conf"
 chmod 644 "$T/etc/pacman.conf"
@@ -99,7 +99,9 @@ _orig=$(cat "$T/etc/pacman.conf")
     # mà nguyên tắc trong test/README.md cấm.
     echo 'arisa_add_repo'
 } | sed -e "s#/etc/pacman.conf#$T/etc/pacman.conf#g" \
-      -e "s#/etc/pacman.d#$T/etc/pacman.d#g" > "$T/arisa.sh"
+      -e "s#/etc/pacman.d#$T/etc/pacman.d#g" \
+      -e "s#/run/lock/tsuki-pacman-conf.lock#$T/lk/tsuki-pacman-conf.lock#g" \
+      > "$T/arisa.sh"
 
 bash "$T/arisa.sh" >"$T/out" 2>"$T/err"
 rc=$?
@@ -147,6 +149,73 @@ if [ "$n" -le 1 ]; then
     ok "C7 chạy lần hai không nhân bản mục [arisa] (số mục: $n)"
 else
     bad "C7 nhân bản" "$n mục [arisa] sau 2 lần chạy"
+fi
+
+# --- C8: phải có khoá quanh phần sửa pacman.conf -----------------------------
+# pacman.conf là read-modify-write. Hai lần chạy song song mất cập nhật của
+# nhau — đo bằng 10 vòng tranh chấp thì 3 vòng mất: mất dòng Include của
+# xlibre thì XLibre im lặng ngừng chạy.
+for f in arisa_add_repo xlibre_add_repo; do
+    body=$(sed -n "/^${f}() {/,/^}/p" "$R/install.sh")
+    if printf '%s\n' "$body" | grep -qF 'flock -w 60 9' \
+       && printf '%s\n' "$body" | grep -qF 'tsuki-pacman-conf.lock'; then
+        ok "C8 $f khoá quanh phần sửa pacman.conf"
+    else
+        bad "C8 $f" "không thấy flock quanh phần sửa pacman.conf"
+    fi
+done
+# Khoá phải HẸP (trong root_sh), không khoá cả lượt chạy — nếu khoá cả lượt
+# chạy thì mọi tiến trình con đều kế thừa fd và giữ khoá tới lâu sau khi
+# install.sh thoát.
+_ar=$(arisa_fn)
+if printf '%s\n' "$_ar" | awk '/^    root_sh -c/,/^    }\x27/' | grep -q 'flock -w 60 9'; then
+    ok "C8b khoá nằm TRONG root_sh (hẹp), không phải khoá cả lượt chạy"
+else
+    bad "C8b" "khoá không nằm trong khối root_sh — có thể đang khoá cả lượt chạy"
+fi
+
+# --- C9: khoá phải NỐI HÀNG ĐỢI, không phải từ chối -------------------------
+# Bản đầu của ca này giả định hàm phải TỪ CHỐI khi khoá bị giữ — sai. Code
+# dùng `flock -w 60`, tức CHỜ tối đa 60 giây rồi mới làm tiếp. Đó mới là hành
+# vi đúng: hai lần cài cùng lúc thì nối hàng đợi, không phải một lần bỏ cuộc.
+# Nên ca này kiểm đúng thứ đó: khi khoá còn bị giữ thì CHƯA ghi; sau khi thả
+# khoá thì ghi.
+mkdir -p "$T/lk"
+: > "$T/lk/tsuki-pacman-conf.lock"
+# Phải TRẢ LẠI config sạch trước C9. Tới đây C2..C7 đã chạy nên [arisa] đã có
+# sẵn, và hàm thoát sớm ở nhánh "đã bật sẵn, không làm gì" — TRƯỚC khi tới chỗ
+# khoá. Bản đầu quên bước này thì C9b báo "thoát ngay" và C9c báo "bị bỏ rơi",
+# trong khi sự thật là hàm làm đúng việc (không cần sửa gì).
+printf '[core]\nHoldPkg = pacman glibc\n\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n' \
+    > "$T/etc/pacman.conf"
+chmod 644 "$T/etc/pacman.conf"
+flock "$T/lk/tsuki-pacman-conf.lock" -c 'sleep 6' &
+_holder=$!
+sleep 0.6
+sed 's#/run/lock/tsuki-pacman-conf.lock#'"$T"'/lk/tsuki-pacman-conf.lock#g' \
+    "$T/arisa.sh" > "$T/arisa_locked.sh"
+_before=$(md5sum "$T/etc/pacman.conf" | cut -d' ' -f1)
+bash "$T/arisa_locked.sh" >"$T/lo" 2>"$T/le" &
+_worker=$!
+sleep 2.5
+_mid=$(md5sum "$T/etc/pacman.conf" | cut -d' ' -f1)
+if [ "$_before" = "$_mid" ]; then
+    ok "C9 khoá còn bị giữ: chưa ghi gì cả (đang chờ đúng cách)"
+else
+    bad "C9 ghi đè trong lúc khoá còn bị giữ" "khoá không chặn được"
+fi
+if kill -0 "$_worker" 2>/dev/null; then
+    ok "C9b tiến trình đang chờ khoá, chưa bỏ cuộc (đúng tinh thần -w)"
+else
+    bad "C9b" "tiến trình thoát ngay thay vì chờ khoá"
+fi
+wait "$_worker" 2>/dev/null
+kill "$_holder" 2>/dev/null; wait "$_holder" 2>/dev/null
+_after=$(md5sum "$T/etc/pacman.conf" | cut -d' ' -f1)
+if [ "$_before" != "$_after" ]; then
+    ok "C9c sau khi khoá được thả thì ghi, không mất gì"
+else
+    bad "C9c" "sau khi thả khoá vẫn không ghi — hàm bị bỏ rơi"
 fi
 
 printf '\n  %d PASS, %d FAIL\n' "$P" "$F"

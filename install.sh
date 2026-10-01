@@ -1671,6 +1671,11 @@ $list     Gỡ bớt rồi chạy lại. Xoá cả dòng [xlibre-...] lẫn file
     # positional parameter.
     root_sh -c '
         set -e
+        # Cùng lý do và cùng cách khoá với arisa_add_repo: đọc thêm
+        # Include vào /etc/pacman.conf là read-modify-write, chạy song song sẽ
+        # mất cập nhật. Xem giải thích dài ở đó.
+        exec 9>/run/lock/tsuki-pacman-conf.lock
+        flock -w 60 9 || { echo "  ! tiến trình khác đang sửa pacman.conf — thử lại sau" >&2; exit 1; }
         f=/etc/pacman.d/xlibre.conf
         install -d -m 755 /etc/pacman.d
         # Tạo file TẠM trong CÙNG thư mục (/etc/pacman.d) để `mv` thành rename
@@ -1951,6 +1956,22 @@ $list     Gỡ bớt rồi chạy lại."
     # Sửa /etc/pacman.conf của hệ thống nên sao lưu trước.
     root_sh -c '
         set -e
+        # KHOÁ HẸP quanh đúng phần đọc-ghi pacman.conf.
+        #
+        # pacman.conf là read-modify-write: đọc cả file, thêm phần của mình, ghi
+        # lại. Hai lần chạy song song (hai ./install.sh, hoặc một install.sh và
+        # người dùng tự tay sửa) sẽ MẤT CẬP NHẬT của nhau. Đo bằng 10 vòng
+        # tranh chấp: 3 vòng mất — 1 vòng mất dòng Include của xlibre, 2 vòng mất
+        # khối [arisa]. Mất dòng Include thì /etc/pacman.d/xlibre.conf vẫn còn
+        # trên đĩa nhưng pacman không đọc tới: XLibre IM LẶNG ngừng chạy, không
+        # có báo lỗi nào.
+        #
+        # Khoá HẸP, không khoá cả lượt chạy: nếu giữ suốt, mọi tiến trình con
+        # (pacman, make, git, script maintainer) đều kế thừa fd và có thể giữ
+        # khoá tới lâu sau khi install.sh đã thoát. Chỉ khoá đúng đoạn sửa file
+        # thì thời gian giữ tính bằng mili-giây.
+        exec 9>/run/lock/tsuki-pacman-conf.lock
+        flock -w 60 9 || { echo "  ! tiến trình khác đang sửa pacman.conf — thử lại sau" >&2; exit 1; }
         f=/etc/pacman.conf
         # Cùng lý do như backup_path ở ngoài: date chỉ chính xác tới giây, và
         # $bak đã là thư mục thì `cp -a file $bak` sẽ chép VÀO trong nó.

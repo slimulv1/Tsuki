@@ -1440,14 +1440,69 @@ EOF
 # ---------------------------------------------------------------- session ---
 # .xinitrc — điểm vào khi chạy `startx` từ TTY.
 # startx KHÔNG nạp profile login shell, nên PATH phải tự dựng.
+# Bảo vệ file đích mà người dùng CỐ TÌNH nối vào kho dotfiles của họ.
+#
+# VÌ SAO CẦN. `cat > "$f"` và `printf >> "$f"` đi QUA symlink: chúng mở đường
+# dẫn và ghi vào file ĐÍCH, không phải file trỏ tới. Đo trên bản sao:
+#   ~/.xinitrc -> ~/dot/xinitrc
+#   cp -a ~/.xinitrc ~/.xinitrc.tsuki-bak-<giây>   -> backup là SYMLINK trỏ
+#                                                    về ~/dot/xinitrc
+#   cat > ~/.xinitrc <<EOF ... EOF                  -> ghi đè ~/dot/xinitrc
+#   -> nội dung gốc mất, mà backup trỏ tới CHÍNH file vừa bị ghi đè. Khôi
+#   phục cũng vô ích. Người dùng mất cấu hình và mất đường khôi phục cùng lúc.
+#
+# install_dotfile không dính: nó dùng `mv` (thay chính symlink) chứ không phải
+# redirection. `mv -f item dst` khi dst là symlink thì THAY symlink, không đi
+# qua nó — nên file trong kho dotfiles của người dùng được giữ nguyên. Đó là
+# lý do phải sửa riêng .xinitrc và .Xresources thay vì sửa ở install_dotfile.
+#
+# `cp -aL` mới giữ NỘI DUNG: -a kéo theo -P (không giải symlink), còn -L thì
+# giải. Đo: cp -a cho backup là symlink trỏ tới file đã ghi đè; cp -aL cho
+# file thật chứa nội dung gốc.
+#
+# Trả 0 nếu được phép ghi. Nếu là symlink thì hỏi, và "không" thì KHÔNG ghi.
+# Không tự ý sửa kho dotfiles của người dùng — việc đó là của họ.
+symlink_guard() {
+    local f=$1 what=${2:-file}
+    [[ -L $f ]] || return 0
+    local tgt
+    if ! tgt=$(readlink -f -- "$f" 2>/dev/null) || [[ -z $tgt ]]; then
+        tgt=$(readlink -- "$f" 2>/dev/null) || tgt='?'
+    fi
+    warn "$what là symlink -> $(tilde "$tgt")"
+    printf '    %s\n' "ghi vào đây nghĩa là SỬA FILE TRONG KHO DOTFILES CỦA BẠN, không phải ~/$what."
+    if ! confirm "vẫn ghi đè file đích?" n; then
+        info "bỏ qua $what — giữ nguyên symlink"
+        return 1
+    fi
+    # Sao lưu NỘI DUNG thật, không phải đường dẫn. Không có bước này thì lần
+    # chạy sau lại tạo backup mới cũng chỉ trỏ tới file đã bị sửa.
+    local bak
+    bak=$(backup_path "$f")
+    if cp -aL -- "$f" "$bak" 2>/dev/null; then
+        warn "đã lưu nội dung gốc (theo symlink): ${bak##*/}"
+    else
+        warn "KHÔNG sao lưu được nội dung gốc của $what — cân nhắc dừng lại"
+        if ! confirm "vẫn ghi?" n; then return 1; fi
+    fi
+    return 0
+}
+
 write_xinitrc() {
     step "ghi ~/.xinitrc"
     # Backup nếu đã có .xinitrc: `cat >` xoá trắng file cũ mà không để lại dấu
     # vết, và người dùng rất dễ đã có .xinitrc riêng từ trước.
+    # Symlink: hỏi trước, sao lưu nội dung thật. Xem symlink_guard.
+    if ! symlink_guard "$TSUKI_HOME/.xinitrc" ".xinitrc"; then
+        return 0
+    fi
     if [[ -f $TSUKI_HOME/.xinitrc ]] && ! grep -q 'Tsuki install.sh' "$TSUKI_HOME/.xinitrc"; then
         local bak
         bak=$(backup_path "$TSUKI_HOME/.xinitrc")
-        cp -a -- "$TSUKI_HOME/.xinitrc" "$bak"
+        # -L: nếu vẫn là symlink (người dùng trả lời y), sao lưu nội dung
+        # thật. cp -a chỉ chép CON TRỎ, tức backup trỏ tới chính file sắp bị
+        # ghi đè — mất nội dung lẫn mất đường khôi phục.
+        cp -aL -- "$TSUKI_HOME/.xinitrc" "$bak"
         warn ".xinitrc đã tồn tại -> backup: ${bak##*/}"
     fi
     cat >"$TSUKI_HOME/.xinitrc" <<EOF
@@ -1479,6 +1534,14 @@ EOF
 install_xresources() {
     step "cài ~/.Xresources"
     local f="$TSUKI_HOME/.Xresources"
+
+    # Symlink: `printf >> "$f"` ở dưới sẽ nối thêm vào file trong kho dotfiles
+    # của người dùng. Ở đây còn tệ hơn .xinitrc vì nhánh "đã có nhưng chưa có
+    # Xcursor" KHÔNG gọi backup_path — nội dung cũ bị nối thêm vào mà không để
+    # lại dấu vết nào. Xem symlink_guard.
+    if ! symlink_guard "$f" ".Xresources"; then
+        return 0
+    fi
 
     if [[ -f $f ]] && grep -q '^[[:space:]]*Xcursor:' "$f"; then
         ok "đã có Xcursor trong .Xresources — giữ nguyên"

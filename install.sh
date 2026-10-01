@@ -9,6 +9,7 @@
 #   ./install.sh paru         # cài paru để dùng AUR                           [root]
 #   ./install.sh pty          # bộ gõ Lotus (tiếng Việt)                       [root][paru]
 #   ./install.sh archive      # công cụ nén/giải nén: 7z, zip, unrar          [root]
+#   ./install.sh userdirs     # tạo + khai báo ~/Documents, ~/Videos, ...
 #   ./install.sh build        # chỉ build + cài binary vào /usr/local/bin      [root]
 #   ./install.sh dotfiles     # chỉ copy ~/.config
 #   ./install.sh firefox      # chỉ nạp giao diện vào profile Firefox
@@ -453,6 +454,21 @@ readonly PKG_SESSION=(
     # dwm/.config nên không thuộc PKG_CONFIG; nhưng nó là app dwm spawn
     # thẳng, cùng kiểu với feh ở trên, nên để ở đây.
     thunar
+    # Ba thứ mục cho Thunar làm việc như file manager của một hệ thống thật:
+    #
+    #   thunar-archive-plugin — thêm mục "Extract Here" vào chuột phải. BẮT
+    #     BUỘC phải có một APP GUI, KHÔNG phải 7z. Plugin gọi app qua wrapper
+    #     `.tap`; ở repo chính thức xfce-mirror/thunar-archive-plugin chỉ có
+    #     4 wrapper: ark, engrampa, file-roller, peazip — KHÔNG có `7z.tap`.
+    #     Cài thêm `7z` (PKG_ARCHIVE) KHÔNG tạo được mục này.
+    #     file-roller là nhẹ nhất: gtk4 + libadwaita + json-glib đã có sẵn,
+    #     chỉ thiếu libnautilus-extension. ark kéo 15 gói KDE, peazip 26.6 MiB
+    #     Qt6, engrampa 13.3 MiB — đều nặng gấp so với dwm.
+    #   gvfs — thùng rác, đĩa USB, máy tép qua MTP/SMB. ArchWiki (Thunar):
+    #     "If installed, Thunar will show the trash can, removable media, and
+    #     remote filesystems". Không có gvfs thì sidebar không có mục Thùng rác.
+    #   gvfs-mtp — điện thoại qua MTP. tách riêng vì kéo thêm phụ thuộc.
+    thunar-archive-plugin file-roller gvfs
     # Thumbnail cho Thunar. Tumbler là daemon theo Thumbnailer Specification;
     # Thunar hỏi nó qua D-Bus rồi mới vẽ ảnh nhỏ. KHÔNG có tumbler thì
     # Thunar mở lên toàn icon chữ cái — đúng triệu chứng "không có thumbnail".
@@ -495,24 +511,31 @@ readonly PKG_CONFIG=(
     xsettingsd   # .config/xsettingsd/
 )
 
-# --- 3b. cong cu nen / giai nen ---
-# Tach khoi PKG_CONFIG vi day la cong cu DUNG TAY, khong phai app co dotfile
-# trong ~/.config — nhet vao PKG_CONFIG se lam sai nghia nhom do.
+# --- 3b. công cụ nén / giải nén ---
+# Tách khỏi PKG_CONFIG vì đây là công cụ DÙNG TAY, không phải app có dotfile
+# trong ~/.config — nhét vào PKG_CONFIG sẽ làm sai nghĩa nhóm đó.
 #
-# Chon gi, do tren may nay (CachyOS):
-#   7z    — da dinh dang: 7z, zip, tar.*, gz, bz2, xz, zst, iso, wim.
-#           KHONG tao/nen duoc RAR: ma giai nen RAR "khong hoan toan tu do"
-#           (DOC/readme.txt cua 7-Zip: DISABLE_RAR_COMPRESS=1 loai dung phan
-#           do), nen Arch tach plugin ra goi rieng. Goi `p7zip-rar` KHONG co
-#           trong kho CachyOS (do: pacman -Si p7zip-rar -> not found).
-#   unrar — doc RAR that. Day la CACH DUY NHAT giai nen .rar.
-#   zip   — 7z tao duoc .zip, nhung `zip` tuong thich voi script khac va nhanh
-#           hon nhieu voi .zip don gian.
+# Chọn gì, đo trên máy này (CachyOS):
+#   7z    — đa định dạng: 7z, zip, tar.*, gz, bz2, xz, zst, iso, wim.
+#           KHÔNG tạo/nén được RAR: mã giải nén RAR "không hoàn toàn tự do"
+#           (DOC/readme.txt của 7-Zip: DISABLE_RAR_COMPRESS=1 loại đúng phần
+#           đó), nên Arch tách plugin ra gói riêng. Gói `p7zip-rar` KHÔNG có
+#           trong kho CachyOS (đo: pacman -Si p7zip-rar -> not found).
+#   unrar — đọc RAR thật. Đây là CÁCH DUY NHẤT giải nén .rar.
+#   zip   — 7z tạo được .zip, nhưng `zip` tương thích với script khác và nhanh
+#           hơn nhiều với .zip đơn giản.
 #
-# KHONG them atool/patool: chung chi la wrapper goi lenh con, cong them mot
-# tang truong tuong trong khi 7z da lam het. Cung khong them GUI (file-roller,
-# engrampa, ark, xarchiver) — chung keo theo ca GNOME/KDE/MATE, thua cho dwm
-# khong co DE.
+# KHÔNG thêm atool/patool: chúng chỉ là wrapper gọi lệnh con, cộng thêm một
+# tầng trừu tượng trong khi 7z đã làm hết.
+#
+# VỀ `file-roller` trong PKG_SESSION: bản đầu tôi ghi "cũng không thêm GUI
+# (file-roller, engrampa, ark, xarchiver) — chúng kéo theo cả GNOME/KDE/MATE,
+# thừa cho dwm". SAI, và sai theo cách tốn kém nhất. Thunar-archive-plugin
+# KHÔNG gọi 7z: nó dò wrapper `.tap` theo tên app (tap-backend.c:349-378), mà
+# repo chính thức chỉ có 4 wrapper cho ark, engrampa, file-roller, peazip —
+# không có 7z.tap. Nên muốn mục "Giải nén" trong chuột phải thì BẮT BUỘC phải
+# có một app trong đúng 4 app đó. file-roller được chọn vì nhẹ nhất (4.3 MiB,
+# gtk4 + libadwaita + json-glib đã có sẵn trên máy này).
 # bo qua SC2034 o day: shellcheck khong thay mang doc qua nameref
 # (xem ghi chuc dau muc "packages")
 # shellcheck disable=SC2034
@@ -768,11 +791,65 @@ check_disk_space() {
 }
 
 cmd_archive() {
-    # Goi rieng, KHONG gop vao cmd_deps: 3 goi ~5 MiB cho viec dung tay thi khong
-    # nen la bat buoc khi lam `./install.sh all`. Nguoi can thi goi
+    # Gọi riêng, KHÔNG gộp vào cmd_deps: 3 gói ~4.6 MiB cho việc dùng tay thì
+    # không nên là bắt buộc khi làm `./install.sh all`. Người cần thì gọi
     # `./install.sh archive`.
     detect_sudo
     install_pkgs PKG_ARCHIVE "archive"
+}
+
+cmd_userdirs() {
+    step "thư mục chuẩn (XDG user dirs)"
+    # `xdg-user-dirs-update` sinh 9 thư mục VÀ ghi ~/.config/user-dirs.dirs:
+    # Desktop Documents Downloads Music Pictures Projects Public Templates
+    # Videos. `Projects` có sẵn trong bản Arch này nên không cần tự đặt.
+    #
+    # VÌ SAO CẦN: không có ~/.config/user-dirs.dirs thì `xdg-user-dir` trả về
+    # $HOME cho mọi mục. Đo trên máy này trước khi sửa:
+    #     xdg-user-dir DOCUMENTS -> /home/frost-auslese
+    #     xdg-user-dir VIDEOS    -> /home/frost-auslese
+    # tức cả tám mục trỏ về cùng một chỗ, và Thunar sidebar không có mục nào.
+    #
+    # Đo trên nhà giả: tạo đủ 9 mục, ghi đúng file, và thư mục đã tồn tại
+    # không bị đụng — đặt sẵn Pictures/hinh.png rồi chạy lại, file còn nguyên.
+    #
+    # KHÔNG dùng `--force`: nó ghi đè lựa chọn trong ~/.config/user-dirs.conf
+    # của người dùng (người có thể đã đổi tên thư mục). Không có --force thì
+    # lần chạy sau giữ nguyên mọi thay đổi cục bộ.
+    if ! command -v xdg-user-dirs-update >/dev/null 2>&1; then
+        # Là nhóm xdg-user-dirs. Là PATH của riêng install.sh, không phải của
+        # cả hệ thống — cài xong thì xdg-user-dirs.conf lấy /usr/bin trước.
+        warn "không có xdg-user-dirs-update (gói xdg-user-dirs) — bỏ qua thư mục chuẩn"
+        return 0
+    fi
+
+    local before=()
+    local d
+    for d in Desktop Documents Downloads Music Pictures Projects Public \
+             Templates Videos; do
+        [[ -d $TSUKI_HOME/$d ]] && before+=("$d")
+    done
+    if ((${#before[@]} == 9)); then
+        ok "thư mục chuẩn: đủ cả 9"
+    else
+        info "thiếu ${#before[@]}/9: tạo phần còn lại"
+    fi
+
+    if xdg-user-dirs-update; then
+        local n=0
+        for d in Desktop Documents Downloads Music Pictures Projects Public \
+                 Templates Videos; do
+            [[ -d $TSUKI_HOME/$d ]] && n=$((n + 1))
+        done
+        if (( n == 9 )); then
+            ok "thư mục chuẩn: $n/9, đã khai báo trong ~/.config/user-dirs.dirs"
+        else
+            # Không chết cứng: người dùng có thể cố ý bỏ bớt thư mục.
+            warn "chỉ tạo được $n/9 thư mục — xem ~/.config/user-dirs.dirs"
+        fi
+    else
+        warn "xdg-user-dirs-update chạy không thành công — thư mục chuẩn chưa khai báo"
+    fi
 }
 
 cmd_deps() {
@@ -2643,6 +2720,7 @@ main() {
         paru)      cmd_paru ;;
         pty)       cmd_pty ;;
         archive)   cmd_archive ;;
+        userdirs)  cmd_userdirs ;;
         uninstall) cmd_uninstall ;;
         all)
             # Báo trước phần thiếu rồi mới làm — `all` chạy 8 bước,
@@ -2657,8 +2735,12 @@ main() {
             cmd_pty
             cmd_build
             cmd_dotfiles
-            # KHONG goi cmd_archive trong `all`: 3 goi ~5 MiB cho viec dung tay.
-            # Nguoi can thi `./install.sh archive`. Da hoi va chon nhu vay.
+    # Tao + khai bao thu muc chuan. Phai SAU dotfiles: buoc nay tao
+    # ~/Documents v.v. — neu chay truoc, install_dotfile co the stage
+    # vao dung thu muc vua sinh ra roi don di.
+    cmd_userdirs
+            # KHÔNG gọi cmd_archive trong `all`: 3 gói ~4.6 MiB cho việc dùng
+            # tay. Người cần thì `./install.sh archive`. Đã hỏi và chọn vậy.
             cmd_themes
             cmd_firefox
             cmd_session

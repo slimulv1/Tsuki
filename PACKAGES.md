@@ -1,15 +1,15 @@
 # Gói cài đặt
 
-`./install.sh` cài **67 gói** trong `all` + 3 gói nếu gọi `archive`, khoảng **2.9 GiB** đã cài
-trên máy. Danh sách này rút từ sáu mảng gói trong `install.sh` — mỗi mảng là
-một nhóm, và nhóm quyết định **lúc nào** được cài.
+`./install.sh` cài **73 gói** (không tính trùng lặp, toàn bộ bảy mảng), khoảng
+**2.9 GiB** đã cài trên máy. Danh sách này rút từ bảy mảng gói trong
+`install.sh` — mỗi mảng là một nhóm, và nhóm quyết định **lúc nào** được cài.
 
 Muốn xem nhanh: `./install.sh -h`. Muốn biết cài gì: trang này.
 
 | Nhóm trong `install.sh` | Cài ở bước | Số gói | Dung lượng |
 |---|---|---|---|
 | `PKG_BUILD` | `deps` | 18 | 66 MiB |
-| `PKG_SESSION` | `deps` | 15 | 362 MiB |
+| `PKG_SESSION` | `deps` | 18 | 372 MiB |
 | `PKG_CONFIG` | `deps` | 9 | 462 MiB |
 | `PKG_KEYBINDS` | `deps` (cần kho arisa) | 23 | 1.8 GiB |
 | `PKG_AUR` | `deps` | 1 | 292 MiB |
@@ -67,7 +67,7 @@ Không phải app, mà là thứ `make` cần để build dwm/st/slock/dmenu/sls
 | `libxcrypt` `libxext` `libxrandr` | slock (`-lcrypt -lXext -lXrandr`) |
 | `libjpeg-turbo` `libwebp` | `Makefile.imgdec`: `pkg-config libturbojpeg libwebp` |
 
-## 2. `PKG_SESSION` — X server và nền session (15 gói, 362 MiB)
+## 2. `PKG_SESSION` — X server và nền session (18 gói, 372 MiB)
 
 Phần lớn là app mà `run.sh` gọi thẳng, hoặc thứ mà `.Xresources` cần.
 
@@ -83,6 +83,8 @@ Phần lớn là app mà `run.sh` gọi thẳng, hoặc thứ mà `.Xresources` 
 | `polkit-gnome` | hộp thoại hỏi mật khẩu cho `pkexec` — không có nó thì prompt rơi vào terminal |
 | `dash` | mọi script trong repo shebang `#!/bin/dash`, `config.h` cũng spawn bằng `dash` |
 | `thunar` | `Super+e` — quản lý file |
+| `thunar-archive-plugin` `file-roller` | chuột phải có mục **Giải nén**. Bắt buộc phải có *một app GUI* — plugin không gọi `7z`, nó dò wrapper `.tap` theo tên app mà repo chính thức chỉ có cho `ark`/`engrampa`/`file-roller`/`peazip` |
+| `gvfs` | thùng rác, đĩa USB, máy tép MTP/SMB. Không có nó thì sidebar Thunar không hiện mục Thùng rác |
 | `tumbler` | daemon thumbnail. Không có thì Thunar toàn icon chữ cái |
 | `ffmpegthumbnailer` | thumbnail video (mp4/mkv/webm/avi/mov/m4v) |
 | `poppler-glib` | trang đầu PDF. Không có thì PDF hiện icon trắng |

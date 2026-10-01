@@ -27,7 +27,7 @@ groups() {
 # KHÔNG đặt tên biến là GROUPS: bash có sẵn mảng readonly GROUPS chứa group id
 # của user, gán đè vào đó thất bại IM LẶNG và $GROUPS vẫn ra "1000". Đã mắc:
 # P1/P3 báo 0 gói, P2 báo thiếu "1000".
-PKG_ARRAYS="PKG_BUILD PKG_SESSION PKG_CONFIG PKG_KEYBINDS PKG_AUR PKG_PTY"
+PKG_ARRAYS="PKG_BUILD PKG_SESSION PKG_CONFIG PKG_KEYBINDS PKG_AUR PKG_PTY PKG_ARCHIVE"
 
 # --- P1: mọi gói trong mảng đều phải xuất hiện trong tài liệu -----------------
 miss=""

@@ -84,7 +84,7 @@ Phần lớn là app mà `run.sh` gọi thẳng, hoặc thứ mà `.Xresources` 
 | `dash` | mọi script trong repo shebang `#!/bin/dash`, `config.h` cũng spawn bằng `dash` |
 | `thunar` | `Super+e` — quản lý file |
 | `thunar-archive-plugin` `file-roller` | chuột phải có mục **Giải nén**. Bắt buộc phải có *một app GUI* — plugin không gọi `7z`, nó dò wrapper `.tap` theo tên app mà repo chính thức chỉ có cho `ark`/`engrampa`/`file-roller`/`peazip` |
-| `gvfs` | thùng rác, đĩa USB, máy tép MTP/SMB. Không có nó thì sidebar Thunar không hiện mục Thùng rác |
+| `gvfs` | thùng rác, đĩa USB, máy tép MTP/SMB. Không có nó thì sidebar Thunar không hiện mục Thùng rác. **Kéo `udisks2` theo** (phụ thuộc cứng) — chính `udisks2` mới là daemon gắn ổ, Thunar hỏi nó qua system bus |
 | `tumbler` | daemon thumbnail. Không có thì Thunar toàn icon chữ cái |
 | `ffmpegthumbnailer` | thumbnail video (mp4/mkv/webm/avi/mov/m4v) |
 | `poppler-glib` | trang đầu PDF. Không có thì PDF hiện icon trắng |

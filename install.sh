@@ -467,7 +467,24 @@ readonly PKG_SESSION=(
     #   gvfs — thùng rác, đĩa USB, máy tép qua MTP/SMB. ArchWiki (Thunar):
     #     "If installed, Thunar will show the trash can, removable media, and
     #     remote filesystems". Không có gvfs thì sidebar không có mục Thùng rác.
-    #   gvfs-mtp — điện thoại qua MTP. tách riêng vì kéo thêm phụ thuộc.
+    #
+    #     `gvfs` kéo `udisks2` theo vì đó là phụ thuộc CỨNG của nó (đo:
+    #     `pacman -Si gvfs` liệt kê `udisks2` ở Depends On). Đây chính là
+    #     thứ làm USB cắm vào được nhận:
+    #       cắm USB  ->  thêm udisks2 theo  ->  gvfs  ->  Thunar
+    #     `udisks2` là daemon D-Bus lo việc gắn/tháo; Thunar lấy danh sách
+    #     ổ qua GVolumeMonitor của GLib (thunar-device-monitor.c:218
+    #     `g_volume_monitor_get()`), mà trên Linux đó là GUnixVolumeMonitor —
+    #     nó hỏi udisks2 qua system bus. Không có udisks2 thì:
+    #       - ổ đã cắm: thấy trong `lsblk` nhưng gio không biết
+    #       - ổ chưa cắm: không có gì để gắn
+    #     Đo trên máy này khi chưa cài: `gio mount -l` in ra rỗng, và
+    #     `busctl --system list | grep -c udisks` = 0.
+    #
+    #     KHÔNG liệt kê `udisks2` riêng ở đây — nó đã đến qua gvfs, thêm
+    #     lần nữa chỉ là ghi trùng mà làm khó hiểu. Cũng KHÔNG thêm
+    #     `gvfs-mtp` (157 KiB, cho điện thoại): cần thì cài riêng, không
+    #     phải để sẵn cho mọi người.
     thunar-archive-plugin file-roller gvfs
     # Thumbnail cho Thunar. Tumbler là daemon theo Thumbnailer Specification;
     # Thunar hỏi nó qua D-Bus rồi mới vẽ ảnh nhỏ. KHÔNG có tumbler thì
@@ -2735,10 +2752,10 @@ main() {
             cmd_pty
             cmd_build
             cmd_dotfiles
-    # Tao + khai bao thu muc chuan. Phai SAU dotfiles: buoc nay tao
-    # ~/Documents v.v. — neu chay truoc, install_dotfile co the stage
-    # vao dung thu muc vua sinh ra roi don di.
-    cmd_userdirs
+            # Tạo + khai báo thư mục chuẩn. Phải SAU dotfiles: bước này tạo
+            # ~/Documents v.v. — nếu chạy trước, install_dotfile có thể stage
+            # vào đúng thư mục vừa sinh ra rồi dọn đi.
+            cmd_userdirs
             # KHÔNG gọi cmd_archive trong `all`: 3 gói ~4.6 MiB cho việc dùng
             # tay. Người cần thì `./install.sh archive`. Đã hỏi và chọn vậy.
             cmd_themes

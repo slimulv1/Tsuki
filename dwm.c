@@ -1711,7 +1711,37 @@ void drawbar(Monitor *m) {
   x = borderpx;
   for (i = 0; i < LENGTH(tags); i++) {
     w = TEXTW(tags[i]);
-    drw_setscheme(drw, scheme[occ & 1 << i ? (m->colorfultag ? tagschemes[i] : SchemeSel) : SchemeTag]);
+    /* tagschemes[] chỉ có 5 phần tử (SchemeTag1..5) nhưng vòng lặp
+		 * chạy tới LENGTH(tags) — tức theo SỐ TAG mà config.h khai.
+		 *
+		 * MẶC ĐỊNH cả hai đều 5 nên `tagschemes[i]` vô hại. Nhưng người
+		 * dùng chỉ cần thêm workspace thứ 6 vào mảng tags[] là đọc ra
+		 * ngoài mảng. ĐO:
+		 *   - copy repo, thêm "六" vào tags[] -> LENGTH(tags)=6
+		 *   - `make` với CFLAGS gốc (-Wall -Wextra -Werror -Warray-bounds)
+		 *     BUILD THÀNH CÔNG, KHÔNG một cảnh báo nào. Compiler không bắt.
+		 *   - AddressSanitizer cũng KHÔNG báo: tagschemes là static const
+		 *     liền kề global khác trong .data, không có redzone ở giữa, nên
+		 *     đọc 4 byte kế vẫn nằm trong vùng hợp lệ. (Nói rõ để không
+		 *     ai hiểu là ASan đã kiểm chứng an toàn — nó KHÔNG.)
+		 *   - Trên bản build này giá trị đọc được tình cờ là 0, vẫn là
+		 *     Scheme hợp lệ (0..14) nên chưa chết. Đó là may rủi layout
+		 *     linker, KHÔNG phải bảo đảm — giá trị này là undefined
+		 *     behavior và có thể đổi ở bản GCC/linker khác. Nếu nó vượt
+		 *     14 thì `scheme[giá trị đó]` lại đọc ngoài mảng scheme rồi
+		 *     truyền con trỏ rác cho drw_setscheme().
+		 *
+		 * Sửa bằng đúng idiom dwm tự dùng cho trường hợp mảng ngắn hơn
+		 * số phần tử: `&layouts[1 % LENGTH(layouts)]` (dwm 6.8 dwm.c:644).
+		 * Thêm % LENGTH(tagschemes) thì mảng ngắn bao nhiêu cũng an toàn;
+		 * nếu tags[] dài hơn tagschemes[] thì màu sẽ LẶP LẠI theo vòng,
+		 * tức workspace thứ 6 dùng lại màu của workspace thứ 1.
+		 *
+		 * Cố ý KHÔNG dùng _Static_assert để bắt buộc thêm màu: lỗi build
+		 * sẽ làm hỏng luôn `make install` trong scripts/rebuild.sh, tức
+		 * người dùng không nạp lại được dwm. Lặp màu thì vô hại và vẫn
+		 * đẹp; hỏng build thì mất desktop. */
+		drw_setscheme(drw, scheme[occ & 1 << i ? (m->colorfultag ? tagschemes[i % LENGTH(tagschemes)] : SchemeSel) : SchemeTag]);
     drw_text(drw, x, y, w, bh_n, lrpad / 2, tags[i], urg & 1 << i);
     if (ulineall ||
         m->tagset[m->seltags] &

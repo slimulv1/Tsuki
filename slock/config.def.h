@@ -64,10 +64,32 @@ static const char *slock_font_name  = "Iosevka:style=Medium:size=21";
  * làm "kính mờ" mà chữ #ece6f0 vẫn nổi rõ. */
 static const int slock_backdrop_keep = 62;
 
-/* Hệ số thu nhỏ để làm mờ: lấy trung bình mỗi khối NxN rồi nội suy bilinear
- * ngược lại. Nhỏ hơn = mờ nhiều hơn và nhanh hơn. 8 hợp với màn 3440x1440
- * (đo trên máy này) — buffer trung gian chỉ ~0.6 MB. */
-static const int slock_blur_div = 8;
+/* Hệ số thu nhỏ để làm mờ: lấy trung bình mỗi khối N×N rồi nội suy bilinear
+ * ngược lại. N nhỏ = mờ NHẸ, N lớn = mờ NẶNG.
+ *
+ * Đổi từ 8 xuống 2 sau khi đo. Cách đo: nền test có 4 vùng màu phẳng, ranh giới
+ * giữa chúng là cạnh sắc; đếm số pixel nằm trong dải chuyển tiếp quanh cạnh đó
+ * (nhiều pixel = mờ nhiều):
+ *
+ *     blur_div=8  -> 10 pixel trong dải mờ
+ *     blur_div=6  ->  5
+ *     blur_div=4  ->  4
+ *     blur_div=3  ->  3
+ *     blur_div=2  ->  1     ← gần như giữ nguyên cạnh sắc
+ *
+ * Chuỗi màu thô ở cạnh, 8 pixel trước mốc, cho thấy rõ:
+ *     blur_div=8:  #85272b #82282e #7f2931 #7c2935 #792a38 ... (mờ dần)
+ *     blur_div=2:  #8a2727 × 8, chỉ đổi ngay tại mốc        (sắc)
+ *
+ * Giá phải trả gần như bằng không: đo trên màn 1920x1200 (kích thước thật của
+ * máy này), render_backdrop() mất 65 ms với div=8 và 72 ms với div=2. Phần lớn
+ * thời gian là XGetImage + vòng nội suy, không phải làm mờ — nên giảm hệ số gần
+ * như miễn phí về tốc độ, đổi lại ảnh nét hơn rõ rệt.
+ *
+ * Vì sao đệm lớn không đáng: với div=8 buffer trung gian ở 1920x1200 chỉ
+ * 240x150, với div=2 là 960x600 — 1.1 MB thay vì 0.07 MB. Vẫn nhỏ so với 15 GB
+ * RAM, và chỉ tồn tại trong thời gian khoá. */
+static const int slock_blur_div = 2;
 
 /* Số dấu chấm tối đa. Mật khẩu dài hơn thì hiện N chấm + "+M" để không tràn
  * hàng (hàng chấm rộng ~13px/chấm; 12 chấm ~ 190px, vừa gọn trên 3440px). */

@@ -566,6 +566,19 @@ wait_backdrop() {
     done
     return 1
 }
+# Chờ có CỬA SỔ KHOÁ, không chỉ có nền. UI8b đo trên cửa sổ khoá nên cần điều
+# này: nếu cửa sổ chưa map, edge in "KHONG cua so khoa" và awk rỗng — đo ra 0
+# rồi PASS, tức ca test trở nên vô nghĩa. Đã dính lỗi này: UI8b báo "0 pixel
+# trong dải" và PASS trong khi UI7 FAIL ngay phía trên.
+wait_lockwin() {
+    local i out
+    for i in $(seq 24); do
+        out=$(DISPLAY=$DISP "$T/edge" 2>/dev/null)
+        printf '%s' "$out" | grep -q 'cot x=' && return 0
+        sleep 0.4
+    done
+    return 1
+}
 if wait_backdrop; then
     :
 else
@@ -587,6 +600,113 @@ if [ "$bright" -le 40 ]; then
 else
     bad "UI8 nền chưa được tối đủ" \
         "${bright}% pixel sáng — chữ có thể không đọc được trên nền"
+fi
+
+# --- UI8b: nền phải NÉT, không nhòe thành vệt --------------------------------
+#
+# Đo độ nét bằng cách đếm số pixel nằm trong DẢI CHUYỂN TIẾP quanh cạnh sắc giữa
+# hai vùng màu. Nhiều pixel = mờ nhiều.
+#
+# Nhiều bẫy đã vấp, ghi lại để không lặp:
+#
+#  (1) Dùng ngưỡng lệch cố định để đếm — cho kết quả vô nghĩa. Khi làm mờ nhẹ,
+#      dải co lại còn 1-2 pixel, ngưỡng cố định không tách được nó với vùng phẳng,
+#      nên blur_div=8 và blur_div=2 cùng ra một số (đo được 29 vs 30). Chỉ nhìn
+#      CHUỖI MÀU THÔ mới thấy khác biệt thật.
+#  (2) Bắt đầu đếm từ xa dải — pixel đầu tiên đã thuộc vùng phẳng nên vòng lặp
+#      thoát ngay, ra 0. Phải bắt đầu từ pixel SÁT cạnh rồi đi ngược ra.
+#
+# Vì vậy probe ở đây CHỈ in chuỗi màu thô dọc một cột, còn phép đếm đặt ở awk —
+# nơi ta thấy rõ từng bước — thay vì trong C.
+cat >"$T/edge.c" <<'EOF'
+/* In chuỗi màu thô dọc cột x = w/4, quanh ranh giới y = h/2 giữa hai vùng
+ * màu của nền test. Không quyết đoán gì cả: chỉ in, để awk đếm. */
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <stdio.h>
+static Window
+find_lock(Display *dpy, Window w, int sw, int sh)
+{
+	Window r, p, *k = NULL, found = None;
+	unsigned n = 0, i;
+	XWindowAttributes a;
+	if (!XGetWindowAttributes(dpy, w, &a)) return None;
+	if (a.map_state != IsViewable) return None;
+	if (a.width == sw && a.height == sh && a.override_redirect) return w;
+	if (!XQueryTree(dpy, w, &r, &p, &k, &n)) return None;
+	for (i = 0; i < n && found == None; i++)
+		found = find_lock(dpy, k[i], sw, sh);
+	if (k) XFree(k);
+	return found;
+}
+int main(void)
+{
+	Display *dpy; Window lock; XImage *img; int sw, sh, y, ymid, x;
+	if (!(dpy = XOpenDisplay(NULL))) { fprintf(stderr, "no display\n"); return 1; }
+	sw = DisplayWidth(dpy, DefaultScreen(dpy));
+	sh = DisplayHeight(dpy, DefaultScreen(dpy));
+	lock = find_lock(dpy, RootWindow(dpy, DefaultScreen(dpy)), sw, sh);
+	if (lock == None) { printf("KHONG cua so khoa\n"); return 1; }
+	img = XGetImage(dpy, lock, 0, 0, (unsigned)sw, (unsigned)sh,
+	                AllPlanes, ZPixmap);
+	if (!img) { printf("XGetImage that bai\n"); return 1; }
+	x = sw / 4;                 /* cột ngoài vùng chữ */
+	ymid = sh / 2;
+	printf("cot x=%d ymid=%d\n", x, ymid);
+	for (y = ymid - 14; y <= ymid; y++) {
+		unsigned long p = XGetPixel(img, x, y);
+		printf("  y=%d #%02lx%02lx%02lx\n", y,
+		       (p & img->red_mask) >> 16,
+		       (p & img->green_mask) >> 8,
+		       p & img->blue_mask);
+	}
+	XDestroyImage(img);
+	return 0;
+}
+EOF
+if cc -O2 -o "$T/edge" "$T/edge.c" -lX11 2>/dev/null; then
+    wait_lockwin
+    EDGE_RAW=$(DISPLAY=$DISP "$T/edge" 2>/dev/null)
+    if printf '%s' "$EDGE_RAW" | grep -q 'cot x='; then
+        # màu thuần phía trên = màu xuất hiện nhiều nhất trong 5 dòng đầu
+        FLAT=$(printf '%s' "$EDGE_RAW" | awk '
+            /^  y=[0-9]+ #/ && ++i <= 5 { c = $NF; n[c]++ }
+            END { m = 0; for (k in n) if (n[k] > m) { m = n[k]; b = k } print b }')
+        # đếm pixel khác màu thuần, bắt đầu từ pixel sát cạnh (ymid-1) đi ngược
+        #
+        # Dòng đầu probe in "cot x=256 ymid=350" — ymid nằm ở TRƯỜNG CUỐI, không
+        # phải đầu dòng. Lần đầu dùng `s/^ymid=\([0-9]*\)/` nên không khớp, YMID
+        # rỗng, awk in "LOI". Đọc bằng trường cuối của dòng đó.
+        YMID=$(printf '%s' "$EDGE_RAW" | sed -n '1s/.*ymid=\([0-9]*\).*/\1/p')
+        STEPS=$(printf '%s' "$EDGE_RAW" | awk -v flat="$FLAT" -v ymid="$YMID" '
+            /^  y=[0-9]+ #/ {
+                y = $1; y = substr(y, 3) + 0; c = $NF
+                n++; yv[n] = y; cv[n] = c
+            }
+            END {
+                s = 0
+                for (i = 1; i <= n; i++) if (yv[i] == ymid - 1) { s = i; break }
+                if (!s) { print "LOI"; exit }
+                steps = 0
+                for (i = s; i >= 1; i--) {
+                    if (cv[i] != flat) steps++
+                    else if (steps > 0) break
+                }
+                print steps
+            }')
+        # Ngưỡng 3: đo được blur_div=8 → 10 pixel, blur_div=2 → 1 pixel.
+        # Cho phép tối đa 3 để linh hoạt chút, nhưng loại được mờ nặng.
+        if [ "${STEPS:-99}" -le 3 ]; then
+            ok "UI8b nền NÉT: ${STEPS} pixel trong dải chuyển tiếp (≤3)"
+        else
+            bad "UI8b nền bị mờ" \
+                "${STEPS} pixel trong dải chuyển tiếp — xem slock_blur_div (đang $(grep -oE 'slock_blur_div = [0-9]+' "$T/s/config.h" 2>/dev/null | grep -oE '[0-9]+$'))"
+        fi
+    else
+        bad "UI8b probe đọc nền" "$(printf '%s' "$EDGE_RAW" | head -1)"
+    fi
+else
+    skip "UI8b không compile được probe đo cạnh"
 fi
 
 # --- UI9: số dấu chấm BẰNG số ký tự đã gõ --------------------------------

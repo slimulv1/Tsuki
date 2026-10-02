@@ -176,6 +176,33 @@ cmd_check() {
         ok "config.h trong repo: đủ"
     fi
 
+    # 4b. slock: user/group trong config.h PHẢI tồn tại trên máy này.
+    #
+    # slock chết ở slock.c:379 `getgrnam(group)` TRƯỚC khi tới XGrabPointer
+    # (dòng 308), nên group sai = khoá màn hình không hoạt động, im lặng.
+    # Đo trên máy này với binary đã cài /usr/local/bin/slock (setuid 4755):
+    #     $ /usr/local/bin/slock
+    #     slock: getgrnam nogroup: group entry not found
+    #     rc = 1
+    # "nogroup" là quy ước Debian/Ubuntu; Arch/CachyOS đặt gid 65534 là
+    # "nobody". Đây là lỗi ĐÃ xảy ra và ĐÃ sửa trong slock/config.def.h — kiểm
+    # ở đây để máy khác có config cũ vẫn được báo trước khi cài.
+    local sl_g sl_u
+    sl_g=$(sed -n 's/^static const char \*group *= *"\([^"]*\)".*/\1/p' \
+            "$REPO_DIR/slock/config.def.h" 2>/dev/null)
+    sl_u=$(sed -n 's/^static const char \*user *= *"\([^"]*\)".*/\1/p' \
+            "$REPO_DIR/slock/config.def.h" 2>/dev/null)
+    if [[ -z ${sl_u:-} || -z ${sl_g:-} ]]; then
+        info "slock: không đọc được user/group từ slock/config.def.h — bỏ qua kiểm"
+    elif getent passwd "$sl_u" >/dev/null 2>&1 && getent group "$sl_g" >/dev/null 2>&1; then
+        ok "slock: user=$sl_u group=$sl_g đều tồn tại"
+    else
+        warn "slock: user='$sl_u' hoặc group='$sl_g' KHÔNG tồn tại trên máy này"
+        warn "  -> sẽ báo getgrnam rồi thoát, Super+Delete không khoá được"
+        warn "  -> sửa slock/config.def.h cho đúng tên trong /etc/passwd và /etc/group"
+        warns+=(slock)
+    fi
+
     # 5. Thư mục đích
     if [[ -w $TSUKI_HOME ]]; then
         ok "thư mục đích: $(tilde "$TSUKI_HOME")"

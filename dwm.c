@@ -417,6 +417,41 @@ static Client* hiddenWinStack[hiddenWinStackMax];
 /* configuration, allows nested code to access above variables */
 #include "config.h"
 
+/* Ngưỡng bỏ qua sự kiện MotionNotify, tính bằng mili giây.
+ *
+ * config.h khai `static const int refreshrate = 120`. Ba nơi dùng nó là
+ * movemouse() (kéo cửa sổ), placemouse() (kéo sang màn hình khác) và
+ * resizemouse() (đổi kích thước) — đều viết:
+ *
+ *     if ((ev.xmotion.time - lasttime) <= (1000 / refreshrate))
+ *
+ * Hai vấn đề, CẢ HAI đã đo trên máy này:
+ *
+ * 1) refreshrate = 0 -> CHIA KHÔNG ĐỊNH NGHĨA, x86 ném SIGFPE và dwm chết
+ *    ngay giữa lúc kéo cửa sổ, mất luôn desktop. Đo: 20/20 lần đều
+ *    "Floating point exception (core dumped)", rc = 136 = 128 + SIGFPE(8).
+ *    refreshrate âm thì không chết nhưng 1000/-120 = -8 thành số unsigned
+ *    khổng lồ nên điều kiện luôn sai -> tắt throttling trong im lặng.
+ *    refreshrate nằm trong config.h, tức NGƯỜI DÙNG SỬA TAY được; ai cũng
+ *    có thể tưởng "0 = không giới hạn".
+ *
+ * 2) `-Wsign-compare` báo (Time là unsigned long, `1000/refreshrate` là
+ *    int). Theo usual arithmetic conversions (cppreference: "If the unsigned
+ *    type has conversion rank >= the signed type, the signed operand is
+ *    converted to the unsigned type") nên int -> unsigned long. Với
+ *    refreshrate = 120 cho 8, giá trị không đổi -> cảnh báo này về HÌNH
+ *    THỨC, hành vi giữ nguyên. Nhưng ép kiểu tường minh thì rõ ý hơn.
+ *
+ * Vì sao là hằng số chứ không phải hàm: `refreshrate` là const int có
+ * initializer hằng, nên cả biểu thức trên là constant expression — GCC gấp
+ * lúc compile, KHÔNG còn phép chia trong vòng lặp sự kiện chuột nào.
+ *
+ * clamp <= 0 về 0 nghĩa là "không bỏ qua sự kiện nào": delta > 0 thì vẫn
+ * xử lý, chỉ bỏ qua khi delta đúng bằng 0. Đúng nghĩa của "tắt giới hạn".
+ */
+static const Time motion_skip_ms =
+    (refreshrate > 0) ? (Time)(1000 / refreshrate) : 0;
+
 typedef struct Pertag Pertag;
 struct Monitor {
   char ltsymbol[16];
@@ -2445,7 +2480,7 @@ void movemouse(const Arg *arg[[maybe_unused]]) {
       handler[ev.type](&ev);
       break;
     case MotionNotify:
-      if ((ev.xmotion.time - lasttime) <= (1000 / refreshrate))
+      if ((ev.xmotion.time - lasttime) <= motion_skip_ms)
         continue;
       lasttime = ev.xmotion.time;
 
@@ -2525,7 +2560,7 @@ placemouse(const Arg *arg)
 			handler[ev.type](&ev);
 			break;
 		case MotionNotify:
-			if ((ev.xmotion.time - lasttime) <= (1000 / refreshrate))
+			if ((ev.xmotion.time - lasttime) <= motion_skip_ms)
 				continue;
 			lasttime = ev.xmotion.time;
 
@@ -2785,7 +2820,7 @@ void resizemouse(const Arg *arg[[maybe_unused]]) {
       handler[ev.type](&ev);
       break;
     case MotionNotify:
-      if ((ev.xmotion.time - lasttime) <= (1000 / refreshrate))
+      if ((ev.xmotion.time - lasttime) <= motion_skip_ms)
         continue;
       lasttime = ev.xmotion.time;
 

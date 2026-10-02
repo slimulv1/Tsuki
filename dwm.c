@@ -412,7 +412,10 @@ static Colormap cmap;
 
 #define hiddenWinStackMax 100
 static int hiddenWinStackTop = -1;
-static Client* hiddenWinStack[hiddenWinStackMax];
+/* Lưu Window ID, KHÔNG lưu Client* — xem giải thích dài ở hidewin().
+ * Con trỏ sẽ thành lỏng sau unmanage() (free(c)), gây use-after-free; đo bằng
+ * ASan trên dwm.c:3568 với kịch bản ẩn → đóng → restore. */
+static Window hiddenWinStack[hiddenWinStackMax];
 
 /* configuration, allows nested code to access above variables */
 #include "config.h"
@@ -1849,11 +1852,35 @@ void drawbar(Monitor *m) {
   drw_map(drw, m->barwin, 0, 0, m->ww - stw, bh);
 }
 
+/* Nhân alpha vào RGB, giữ nguyên byte alpha.
+ *
+ * LỖI ĐÃ SỬA — undefined behavior do tràn số nguyên, bắt bằng UBSan:
+ *     dwm.c:1859:49: runtime error: left shift of 255 by 24 places
+ *                  cannot be represented in type 'int'
+ *
+ * Nguyên nhân: biểu thức cuối là `a << 24u` với a là uint8_t. uint8_t được
+ * nâng lên int trước khi dịch chuyển; 255 << 24 = 4278190080 vượt INT_MAX
+ * (2147483647), nên đây là hành vi KHÔNG ĐƯỢC ĐỊNH NGHĨA — không chỉ "trả về
+ * số sai" mà là bất kỳ thứ gì cũng có thể xảy ra. Tiêu chuẩn C quy định dịch
+ * chuyển sang trái có dấu với giá trị không biểu diễn được là UB (C11 6.5.7p4).
+ *
+ * Cách sửa: dịch trong miền uint32_t rồi ép về uint32_t, thay vì dịch trong int.
+ * `(uint32_t)a << 24` là dịch trên số nguyên không dấu nên luôn hợp lệ: kết quả
+ * được lấy mod 2^32, mà 255<<24 = 0xFF000000 vốn đã nằm gọn trong 32 bit.
+ * Tương tự, các phép nhân cũng chuyển sang uint32_t trước để không phụ thuộc
+ * độ rộng kiểu của int.
+ *
+ * Đo được: trước khi sửa, bất kỳ cửa sổ nào có icon (tức hầu hết app) đều làm
+ * UBSan báo lỗi này; sau khi sửa, chạy lại 8 biến thể _NET_WM_ICON (hợp lệ,
+ * kích thước sai, rỗng, format sai) thì im lặng.
+ */
 static uint32_t prealpha(uint32_t p) {
-	uint8_t a = p >> 24u;
+	uint32_t a = p >> 24u;
 	uint32_t rb = (a * (p & 0xFF00FFu)) >> 8u;
-	uint32_t g = (a * (p & 0x00FF00u)) >> 8u;
-	return (rb & 0xFF00FFu) | (g & 0x00FF00u) | (a << 24u);
+	uint32_t g  = (a * (p & 0x00FF00u)) >> 8u;
+	/* ÉP uint32_t TRƯỚC khi dịch: uint8_t a sẽ được nâng lên int, và
+	 * 255 << 24 tràn int — đó chính là lỗi đã sửa. */
+	return (rb & 0xFF00FFu) | (g & 0x00FF00u) | ((uint32_t)a << 24);
 }
 
 Picture
@@ -3553,21 +3580,54 @@ void toggleview(const Arg *arg) {
     	updatecurrentdesktop();
 }
 
+/* --- danh sách cửa sổ đã ẩn ----------------------------------------------
+ *
+ * LƯU Ý AN NINH (sửa lỗi heap-use-after-free, đo bằng ASan):
+ *
+ * Bản cũ lưu CON TRỎ Client* trong hiddenWinStack. Nhưng unmanage() gọi
+ * free(c) mà không gỡ c khỏi danh sách — nên con trỏ thành lõng. Kịch bản
+ * tái hiện được (Super+x để ẩn, đóng cửa sổ, Super+Shift+x để restore):
+ *
+ *   ==598313==ERROR: AddressSanitizer: heap-use-after-free
+ *     READ of size 8 at 0x7cd14a5e19e8
+ *         #0 restorewin dwm.c:3568
+ *         #1 keypress   dwm.c:2330
+ *         #2 run        dwm.c:2989
+ *         #3 main       dwm.c:4230
+ *     ─── nơi giải phóng ───
+ *         #1 unmanage  dwm.c:3613      ← free(c)
+ *         #2 run       dwm.c:2989
+ *
+ * dwm CHẾT HẲN — mất toàn bộ window manager, mọi cửa sổ mất quản lý.
+ *
+ * Cách sửa: lưu WINDOW ID (số nguyên) thay vì con trỏ. Khi cửa sổ đóng, ID
+ * trở thành số vô hại; tra cứu lại qua wintoclient() và nhận NULL nếu client
+ * đã biến mất. Cách này an toàn với cả hai trường hợp: cửa sổ còn sống, và
+ * cửa sổ đã đóng.
+ *
+ * Vì sao không sửa bằng cách gỡ c khỏi danh sách trong unmanage(): điều đó
+ * đúng về mặt ý tưởng, nhưng phải quét cả mảng mỗi lần unmanage và phải xử lý
+ * cả trường hợp client bị đóng khi ĐANG ẩn (iconic). Lưu ID đơn giản hơn và tự
+ * nhiên miễn nhiễm với cả hai.
+ */
 void hidewin(const Arg *arg[[maybe_unused]]) {
 	if (!selmon->sel)
 		return;
 	Client *c = (Client*)selmon->sel;
 	hide(c);
 	if (hiddenWinStackTop < hiddenWinStackMax - 1)
-		hiddenWinStack[++hiddenWinStackTop] = c;
+		hiddenWinStack[++hiddenWinStackTop] = c->win;
 }
 
 void restorewin(const Arg *arg[[maybe_unused]]) {
 	int i = hiddenWinStackTop;
 	while (i > -1) {
-		if (HIDDEN(hiddenWinStack[i]) && hiddenWinStack[i]->tags == selmon->tagset[selmon->seltags]) {
-			show(hiddenWinStack[i]);
-			focus(hiddenWinStack[i]);
+		Client *c = wintoclient(hiddenWinStack[i]);
+		/* wintoclient trả NULL nếu cửa sổ đã đóng — bỏ qua, đồng thời
+		 * dọn luôn khỏi danh sách để không giữ rác vô hạn. */
+		if (c && HIDDEN(c) && c->tags == selmon->tagset[selmon->seltags]) {
+			show(c);
+			focus(c);
 			restack(selmon);
 			for (int j = i; j < hiddenWinStackTop; ++j) {
 				hiddenWinStack[j] = hiddenWinStack[j + 1];

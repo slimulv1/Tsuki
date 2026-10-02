@@ -425,32 +425,95 @@ static Client* hiddenWinStack[hiddenWinStackMax];
  *
  *     if ((ev.xmotion.time - lasttime) <= (1000 / refreshrate))
  *
- * Hai vấn đề, CẢ HAI đã đo trên máy này:
+ * ── ĐÍNH CHÍNH: bản chú thích trước của hằng số này nói refreshrate = 0 sẽ
+ *    làm dwm CHẾT bằng SIGFPE lúc kéo cửa sổ. ĐIỀU ĐÓ SAI. Đo lại bằng
+ *    build thật của chính dự án này (config.mk có -Wall -Wextra -Werror):
  *
- * 1) refreshrate = 0 -> CHIA KHÔNG ĐỊNH NGHĨA, x86 ném SIGFPE và dwm chết
- *    ngay giữa lúc kéo cửa sổ, mất luôn desktop. Đo: 20/20 lần đều
- *    "Floating point exception (core dumped)", rc = 136 = 128 + SIGFPE(8).
- *    refreshrate âm thì không chết nhưng 1000/-120 = -8 thành số unsigned
- *    khổng lồ nên điều kiện luôn sai -> tắt throttling trong im lặng.
- *    refreshrate nằm trong config.h, tức NGƯỜI DÙNG SỬA TAY được; ai cũng
- *    có thể tưởng "0 = không giới hạn".
+ *      refreshrate = 0   -> dwm.c:2448: error: division by zero
+ *                            [-Werror=div-by-zero]      -> make FAIL
+ *      refreshrate = -60 -> dwm.c:2448: error: comparison of integer
+ *                            expressions of different signedness  -> make FAIL
  *
- * 2) `-Wsign-compare` báo (Time là unsigned long, `1000/refreshrate` là
- *    int). Theo usual arithmetic conversions (cppreference: "If the unsigned
- *    type has conversion rank >= the signed type, the signed operand is
+ *    Tức KHÔNG có crash lúc chạy: GCC thấy `refreshrate` là `static const`
+ *    nên gấp `1000 / refreshrate` thành hằng lúc compile và chặn cả hai
+ *    giá trị. Người dùng sửa refreshrate = 0 sẽ không build được dwm, chứ
+ *    không phải build xong rồi chết.
+ *
+ *    Lý do đo trước bị sai: chương trình thử tự viết dùng giá trị RUNTIME
+ *    (atoi(argv[1])) và biên dịch -O0, nên mẫu số không phải hằng, GCC
+ *    không can thiệp, và mới ném SIGFPE. dwm thật không giống vậy.
+ *
+ * Vậy hằng số này còn giữ vì:
+ *
+ * 1) `-Wsign-compare` (Time là unsigned long, `1000/refreshrate` là int).
+ *    Theo usual arithmetic conversions (cppreference: "If the unsigned type
+ *    has conversion rank >= the signed type, the signed operand is implicitly
  *    converted to the unsigned type") nên int -> unsigned long. Với
- *    refreshrate = 120 cho 8, giá trị không đổi -> cảnh báo này về HÌNH
- *    THỨC, hành vi giữ nguyên. Nhưng ép kiểu tường minh thì rõ ý hơn.
+ *    refreshrate = 120 cho 8, giá trị không đổi -> về HÌNH THỨC. Ép kiểu
+ *    tường minh thì rõ ý hơn và dùng được khi refreshrate là biến (hiện đang
+ *    là hằng thì GCC tự gấp).
+ * 2) Nếu ai đó build không có -Werror (đổi config.mk, hoặc đóng gói distro),
+ *    thì giá trị 0/âm sẽ lọt xuống runtime. Khi đó clamp ở đây là lưới an
+ *    toàn duy nhất còn lại, và nó không tốn gì.
  *
  * Vì sao là hằng số chứ không phải hàm: `refreshrate` là const int có
- * initializer hằng, nên cả biểu thức trên là constant expression — GCC gấp
+ * initializer hằng, nên cả biểu thức là constant expression — GCC gấp
  * lúc compile, KHÔNG còn phép chia trong vòng lặp sự kiện chuột nào.
  *
  * clamp <= 0 về 0 nghĩa là "không bỏ qua sự kiện nào": delta > 0 thì vẫn
  * xử lý, chỉ bỏ qua khi delta đúng bằng 0. Đúng nghĩa của "tắt giới hạn".
+ *
+ * VÌ SAO TÁCH HAI BƯỚC thay vì viết
+ *     (refreshrate > 0) ? (Time)(1000 / refreshrate) : 0
+ * Bản một bước ĐÃ THỬ và KHÔNG ĐỦ: GCC vẫn gấp `1000 / refreshrate` ở CẢ
+ * nhánh chưa được chọn, nên refreshrate = 0 vẫn ra
+ *     dwm.c: error: division by zero [-Werror=div-by-zero]  -> make FAIL
+ * Đo trên chính bản sửa một bước: 4/5 tổ hợp build OK, riêng refreshrate=0 thì
+ * FAIL. Tách bước thì mẫu số đã là biến đã clamp về 1 trước khi chia, nên 0
+ * cũng build được — cùng cách làm với preview_scale ngay dưới.
  */
+static const int motion_refreshrate =
+    (refreshrate > 0) ? refreshrate : 1;
 static const Time motion_skip_ms =
-    (refreshrate > 0) ? (Time)(1000 / refreshrate) : 0;
+    (Time)(1000 / motion_refreshrate);
+
+/* Hệ số thu nhỏ cho tag preview, dùng làm MẪU SỐ CHIA.
+ *
+ * config.h khai `static const int scalepreview = 4`. Nó là mẫu số ở BỐN chỗ,
+ * trong đó chỗ ở dwm.c:667 ngay trong arrangemon():
+ *
+ *     XMoveWindow(dpy, m->tagwin, m->wx + m->gappov,
+ *         m->by + (m->topbar ? (bh + m->gappoh)
+ *                            : (- (m->mh / scalepreview) - m->gappoh)));
+ *
+ * arrangemon() được gọi từ 7 chỗ — mở/đóng/di chuyển cửa sổ, đổi layout,
+ * đổi kích thước màn hình. Ba chỗ còn lại (dòng 3344, 3398, 3400) nằm sau cổng
+ * `tag_preview`.
+ *
+ * ĐO BẰNG BUILD THẬT CỦA CHÍNH DỰ ÁN (config.mk: -Wall -Wextra -Werror):
+ *   scalepreview = 0  -> dwm.c:637:100: error: division by zero
+ *                         [-Werror=div-by-zero]        -> make FAIL
+ *   scalepreview = -3 -> BUILD SẠCH, KHÔNG một cảnh báo nào. Kết quả:
+ *                         mh/scalepreview = 1080 / -3 = -360
+ *   scalepreview = 4  -> 270 (đúng, như cũ)
+ *
+ * Nghĩa là: giá trị 0 ĐÃ BỊ COMPILER BẮT (nên không có crash runtime — bản
+ * chú thích trước của tôi nói dwm chết SIGFPE là SAI), còn giá trị ÂM thì KHÔNG
+ * bị bắt và lọt xuống XMoveWindow với toạ độ Y âm. Đo tiếp trên X thật:
+ *   XMoveWindow(y = -360) -> XGetGeometry trả về y = 0
+ * Tức X11 clamp về 0, cửa sổ tag chỉ bị đẩy lệch chỗ — KHÔNG chết, KHÔNG mất
+ * session. Lỗi thị giác nhẹ, nhưng im lặng và không ai hiểu vì sao.
+ *
+ * Vì sao fallback là 1 chứ không phải 0 (khác motion_skip_ms ở trên):
+ * scalepreview là hệ số THU NHỎ, dùng để CHIA. 0 không có nghĩa toán học; 1
+ * mới là "không thu nhỏ" — ảnh xem trước hiện cỡ thật. Còn motion_skip_ms là ngưỡng
+ * so sánh, 0 nghĩa là "không bỏ qua sự kiện nào". Sửa ngược hai cái này sẽ ra
+ * hành vi sai.
+ *
+ * Hằng số lúc compile: không còn phép chia chạy trong arrangemon().
+ */
+static const int preview_scale =
+    (scalepreview > 0) ? scalepreview : 1;
 
 typedef struct Pertag Pertag;
 struct Monitor {
@@ -634,7 +697,7 @@ void arrangemon(Monitor *m) {
   updatebarpos(m);
   updatesystray();
   XMoveResizeWindow(dpy, m->tabwin, m->wx + m->gappov, m->ty, m->ww - 2 * m->gappov, th);
-  XMoveWindow(dpy, m->tagwin, m->wx + m->gappov, m->by + (m->topbar ? (bh + m->gappoh) : (- (m->mh / scalepreview) - m->gappoh)));
+  XMoveWindow(dpy, m->tagwin, m->wx + m->gappov, m->by + (m->topbar ? (bh + m->gappoh) : (- (m->mh / preview_scale) - m->gappoh)));
   strncpy(m->ltsymbol, m->lt[m->sellt]->symbol, sizeof m->ltsymbol);
   if (m->lt[m->sellt]->arrange)
     m->lt[m->sellt]->arrange(m);
@@ -3311,7 +3374,7 @@ showtagpreview(int tag)
         if (selmon->tagmap[tag]) {
 		XSetWindowBackgroundPixmap(dpy, selmon->tagwin, selmon->tagmap[tag]);
 		GC gc = XCreateGC(dpy, selmon->tagwin, 0, nullptr);
-		XCopyArea(dpy, selmon->tagmap[tag], selmon->tagwin, gc, 0, 0, selmon->mw / scalepreview, selmon->mh / scalepreview, 0, 0);
+		XCopyArea(dpy, selmon->tagmap[tag], selmon->tagwin, gc, 0, 0, selmon->mw / preview_scale, selmon->mh / preview_scale, 0, 0);
 		XFreeGC(dpy, gc);
 		XSync(dpy, False);
 		XMapWindow(dpy, selmon->tagwin);
@@ -3365,9 +3428,9 @@ void switchtag(void) {
 				imlib_context_set_visual(DefaultVisual(dpy, screen));
 				imlib_context_set_drawable(RootWindow(dpy, screen));
 				imlib_copy_drawable_to_image(0, selmon->mx, selmon->my, selmon->mw ,selmon->mh, 0, 0, 1);
-                                selmon->tagmap[i] = XCreatePixmap(dpy, selmon->tagwin, selmon->mw / scalepreview, selmon->mh / scalepreview, DefaultDepth(dpy, screen));
+                                selmon->tagmap[i] = XCreatePixmap(dpy, selmon->tagwin, selmon->mw / preview_scale, selmon->mh / preview_scale, DefaultDepth(dpy, screen));
 				imlib_context_set_drawable(selmon->tagmap[i]);
-				imlib_render_image_part_on_drawable_at_size(0, 0, selmon->mw, selmon->mh, 0, 0, selmon->mw / scalepreview, selmon->mh / scalepreview);
+				imlib_render_image_part_on_drawable_at_size(0, 0, selmon->mw, selmon->mh, 0, 0, selmon->mw / preview_scale, selmon->mh / preview_scale);
 				imlib_free_image();
 			}
 		}

@@ -33,8 +33,22 @@ trap cleanup EXIT INT TERM
 
 # --- sandbox dùng chung ------------------------------------------------------
 # dwm giả: ghi ra file để biết chắc run.sh đã gọi tới dwm, rồi exit 0.
+#
+# PHẢI XỬ LÝ `-v`. dwm thật có nó (dwm.c:4270):
+#     if (argc == 2 && !strcmp("-v", argv[1])) die("dwm-" VERSION);
+# và run.sh gọi `dwm -v` trước vòng lặp để phát hiện binary hỏng (xem
+# _dwm_probe). Stub cũ chỉ có `echo ran >> $DWM_MARK; exit 0` nên bị probe từ
+# chối -> run.sh exit 1 TRƯỚC khi tới dwm -> đo được 20 case FAIL.
+#
+# `-v` KHÔNG được ghi vào DWM_MARK: đó là file test dùng để chứng minh run.sh
+# đã gọi tới dwm. Probe chạy trước vòng lặp; nếu nó ghi vào đây thì mọi case
+# "run.sh chết trước khi tới dwm" sẽ thành PASS giả.
 cat > "$T/dwm" <<'EOF'
 #!/bin/sh
+if [ "${1:-}" = "-v" ]; then
+    echo "dwm-6.8" >&2
+    exit 1
+fi
 echo ran >> "$DWM_MARK"
 exit 0
 EOF

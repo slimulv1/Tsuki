@@ -42,6 +42,19 @@ command -v flock >/dev/null 2>&1 || { echo "FAIL: cần flock thật để test"
 # `type dwm` trong run.sh phải thấy dwm giả
 cat > "$T/bin/dwm" <<'EOF'
 #!/bin/sh
+# PHẢI XỬ LÝ `-v` TRƯỚC MỌI THỨ KHÁC. dwm thật có nó (dwm.c:4270):
+#     if (argc == 2 && !strcmp("-v", argv[1])) die("dwm-" VERSION);
+# run.sh gọi `dwm -v` một lần trước vòng lặp để phát hiện binary hỏng
+# (_dwm_probe). Stub không xử lý thì probe từ chối -> run.sh exit 1 ngay ->
+# mọi case sau đó hỏng theo, đo được 16 FAIL.
+#
+# `-v` phải trả về TRƯỚC khi đụng bộ đếm FAKE_DWM_COUNT: probe chạy một lần
+# lúc khởi động, không tính vào số lần dwm chạy thật. Nếu nó tăng bộ đếm thì
+# FAKE_DWM_FAULTS lệch đi và các case "crash N lần" đo sai.
+if [ "${1:-}" = "-v" ]; then
+    echo "dwm-6.8" >&2
+    exit 1
+fi
 n=$(cat "$FAKE_DWM_COUNT" 2>/dev/null); n=${n:-0}
 n=$((n + 1))
 printf '%s\n' "$n" > "$FAKE_DWM_COUNT"
@@ -520,6 +533,15 @@ fi
 cp "$T/repo/dwm" "$T/repo/dwm.fast"
 cat > "$T/repo/dwm" <<'STUB'
 #!/bin/sh
+# `-v` phải đứng ĐẦU TIÊN. dwm thật có (dwm.c:4270) và run.sh gọi nó một lần
+# trước vòng lặp (_dwm_probe) để phát hiện binary hỏng. Stub này ngủ 12 giây
+# nên không xử lý `-v` thì probe treo 12s rồi vẫn từ chối -> run.sh exit 1
+# trước khi dwm chạy, T18c mất dòng "dwm chết sau Ns" và fail.
+# Đứng trước `printf ran` để probe không tính nhầm một lần chạy thật.
+if [ "${1:-}" = "-v" ]; then
+    echo "dwm-6.8" >&2
+    exit 1
+fi
 # Không dùng tên biến tự bịa: lần đầu viết : >> "$DWM_MARK" (biến này không
 # tồn tại) -> chuyển hướng lỗi làm dash CHẾT ngay dòng 2, sleep 12 không bao
 # giờ chạy, _ran=0s. T18b vẫn "PASS" vì lý do sai: run.sh đúng ra đã phải báo

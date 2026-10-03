@@ -1109,6 +1109,84 @@ wait "${_FONT_PID:-}" 2>/dev/null || :
 # của dwm, nên phần dưới y hệt bản foreground — dwm chết non-zero (bị SIGTERM
 # từ rebuild.sh, hoặc crash) là nạp lại, dwm trả 0 là kết thúc session.
 _crash_count=0
+
+# --- KIỂM TRA dwm TRƯỚC VÒNG LẶP ------------------------------------------
+#
+# VÌ SAO CẦN (lỗi thật, đã đo):
+#
+# Dòng 244 đặt "$TSUKI_DIR:$PATH" vào trước, nên `dwm` luôn là bản build trong
+# repo. Comment ở dòng 243 hứa: "Nếu repo chưa build (mới clone) thì rơi về
+# /usr/local/bin như cũ, an toàn." Câu đó CHỈ ĐÚNG KHI FILE VẮNG MẶT.
+# Dựng lại đúng logic PATH và đo:
+#
+#   ~/tsuki/dwm vắng mặt        -> type dwm -> /usr/local/bin/dwm   (đúng hứa)
+#   ~/tsuki/dwm tồn tại, HỎNG   -> type dwm -> ~/tsuki/dwm          (SAI)
+#
+# "Hỏng" ở đây rất dễ xảy ra: `make` bị Ctrl-C, ổ đĩa đầy, `-flto` chết
+# giữa chừng, binary bị cắt ngang. Lúc đó PATH vẫn thấy file (nó tồn tại và
+# có +x) nên bản hỏng được chọn, còn /usr/local/bin/dwm đang chạy tốt thì KHÔNG
+# bao giờ được thử. Kết quả: vòng lặp dưới đây crash 10 lần rồi `exit 1` —
+# mất toàn bộ session.
+#
+# CỐ TÌNH KHÔNG TỰ RƠI VỀ /usr/local/bin. Sở dĩ đừng: đây là rice, bạn sửa
+# config.h rồi `make`. Nếu build hỏng mà run.sh lặng lẽ chạy bản cũ, bạn sẽ
+# tưởng thay đổi đã có hiệu lực rồi debug nhầm. Fail thành tiếng là thiết kế
+# đúng; thứ cần sửa là thông báo SAI — hiện tại gợi ý "config.h hỏng" trong
+# khi nguyên nhân thật là binary hỏng.
+#
+# PHÉP THỬ: `dwm -v` (dwm.c:4270 -> die("dwm-" VERSION)) in "dwm-6.8" ra
+# STDERR rồi exit(1) (util.c:19-26). Nên phải kiểm CHUỖI, KHÔNG kiểm exit
+# code — exit code luôn là 1 kể cả khi binary hoàn toàn tốt. Đo trên bản thật:
+#
+#   $ ./dwm -v            -> dwm-6.8   (stderr)
+#   $ ./dwm -v; echo $?   -> 1
+#
+# KHÔNG đụng tới X: -v thoát ngay trước khi XOpenDisplay() (dwm.c:4276).
+_dwm_probe() {
+    # $1 = đường dẫn binary. Trả về 0 nếu chạy được và in "dwm-<phiên bản>".
+    #
+    # VÌ SAO KHÔNG KIỂM ELF MAGIC. Đã thử thêm, rồi bỏ — đo lý do:
+    #   phép thử `-v` một mình ĐÃ BẮT ĐƯỢC mọi cách hỏng thực tế:
+    #     file rác (không phải ELF)          -> exit 127, không in gì
+    #     file 0 byte                       -> exit 0,  không in gì
+    #     chỉ còn 4 byte \177ELF            -> exit 126, không in gì
+    #     90 KB đầu của dwm thật (bị cắt)   -> exit 139 (SIGSEGV)
+    #     ELF hợp lệ nhưng chỉ còn 1 KB     -> exit 139 (SIGSEGV)
+    #   Không cái nào in ra "dwm-<số>". Nên `-v` đã đủ.
+    #
+    # Kiểm ELF chỉ thêm được một thứ: chặn script in giả "dwm-6.8". Đó là
+    # thứ tôi tự viết ra để đánh lừa chính phép thử, KHÔNG phải cách `make`
+    # hỏng — và nó làm các stub dwm trong test (vốn là script, đúng như
+    # test-run-matrix.sh cần) bị từ chối oan. Bỏ.
+    [ -n "${1:-}" ] && [ -f "$1" ] && [ -x "$1" ] || return 1
+    # 2>&1 vì die() in ra stderr — ta so chuỗi trong chính stderr đó.
+    "$1" -v 2>&1 | grep -q '^dwm-[0-9]'
+}
+
+_dwm_path=$(command -v dwm 2>/dev/null) || _dwm_path=""
+if [ -z "$_dwm_path" ]; then
+    # Không có dwm trong PATH — đường này `while type dwm` cũng sẽ loại,
+    # nhưng báo ngay ở đây rõ hơn là để vòng lặp thoát rồi mới nói.
+    fail "không tìm thấy 'dwm' trong PATH — chạy ./install.sh build"
+    stop_daemons
+    exit 127
+elif ! _dwm_probe "$_dwm_path"; then
+    # Đây là ca mà `while type dwm` KHÔNG bắt được: file tồn tại, có +x, nên
+    # type coi là có — nhưng chạy lên không ra "dwm-<số>".
+    _dwm_sz=$(wc -c < "$_dwm_path" 2>/dev/null | tr -d ' ') || _dwm_sz="?"
+    fail "dwm ở $_dwm_path KHÔNG CHẠY ĐƯỢC (${_dwm_sz} byte) — binary hỏng, không phải config.h hỏng"
+    if [ -x /usr/local/bin/dwm ] && _dwm_probe /usr/local/bin/dwm; then
+        fail "bản cài ở /usr/local/bin vẫn tốt. Dừng ở đây thay vì tự chạy nhầm —"
+        fail "  bạn sửa config.h rồi make, nếu run.sh lặng lẽ dùng bản cũ sẽ gây hiểu nhầm."
+        fail "Sửa xong rồi đăng nhập lại:  cd $TSUKI_DIR && make && sudo make install"
+    else
+        fail "Nếu chưa build lần nào:    ./install.sh build"
+    fi
+    stop_daemons
+    exit 1
+fi
+info "dwm: $_dwm_path ($("$_dwm_path" -v 2>&1))"
+
 while type dwm >/dev/null 2>&1; do
     _t0=$(date +%s 2>/dev/null || echo 0)
     # stderr của dwm vào file riêng, rồi đưa vào nhật ký VÀ terminal khi dwm

@@ -629,6 +629,12 @@ static void cb_dns_done(Job *j)
 
 static void apply_dns(int idx)
 {
+	/* Chặn truy cập ngoài dns_providers[]. idx đến từ handle_click dưới dạng
+	 * id - ID_DNS0; nếu enum và bảng preset lệch nhau (đã xảy ra: thiếu
+	 * ID_DNS4 khiến nút "Custom" mang id của ID_BAND0) thì đây là chỗ duy nhất
+	 * chặn được đọc ngoài mảng. Không có chốt thì lỗi tương tự sẽ im lặng. */
+	if (idx < 0 || idx >= (int)(sizeof(dns_providers) / sizeof(dns_providers[0])))
+		return;
 	if (ni.dns_applying || !ni.conn_name[0]) return;
 	if (idx == DNS_NCUSTOM) { ask_custom_dns(); return; }
 	const char *dns = dns_providers[idx].dns ? dns_providers[idx].dns : "";
@@ -1134,7 +1140,23 @@ static int hits_n;
 
 enum {
 	ID_TOGGLE = 1, ID_QR,
-	ID_DNS0, ID_DNS1, ID_DNS2, ID_DNS3,
+	/* PHẢI đủ 5 ID cho 5 preset DNS trong config.h (DHCP, Cloudflare, Google,
+	 * NextDNS, Custom) — xem dns_providers[] và DNS_NCUSTOM=4.
+	 *
+	 * LỖI ĐÃ SỬA — thiếu ID_DNS4. config.h có 5 mục nên draw_panel() vẽ 5
+	 * nút theo vòng `for (i = 0; i < bn; i++) draw_button(ID_DNS0 + i, ...)`,
+	 * nhưng enum chỉ có ID_DNS0..ID_DNS3. Nút thứ 5 ("Custom") vì thế mang
+	 * id = ID_DNS0+4 = 7, trùng đúng ID_BAND0. Đo trên bản chạy thật:
+	 *     CLICK id=7 (ID_DNS0=3 ID_DNS3=6 ID_BAND0=7 ID_BAND3=10)
+	 *     APPLY_BAND idx=0
+	 * Tức bấm "Custom" trong hàng DNS lại đổi BĂNG Wi-Fi, còn
+	 * apply_dns(4) không bao giờ chạy nên ask_custom_dns()/cb_custom_dns()
+	 * là code chết.
+	 *
+	 * Sửa: thêm ID_DNS4 cho đủ 5 nút, và mở rộng khoảng dispatch tương ứng.
+	 * Các ID sau (ID_BAND0..) tự dịch 1 chỗ; chỗ nào so sánh với số cứng đều
+	 * dùng tên hằng nên không cần sửa thêm — đã grep, không có số cứng nào. */
+	ID_DNS0, ID_DNS1, ID_DNS2, ID_DNS3, ID_DNS4,
 	ID_BAND0, ID_BAND1, ID_BAND2, ID_BAND3,
 	ID_RUN, ID_RESCAN, ID_PW_CONNECT,
 	ID_KNOWN_BASE = 100, ID_OTHER_BASE = 200,
@@ -1592,7 +1614,8 @@ static void handle_click(int id)
 		g_need_redraw = 1;
 		break;
 	default:
-		if (id >= ID_DNS0 && id <= ID_DNS3)
+		/* ID_DNS4 — thêm cùng lúc thêm hằng trong enum, xem ghi chú ở đó. */
+		if (id >= ID_DNS0 && id <= ID_DNS4)
 			apply_dns(id - ID_DNS0);
 		else if (id >= ID_BAND0 && id <= ID_BAND3)
 			apply_band(id - ID_BAND0);
